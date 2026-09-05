@@ -1,0 +1,7 @@
+build/
+.dart_tool/
+.idea/
+*.iml
+local.properties
+google-services.json
+.env
