@@ -2,6 +2,34 @@ build/
 .dart_tool/
 .idea/
 *.iml
+*.ipr
+*.iws
 local.properties
 google-services.json
 .env
+
+# Flutter/Dart 추가 (flutter create 기본 생성분)
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/coverage/
+app.*.symbols
+app.*.map.json
+/android/app/debug
+/android/app/profile
+/android/app/release
+.widget_preview/
+
+# 기타
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
