@@ -37,6 +37,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/health").permitAll()   // 헬스체크는 로그인 없이 허용
                         .requestMatchers("/api/**").authenticated()   // 그 외 /api/**는 로그인 필요
+                        // Spring Security 6부터 AuthorizationFilter가 기본적으로 모든 디스패치 타입에
+                        // 적용되는데, 여기에는 컨트롤러가 예외를 던졌을 때 스프링 부트가 /error로
+                        // 다시 요청을 보내는 내부 ERROR 디스패치도 포함된다. 이 줄이 없으면 그 ERROR
+                        // 디스패치까지 아래 denyAll()에 걸려서, 진짜 500 에러가 403으로 둔갑해버린다.
+                        .requestMatchers("/error").permitAll()
                         .anyRequest().denyAll())                      // 정의되지 않은 나머지는 전부 거부
                 // 인증이 안 된 요청이 위 authenticated() 규칙에 걸리면, 스프링 시큐리티가 이 지점에서
                 // 401 Unauthorized로 응답하도록 지정한다. FirebaseAuthFilter는 401을 직접 만들지 않고

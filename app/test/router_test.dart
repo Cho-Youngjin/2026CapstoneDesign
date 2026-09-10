@@ -1,11 +1,14 @@
 import 'package:app/app.dart';
 import 'package:app/router.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Future<void> pumpApp(WidgetTester tester, {required bool isLoggedIn}) async {
   await tester.pumpWidget(
-    TravelFootstepsApp(router: createRouter(isLoggedIn: isLoggedIn)),
+    ProviderScope(
+      child: TravelFootstepsApp(router: createRouter(isLoggedIn: isLoggedIn)),
+    ),
   );
   await tester.pumpAndSettle();
 }

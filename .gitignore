@@ -5,7 +5,7 @@ app/.flutter-plugins
 app/.flutter-plugins-dependencies
 app/android/local.properties
 app/android/.gradle/
-app/android/app/google-services.json
+**/google-services.json
 
 # Gradle / Java
 server/build/

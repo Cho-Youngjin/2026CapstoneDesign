@@ -28,8 +28,10 @@ public class Country {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // @Column으로 이 필드가 매핑되는 실제 컬럼명/제약조건을 지정한다. length는 자바 문자열의
-    // 최대 길이 힌트이고, columnDefinition은 DB에 실제로 어떤 타입으로 만들지를 강제로 지정한다.
+    // @Column으로 이 필드가 매핑되는 실제 컬럼명/제약조건을 지정한다. length는 단순한 힌트가
+    // 아니라 Hibernate가 생성하는 DDL의 컬럼 크기를 실제로 결정하고, ddl-auto=validate로
+    // 스키마를 검증할 때도 실제 DB 컬럼 크기와 비교되는 값이다. columnDefinition은 DB에
+    // 실제로 어떤 타입으로 만들지를 강제로 지정한다.
     // @JdbcTypeCode(SqlTypes.CHAR)를 함께 붙인 이유: columnDefinition만으로는 DDL 생성 문자열만
     // 바뀔 뿐, Hibernate가 "이 컬럼은 VARCHAR일 것이다"라고 내부적으로 기억하는 타입 코드는 안
     // 바뀐다. 그래서 ddl-auto=validate가 실제 DB의 CHAR(bpchar) 컬럼과 비교할 때 "VARCHAR인 줄

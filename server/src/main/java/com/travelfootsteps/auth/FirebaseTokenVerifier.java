@@ -22,8 +22,10 @@ public class FirebaseTokenVerifier implements TokenVerifier {
     @Override
     public String verifyAndGetUid(String idToken) {
         try {
-            // 여기서 실제로 Firebase 서버에 토큰이 유효한지 물어보고(서명·만료시간 검증 포함),
-            // 유효하면 토큰 안에 들어있는 사용자 고유 ID(uid)를 꺼내온다.
+            // verifyIdToken은 Firebase 서버에 매번 네트워크로 물어보는 게 아니라, 로컬에서
+            // Google의 공개키(캐시돼 있음)로 토큰 서명과 만료시간을 검증한다(로컬 JWT 검증).
+            // checkRevoked=true를 별도로 넘기지 않는 한 네트워크 호출은 일어나지 않는다.
+            // 검증에 성공하면 토큰 안에 들어있는 사용자 고유 ID(uid)를 꺼내온다.
             return firebaseAuth.verifyIdToken(idToken).getUid();
         } catch (FirebaseAuthException e) {
             // 검증 실패(위조·만료 등)는 우리가 정의한 예외로 감싸서 던진다.
