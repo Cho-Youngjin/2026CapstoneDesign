@@ -1,41 +1,39 @@
-```yaml
 name: CI
 
 on:
-pull_request:
-push:
-branches: [main, develop]
+  pull_request:
+  push:
+    branches: [main, develop]
 
 jobs:
-app:
-name: Flutter
-runs-on: ubuntu-latest
-defaults:
-run:
-working-directory: app
-steps:
-- uses: actions/checkout@v4
-- uses: subosito/flutter-action@v2
-with:
-channel: stable
-cache: true
-- run: flutter pub get
-- run: flutter analyze
-- run: flutter test
+  app:
+    name: Flutter
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
 
-server:
-name: Spring Boot
-runs-on: ubuntu-latest
-defaults:
-run:
-working-directory: server
-steps:
-- uses: actions/checkout@v4
-- uses: actions/setup-java@v4
-with:
-distribution: temurin
-java-version: '21'
-cache: gradle
-- run: chmod +x ./gradlew
-- run: ./gradlew test
-```
+  server:
+    name: Spring Boot
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - run: chmod +x ./gradlew
+      - run: ./gradlew test
