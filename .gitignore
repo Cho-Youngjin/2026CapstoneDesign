@@ -1,35 +1,27 @@
-build/
-.dart_tool/
+# Flutter / Dart
+app/build/
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/android/local.properties
+app/android/.gradle/
+**/google-services.json
+
+# Gradle / Java
+server/build/
+server/.gradle/
+server/bin/
+
+# 비밀정보 — 절대 커밋하지 않는다
+**/firebase-service-account.json
+**/*.keystore
+.env
+.env.*
+
+# IDE
 .idea/
 *.iml
-*.ipr
-*.iws
-local.properties
-google-services.json
-.env
+.vscode/
 
-# Flutter/Dart 추가 (flutter create 기본 생성분)
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/coverage/
-app.*.symbols
-app.*.map.json
-/android/app/debug
-/android/app/profile
-/android/app/release
-.widget_preview/
-
-# 기타
-*.class
-*.log
-*.pyc
-*.swp
-.DS_Store
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+# Project-specific
+CLAUDE.md

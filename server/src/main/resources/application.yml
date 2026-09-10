@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: travel-footsteps-server
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/travelfootsteps}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+
+firebase:
+  service-account-path: classpath:firebase-service-account.json
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.travelfootsteps: DEBUG
