@@ -12,6 +12,7 @@ import 'features/login/login_page.dart';
 import 'features/nearby/nearby_page.dart';
 import 'features/translate/translate_page.dart';
 import 'features/visa/visa_page.dart';
+import 'features/visa/visa_result_page.dart';
 
 class AppRoutes {
   static const login = '/login';
@@ -38,6 +39,7 @@ class AppRoutes {
   /// 탭 하위 상세 화면(뒤로가기 헤더는 있지만 하단 탭바는 유지되는 화면).
   /// 실제 국가/그룹 id 라우팅은 각 Plan(C/D)에서 실 데이터 연동 시 교체한다 —
   /// 지금은 와이어프레임 UI만 보여주는 단계라 경로를 고정값으로 둔다.
+  static const visaResult = '/visa/result';
   static const footstepsDetail = '/footsteps/detail';
   static const groupChat = '/group/chat';
   static const groupLocation = '/group/location';
@@ -64,6 +66,7 @@ GoRouter createRouter({required bool isLoggedIn, VoidCallback? onSignIn}) {
         ),
         routes: [
           GoRoute(path: AppRoutes.visa, builder: (_, _) => const VisaPage()),
+          GoRoute(path: AppRoutes.visaResult, builder: (_, _) => const VisaResultPage()),
           GoRoute(path: AppRoutes.checklist, builder: (_, _) => const ChecklistPage()),
           GoRoute(path: AppRoutes.footsteps, builder: (_, _) => const FootstepsPage()),
           GoRoute(
