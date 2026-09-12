@@ -1007,10 +1007,14 @@ service cloud.firestore {
       allow write: if isSignedIn() && request.auth.uid == uid;
     }
 
-    // inviteCodes/{code}: 코드→roomId 매핑. 참여 플로우에서 비참가자도 조회해야 하므로 읽기는 열되,
-    // 쓰기는 존재하지 않는 코드를 생성할 때만 허용한다 (그룹 생성 로직 전용).
+    // inviteCodes/{code}: 코드→roomId 매핑. 참여 플로우에서 비참가자도 "코드를 알고 있으면" 조회할 수
+    // 있어야 하므로 단건 조회(get)는 열어두되, 컬렉션 전체 조회(list)는 반드시 막는다 — list까지 열면
+    // 로그인한 아무나 전체 초대코드→roomId 매핑을 긁어와 초대 없이 모든 방을 알아낼 수 있다
+    // (2026-09-12 리뷰에서 발견, Plan A Task 10의 "roomId는 초대코드로만 얻는 비공개 식별자"라는
+    // 전제가 이 규칙에 의존한다).
     match /inviteCodes/{code} {
-      allow read: if isSignedIn();
+      allow get: if isSignedIn();
+      allow list: if false;
       allow create: if isSignedIn() && !exists(/databases/$(database)/documents/inviteCodes/$(code));
       allow update, delete: if false;
     }
