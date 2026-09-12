@@ -15,6 +15,15 @@ spring:
 firebase:
   service-account-path: classpath:firebase-service-account.json
 
+data-go-kr:
+  service-key: ${DATA_GO_KR_SERVICE_KEY:}
+
+google:
+  server-api-key: ${GOOGLE_SERVER_API_KEY:}
+
+korea-exim:
+  api-key: ${KOREA_EXIM_API_KEY:}
+
 server:
   port: 8080
 
