@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/country_api.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
@@ -109,7 +111,7 @@ class _Header extends StatelessWidget {
         children: [
           const Text('준비물 · 베트남', style: AppTextStyles.screenTitle),
           GestureDetector(
-            onTap: () {},
+            onTap: () => _showCountryPicker(context),
             child: Text(
               '국가 변경',
               style: AppTextStyles.caption.copyWith(color: AppColors.accent),
@@ -119,6 +121,43 @@ class _Header extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 서버의 국가 목록(`/api/countries`)을 불러와 바텀시트로 보여준다.
+/// 국가별 준비물 데이터 연동은 이후 마일스톤에서 다룬다 — 지금은 목록 선택만 된다.
+void _showCountryPicker(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    builder: (_) => SafeArea(
+      child: SizedBox(
+        height: 360,
+        child: Consumer(
+          builder: (context, ref, _) {
+            final countries = ref.watch(countryListProvider);
+            return countries.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text('국가 목록을 불러오지 못했습니다\n$e', textAlign: TextAlign.center),
+                ),
+              ),
+              data: (list) => ListView.separated(
+                itemCount: list.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (context, i) => ListTile(
+                  title: Text(list[i].nameKo),
+                  subtitle: Text(list[i].nameEn ?? '-'),
+                  trailing: Text('Tier ${list[i].tier}'),
+                  onTap: () => Navigator.of(context).pop(),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    ),
+  );
 }
 
 class _CountryInfoRow extends StatelessWidget {
