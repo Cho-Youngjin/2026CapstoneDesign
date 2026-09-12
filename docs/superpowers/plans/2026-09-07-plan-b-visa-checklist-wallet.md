@@ -6,6 +6,10 @@
 
 **Architecture:** Flutter 앱이 Phase 0에서 만든 `apiClientProvider`(dio + Firebase ID Token 인터셉터)로 Spring 서버의 `POST /api/trips`, `GET /api/trips/{id}`, `GET /api/countries/{iso2}`, `GET /api/countries/{iso2}/checklist`를 호출해 여행/비자/준비물 데이터를 가져온다. 서버가 반환한 역산 일정(`trip_task`)마다 `flutter_local_notifications`로 기기 로컬 알람을 예약한다(서버 푸시 없음). 준비물 체크 여부와 경비 지갑은 서버에 저장하지 않는다 — 체크 여부는 `SharedPreferences`, 지갑은 `drift`(SQLite) 로컬 테이블로 관리한다.
 
+> **Plan A 계약 추가분 (2026-09-12 리뷰 반영, 이 문서 작성 이후 확정됨)** — 이 계획 구현 시 아래 두 가지를 반영해야 한다. 자세한 서버 쪽 근거는 `2026-09-07-plan-a-server-data-pipeline.md` Task 6/7 참고.
+> 1. `GET /api/trips/{id}` 응답에 `judgementStale: boolean`이 추가된다. `true`면 비자 판정 기준이 여행 생성 이후 바뀐 것이므로, 화면에 "판정 기준이 바뀌었어요, 새로고침할까요?"를 띄우고 동의 시 `POST /api/trips/{id}/refresh`를 호출한다(응답은 `GET`과 동일한 형식). 새로고침하면 서버가 `trip_task`를 다시 만들므로 이미 완료 체크한 항목·예약된 로컬 알람도 화면에서 같이 재예약해야 한다.
+> 2. 준비물 체크 상태는 `SharedPreferences`(로컬 전용)가 아니라 **서버 API로 동기화**한다 — `GET /api/trips/{tripId}/checklist`(응답 `[{id, category, title, description, priority, checked}]`)와 `POST /api/trips/{tripId}/checklist/{itemId}/check`(바디 `{checked}`)를 쓴다. 진행률은 이 목록의 `checked` 개수를 세어 클라이언트에서 계산한다(별도 API 없음).
+
 **Tech Stack:** Flutter 3.x / Riverpod / go_router / dio (Phase 0 기반) · `flutter_local_notifications` + `timezone` (로컬 알람) · `shared_preferences` (준비물 체크 상태, 활성 여행 ID) · `drift` + `sqlite3_flutter_libs` + `path_provider` (경비 지갑, T3)
 
 **Spec:** `docs/superpowers/specs/2026-09-06-overseas-travel-app-design.md` §6-①②⑦, §7

@@ -4,7 +4,7 @@
 
 **Goal:** 외교부 공공데이터(입국허가요건·여행경보·재외공관)를 일 1회 배치로 수집·정규화하고, 비자 규칙 엔진으로 여행 계획을 판정해 역산 일정을 생성하며, 번역·Places·환율을 서버 프록시/캐시로 제공한다. 완료 시 `POST /api/trips`에 목적지·일정·여권만료일을 보내면 비자 판정과 역산 일정이 돌아오고, 앱의 번역·주변정보·환율 화면이 실제 데이터로 채워진다.
 
-**Architecture:** Spring Boot 배치(`@Scheduled`, 일 1회)가 공공데이터포털의 세 데이터셋을 국가별로 호출해 PostgreSQL에 적재한다. 입국허가요건의 `gnrl_pspt_visa_cn` 자연어 필드는 정규식 기반 `VisaConditionParser`가 `{visaRequired, visaFreeDays, passportValidityMonths}`로 정규화하며, 파싱에 실패하면 `visaFreeDays = null`로 남겨 Tier B degrade("영사관 확인 필요")를 유도한다. Tier A 20개국은 `verified = true`가 되면 배치가 판정 필드를 덮어쓰지 않고 원문 필드만 갱신한다. 비자 판정은 DB에 저장된 `visa_requirement`를 순수 도메인 서비스(`VisaJudgementService`)로 계산하며, 여행 생성 시점과 조회 시점에 매번 새로 계산한다(캐시하지 않음 — 수기 검증으로 데이터가 갱신되면 다음 조회부터 바로 반영되어야 하므로). 번역·Places는 외부 API 키를 숨기는 얇은 프록시 컨트롤러이며, 번역은 인터페이스(`TranslationClient`) 뒤에 두어 나중에 LLM 티어로 교체 가능하게 한다. 환율은 한국수출입은행 API를 일 1회 캐시하는 가장 낮은 우선순위(T3) 기능이다.
+**Architecture:** Spring Boot 배치(`@Scheduled`, 일 1회)가 공공데이터포털의 세 데이터셋을 국가별로 호출해 PostgreSQL에 적재한다. 입국허가요건의 `gnrl_pspt_visa_cn` 자연어 필드는 정규식 기반 `VisaConditionParser`가 `{visaRequired, visaFreeDays, passportValidityMonths}`로 정규화하며, 파싱에 실패하면 `visaFreeDays = null`로 남겨 Tier B degrade("영사관 확인 필요")를 유도한다. Tier A 20개국은 `verified = true`가 되면 배치가 판정 필드를 덮어쓰지 않고 원문 필드만 갱신한다. 비자 판정은 DB에 저장된 `visa_requirement`를 순수 도메인 서비스(`VisaJudgementService`)로 계산한다. **`POST /api/trips` 생성 시점에 한 번 계산해 `trip`에 스냅샷으로 고정하고, `GET /api/trips/{id}`는 그 스냅샷을 그대로 반환한다(재계산하지 않는다) — 원본 데이터가 나중에 바뀌어도 이미 만든 여행 일정과 예약된 알람이 조용히 어긋나지 않도록, 최신 규칙과 다르면 `judgementStale=true`만 표시하고 실제 갱신은 사용자가 명시적으로 `POST /api/trips/{id}/refresh`를 호출할 때만 일어난다** (2026-09-12 리뷰 반영 — 상세는 Task 6 참고). 번역·Places는 외부 API 키를 숨기는 얇은 프록시 컨트롤러이며, 번역은 인터페이스(`TranslationClient`) 뒤에 두어 나중에 LLM 티어로 교체 가능하게 한다. 환율은 한국수출입은행 API를 일 1회 캐시하는 가장 낮은 우선순위(T3) 기능이다.
 
 **Tech Stack:** Spring Boot 3.x / Java 21 (Phase 0 기반) · Spring Data JPA + Flyway · `RestClient`(Spring Web, 별도 리액티브 의존성 불필요) · `spring-retry` + `spring-boot-starter-aop`(재시도) · `@Scheduled`(배치) · Firebase Admin SDK(Firestore로 FCM 토큰 조회, T3 환전 알림) · PostgreSQL 16
 
@@ -38,6 +38,7 @@ Phase 0의 제약을 상속한다(모노레포, `com.travelfootsteps` 패키지 
 - **파서 테스트는 실제 공공데이터 샘플 문장을 최우선으로 쓴다.** 스펙 §4가 인용한 실제 문구 `"관광 목적 90일 무비자"`를 정규 테스트 케이스로 포함한다. 이 계획서 작성 시점에는 아직 실제 API 응답 전체를 확보하지 못했으므로(활용신청은 Phase 0 Task 2가 진행 중), 나머지 케이스는 외교부가 실제로 쓰는 것으로 알려진 관용 표현(개월 단위 표기, 협정에 의한 무비자, 여권 잔여유효기간 문구)을 근거로 작성한다. **Task 3 착수 시 실제 API 응답을 curl로 받아(Phase 0 Task 2 Step 2 참고) `docs/`에 원본 샘플 몇 건을 저장하고, 그 문장들을 파서 테스트에 추가해야 한다.** 이 스텝을 빠뜨리면 파서가 실제 데이터에서 검증되지 않은 채로 배치에 들어간다.
 - **Tier A(verified=true) 데이터는 배치가 판정 필드를 덮어쓰지 않는다.** `raw_text`/`evidence_text`/`remark`/`source_fetched_at`만 갱신한다. `verified`를 `true`로 세팅하는 것은 이 계획의 범위 밖이다(R4가 수기 검증 후 DB를 직접 갱신하거나, 별도의 관리 스크립트로 처리 — 이 계획은 그 스크립트를 만들지 않는다. 아래 Self-Review에서 이 결정을 다시 짚는다).
 - **일반여권(GENERAL)만 다룬다.** 관용여권/외교관여권(`ofclpspt_visa_*`, `dplmt_pspt_visa_*`)은 스펙 §6-①이 "일반여권" 기준으로만 판정 로직을 명시하므로 이번 배치·판정 엔진의 범위 밖으로 둔다. `passport_type` 컬럼은 향후 확장을 위해 남겨 두되 이 계획은 `GENERAL` 행만 만든다.
+  > **적용 대상 재확인 (2026-09-12, 실제 CSV로 검증)**: 공공데이터의 실제 컬럼은 국가별로 "일반여권소지자/관용여권소지자/외교관여권소지자" 3종 × (입국가능여부, 입국가능기간)과 "무비자 입국 근거"뿐이며, 여행 목적(관광/상용 등)을 구분하는 컬럼은 존재하지 않는다. 따라서 "판정 대상이 불명확하다"는 지적은 **여권 종류는 일반여권 컬럼만 쓰면 되고(위 결정과 동일), 목적 구분 필드는 원본 데이터 자체에 없으므로 앱에서도 별도로 받거나 처리할 필요가 없다**로 해소된다. 이 데이터셋은 애초에 대한민국 외교부가 대한민국 국민(일반여권 소지자) 기준으로 발행하는 자료이므로 여권 발급국도 별도로 명시할 필요가 없다.
 - **T3 우선순위 규칙**: Task 1~8은 T1/T2 기능을 지원하므로 반드시 구현한다. **Task 9(환율 캐시)는 T3다.** 일정이 밀리면 Task 9를 가장 먼저 자른다. Task 9 안에서도 "환전 알림(FCM)" 서브스텝이 캐시·조회 API보다 우선순위가 낮으므로, Task 9마저 시간이 부족하면 그 서브스텝만 생략할 수 있다(스펙 §10 "자르는 순서" 1번과 일치).
 
 ---
@@ -1231,7 +1232,8 @@ CREATE TABLE travel_alert (
     region     VARCHAR(100),
     title      VARCHAR(255) NOT NULL,
     issued_at  TIMESTAMPTZ NOT NULL,
-    CONSTRAINT travel_alert_level_check CHECK (level BETWEEN 1 AND 4)
+    -- level 0 = UNKNOWN(파싱 실패/미확인). 1(안전)로 낙관 처리하지 않는다 — 2026-09-12 리뷰 반영.
+    CONSTRAINT travel_alert_level_check CHECK (level BETWEEN 0 AND 4)
 );
 
 CREATE INDEX idx_travel_alert_country ON travel_alert (country_id);
@@ -1417,7 +1419,9 @@ public class TravelAlertCollector {
         try {
             return Integer.parseInt(raw.trim());
         } catch (NumberFormatException e) {
-            return 1; // 파싱 실패 시 가장 낮은 단계로 보수적으로 처리
+            // 파싱 실패를 1단계(안전)로 낙관 처리하면 실제로는 위험도가 높을 수도 있는 국가를
+            // "안전"으로 잘못 보여주게 된다. 0(UNKNOWN)으로 남겨 앱이 "확인 필요"로 구분해 표시하게 한다.
+            return 0; // UNKNOWN — 2026-09-12 리뷰 반영
         }
     }
 
@@ -2487,7 +2491,17 @@ git commit -m "feat(server): 비자 판정 규칙 엔진과 역산 일정 생성
 
 **Interfaces:**
 - Consumes: Task 5의 `VisaJudgementService`/`ScheduleGenerator`, Task 3의 `VisaRequirementRepository`, Phase 0의 `CountryRepository`/인증
-- Produces: `POST /api/trips`, `GET /api/trips/{id}`, `POST /api/trips/{id}/tasks/{taskId}/done` — Global Constraints 표의 JSON 계약 그대로. Plan B가 이 세 엔드포인트를 그대로 소비한다.
+- Produces: `POST /api/trips`, `GET /api/trips/{id}`, `POST /api/trips/{id}/tasks/{taskId}/done`, **`POST /api/trips/{id}/refresh`(신규)** — Global Constraints 표의 JSON 계약 그대로. Plan B가 이 엔드포인트들을 그대로 소비한다. **`refresh`는 이 계획서 작성 이후 추가된 엔드포인트라 Plan B 문서에는 아직 반영되어 있지 않다 — Plan B 구현 시점에 Plan B 쪽에도 이 계약을 추가해야 한다.**
+
+> **판정 스냅샷 고정 + 명시적 새로고침 (2026-09-12 리뷰 반영)**
+>
+> 기존 설계(조회 때마다 재계산)는 원본 데이터가 바뀌면 화면의 비자 판정과 이미 예약된 준비 일정·로컬 알람이 조용히 어긋나는 문제가 있었다. 대신 다음과 같이 고정한다.
+>
+> - `trip` 테이블에 스냅샷 컬럼을 추가한다: `verdict VARCHAR(30)`, `stay_days INTEGER`, `visa_free_days INTEGER`, `passport_ok BOOLEAN`, `passport_validity_months INTEGER`, `passport_shortfall_days INTEGER`, `requirement_updated_at TIMESTAMPTZ`(생성 시점에 사용한 `visa_requirement` 행의 최종 갱신 시각).
+> - `POST /api/trips`는 `judge()`를 한 번만 호출해 그 결과를 위 컬럼에 그대로 저장하고, `scheduleGenerator.generate()`로 만든 `trip_task`도 그때 한 번만 만든다. 이후 조회에서는 재계산하지 않는다.
+> - `GET /api/trips/{id}`는 저장된 스냅샷 컬럼을 그대로 `VisaResultResponse`에 담아 반환한다(라이브 `judge()` 호출 없음). 추가로, 그 국가의 현재 `visa_requirement.source_fetched_at`(또는 수기 검증 갱신 시각)을 스냅샷의 `requirement_updated_at`과 비교해 다르면 응답에 `judgementStale: true`를 포함한다. 앱(Plan B)은 이 플래그를 보고 "판정 기준이 바뀌었어요, 새로고침할까요?"를 사용자에게 물어본다.
+> - **`POST /api/trips/{id}/refresh`(신규 엔드포인트)**: 사용자가 새로고침에 동의했을 때만 호출된다. `judge()`를 다시 계산해 스냅샷 컬럼을 덮어쓰고, 기존 `trip_task`를 전부 삭제한 뒤 새 일정으로 다시 생성한다(이미 완료 처리한 항목의 `done` 상태는 이 캡스톤 규모에서는 보존하지 않는다 — 새로고침하면 준비물 완료 체크가 초기화될 수 있음을 앱 쪽 확인 다이얼로그에 명시해야 한다). 응답 형식은 `GET`과 동일한 `TripResponse`.
+> - 여행을 삭제하고 새로 만드는 경우는 항상 최신 규칙으로 판정된다(스냅샷이 새로 생성되므로 별도 처리 불필요).
 
 - [ ] **Step 1: 마이그레이션**
 
@@ -3094,7 +3108,18 @@ git commit -m "feat(server): 여행 계획 생성·조회·준비물 완료 API"
 
 **Interfaces:**
 - Consumes: Phase 0의 `Country`/`CountryRepository`
-- Produces: `GET /api/countries/{iso2}` → `CountryDetailResponse`(country 테이블 전체 컬럼 camelCase), `GET /api/countries/{iso2}/checklist` → `[ChecklistTemplateResponse]` (Global Constraints 표와 동일)
+- Produces: `GET /api/countries/{iso2}` → `CountryDetailResponse`(country 테이블 전체 컬럼 camelCase), `GET /api/countries/{iso2}/checklist` → `[ChecklistTemplateResponse]`(공통 템플릿 조회, `checked` 없음 — 기존 그대로), **`GET /api/trips/{tripId}/checklist`·`POST /api/trips/{tripId}/checklist/{itemId}/check`(신규, 아래 참고)**
+
+> **체크·진행률 기능 추가 (2026-09-12 리뷰 반영)**
+>
+> 기존 계획은 국가 공통 템플릿 "조회"만 있고, 사용자가 체크하거나 진행률을 보는 기능이 빠져 있었다(스펙 §6-②의 필수 기능이 미완성 상태였다). 다음을 추가한다.
+>
+> - **신규 마이그레이션** `V8__trip_checklist.sql` (V7은 Task 11의 `footsteps`가 이미 사용): `trip_checklist(id, trip_id REFERENCES trip(id) ON DELETE CASCADE, category, title, description, priority, checked BOOLEAN NOT NULL DEFAULT false)`.
+> - **Task 6(`POST /api/trips`) 수정**: 여행 생성 시 `checklist_template`에서 해당 국가 전용 + 공통(country_id IS NULL) 템플릿을 전부 복사해 그 여행의 `trip_checklist` 행을 만든다(스냅샷 — 이후 공통 템플릿이 바뀌어도 이미 만든 여행에는 영향 없음, Task 6의 판정 스냅샷과 같은 원칙).
+> - `GET /api/trips/{tripId}/checklist` → `[{id, category, title, description, priority, checked}]`.
+> - `POST /api/trips/{tripId}/checklist/{itemId}/check` — 요청 바디 `{checked: boolean}`, 응답은 갱신된 항목 하나. 소유자 검증은 Task 6의 `findOwnedTripOrThrow`와 동일한 패턴을 재사용한다.
+> - **진행률은 별도 엔드포인트로 만들지 않는다** — 앱이 위 목록 응답의 `checked` 개수를 세어 계산한다(과설계 방지).
+> - Plan B는 이 계획서 작성 이후 추가된 계약이라 아직 반영돼 있지 않다. Plan B 구현 시점에 체크 상태를 기기 로컬(`SharedPreferences`)이 아니라 이 API로 동기화하도록 갱신해야 한다.
 
 - [ ] **Step 1: 마이그레이션 + 공통 템플릿 시드**
 
@@ -4436,7 +4461,12 @@ Step 9~10(FCM 알림)을 생략했다면 커밋 메시지에 `(환전 알림 제
 
 > **왜 HTTP 인증 필터로는 부족한가**: Phase 0의 `FirebaseAuthFilter`(`OncePerRequestFilter`)는 서블릿 필터 체인에서 동작하므로 `/ws`로 들어오는 최초 HTTP Upgrade 요청 자체에는 적용된다. 하지만 그 이후 하나의 WebSocket 연결 위에서 여러 STOMP 프레임(CONNECT, SUBSCRIBE, SEND, ...)이 다중화되어 오가는데, 서블릿 필터는 이 프레임들을 보지 못한다. 따라서 실제 사용자 인증(uid 확보)은 STOMP `ChannelInterceptor`가 CONNECT 프레임의 `Authorization` 네이티브 헤더에서 토큰을 꺼내 `TokenVerifier`로 검증하고, 세션의 Principal로 고정하는 방식으로 별도 구현한다. 이후 같은 세션에서 오는 SEND/SUBSCRIBE 프레임은 이 Principal을 그대로 물려받는다(Spring 표준 STOMP 세션 인증 패턴).
 
-> **그룹 멤버십 인가 — v1 범위 판단**: 스펙상 그룹 실시간 위치공유는 `rooms/{roomId}.participants[]`(Firestore, Plan D 소유)로 멤버를 판별한다. 서버가 이걸 확인하려면 Firebase Admin SDK로 매 SEND/SUBSCRIBE마다 Firestore를 읽어야 하는데, 이는 캡스톤 범위에서 추가 인프라(서버가 Firestore 클라이언트를 갖는 것 자체는 Task 9에서 이미 함)와 매 프레임마다의 왕복 지연을 더한다. **이 Task는 그룹 멤버십 검증을 생략한다** — 대신 (1) STOMP 세션 자체는 유효한 Firebase 사용자만 맺을 수 있고(익명 접속 불가), (2) `roomId`는 초대 코드로만 얻을 수 있는 비공개 식별자이므로, "로그인한 사용자이면서 roomId를 아는 사람만 접근 가능"이라는 최소 보장으로 v1은 충분하다고 판단했다. 근거와 향후 보강 여지는 아래 Self-Review에 남긴다.
+> **그룹 멤버십 인가 — v1 범위 판단 (2026-09-12 리뷰 후 재확정)**: 스펙상 그룹 실시간 위치공유는 `rooms/{roomId}.participants[]`(Firestore, Plan D 소유)로 멤버를 판별한다. 서버가 이걸 확인하려면 Firebase Admin SDK로 매 SEND/SUBSCRIBE마다 Firestore를 읽어야 하는데, 이는 캡스톤 범위에서 추가 인프라(서버가 Firestore 클라이언트를 갖는 것 자체는 Task 9에서 이미 함)와 매 프레임마다의 왕복 지연을 더한다. **이 Task는 그룹 멤버십 검증을 생략한다** — 대신 (1) STOMP 세션 자체는 유효한 Firebase 사용자만 맺을 수 있고(익명 접속 불가), (2) `roomId`는 초대 코드로만 얻을 수 있는 비공개 식별자이므로, "로그인한 사용자이면서 roomId를 아는 사람만 접근 가능"이라는 최소 보장으로 v1은 충분하다고 판단했다.
+>
+> **이 판단은 전제 조건이 있다**: (2)가 성립하려면 `roomId`가 실제로 초대 코드를 거치지 않고는 알아낼 수 없는 값이어야 한다. 그런데 Plan D의 Firestore 규칙(`inviteCodes` 컬렉션)이 `list` 쿼리를 막지 않고 있어, 로그인한 아무 사용자나 전체 초대 코드→roomId 매핑을 긁어올 수 있는 별도 버그가 있다(Plan D 소유, 이 계획서 범위 밖이지만 **이 버그가 고쳐지지 않으면 위 (2)의 전제가 깨져서 이 Task의 인가 생략 판단 전체가 무효화된다** — Plan D 구현 시 `inviteCodes`에 `allow get`만 허용하고 `allow list`는 반드시 막아야 한다).
+> - **남는 잔여 리스크(수용함)**: 한 번 그룹에 참여했다가 나간 사용자도 `roomId`를 계속 기억하고 있으면 멤버십 재확인이 없어 위치를 계속 구독/발신할 수 있다. 소규모 친구 그룹 여행 앱 캡스톤 규모에서는 감수 가능한 트레이드오프로 판단하고 v1 범위에서 보강하지 않는다(추후 "방 나가면 roomId 재발급" 등으로 보강 가능).
+>
+> 근거와 향후 보강 여지는 아래 Self-Review에 남긴다.
 
 - [ ] **Step 1: 의존성 추가**
 
@@ -4835,9 +4865,13 @@ git commit -m "feat(server): STOMP 위치 릴레이 — 그룹 실시간 위치�
 
 **Interfaces:**
 - Consumes: Phase 0의 `CountryRepository`/`TokenVerifier`, Plan C가 이미 클라이언트에서 확정한 계약(`app/lib/features/footsteps/data/footsteps_api.dart`, Plan C 1570~1730줄): `POST /api/checkins` Body `[{localId, lat, lng, countryIso, recordedAt, source}]`(`source ∈ AUTO|MANUAL|IMPORT`), `POST /api/daily-steps` Body `[{localId, date, countryIso, stepCount}]`. 두 응답 모두 `[{localId, serverId}]` — 요청 배열과 같은 순서/개수, `localId`로 매칭한다.
-- Produces: 위 두 엔드포인트. `V7__footsteps.sql`이 스펙 §7의 `checkin`(`id, firebase_uid, lat, lng, country_id, recorded_at, source`), `daily_steps`(`id, firebase_uid, date, country_id, step_count`) 테이블을 만든다.
+- Produces: 위 두 엔드포인트, **`GET /api/checkins`·`GET /api/daily-steps`(신규, 다기기 복원용 — 아래 참고)**. `V7__footsteps.sql`이 스펙 §7의 `checkin`(`id, firebase_uid, lat, lng, country_id, recorded_at, source`), `daily_steps`(`id, firebase_uid, date, country_id, step_count`) 테이블을 만든다.
 
-> **upsert 정책 (단순화)**: `daily_steps`는 `(firebase_uid, date, country_id)`가 자연스러운 유니크 키다 — 같은 날 같은 국가의 걸음 수가 중복 삽입되면 지도 화면의 누적 걸음 수가 부풀려지므로, DB 유니크 제약 + upsert(기존 있으면 `step_count` 갱신)로 막는다. `checkin`은 반대로 "그 시각 그 자리에 있었다"는 이벤트 로그이므로 중복 방지보다 단순 삽입이 맞다고 판단했다 — 클라이언트가 `synced=false`인 로우만 골라 보내고 성공하면 즉시 `synced=true`로 표시하므로 정상 경로에서는 중복이 발생하지 않고, 드물게 재전송으로 인한 중복 체크인이 생기더라도 지도 위 점 하나가 늘어나는 정도라 사용자 경험에 미치는 영향이 적다. 과설계 방지를 위해 이 이상의 멱등성 보장(예: 클라이언트 UUID 기반 dedup)은 이번 범위에서 만들지 않는다.
+> **다기기 복원 지원으로 방침 변경 (2026-09-12 리뷰 반영)**: 이 기능을 다기기 복원(기기 변경/재설치 시 서버에 올려둔 기록을 되찾아오는 것) 용도로 쓰기로 확정했다. 그래서 기존의 "업로드 전용, 멱등성 없음" 설계를 다음처럼 바꾼다.
+>
+> - **복원용 조회 엔드포인트 추가**: `GET /api/checkins` → 로그인한 사용자의 전체 체크인 `[{id, lat, lng, countryIso, recordedAt, source}]`. `GET /api/daily-steps` → 전체 일별 걸음 수 `[{id, date, countryIso, stepCount}]`. 둘 다 페이지네이션 없이 전체 반환한다(캡스톤 규모의 데이터량이면 충분 — 나중에 사용자당 기록이 많아지면 `since` 파라미터를 추가할 수 있다).
+> - **`checkin`에 멱등키 추가**: Plan C의 `localId`는 기기 로컬 drift DB의 자동증가 정수(`c.id`)라 기기마다 값이 겹칠 수 있어 그 자체로는 전역 dedup 키로 쓸 수 없다(요청/응답 매칭 용도로만 그대로 둔다). 대신 이미 요청에 실려 오는 `recordedAt`(체크인이 실제로 발생한 시각, 밀리초 정밀도)을 키로 쓴다 — `UNIQUE (firebase_uid, recorded_at)` 제약을 걸고, 같은 조합이 이미 있으면 새로 만들지 않고 기존 행을 반환한다. 같은 사용자가 정확히 같은 밀리초에 서로 다른 두 곳에서 체크인할 일은 사실상 없으므로 이 정도로 충분하다(Plan C 계약을 바꾸지 않아도 된다). `daily_steps`는 기존처럼 `(firebase_uid, date, country_id)` 유니크 제약 + upsert로 충분하다.
+> - **`daily_steps.date`는 UTC가 아니라 클라이언트의 현지 날짜를 그대로 쓴다** — 자세한 이유와 수정은 아래 Step 코드 참고.
 
 - [ ] **Step 1: 마이그레이션**
 
@@ -4851,7 +4885,10 @@ CREATE TABLE checkin (
     lng           DOUBLE PRECISION NOT NULL,
     country_id    BIGINT NOT NULL REFERENCES country(id),
     recorded_at   TIMESTAMPTZ NOT NULL,
-    source        VARCHAR(10) NOT NULL
+    source        VARCHAR(10) NOT NULL,
+    -- 재전송으로 인한 중복 체크인 방지 (2026-09-12 리뷰 반영) — local_id는 기기별 로컬 정수라
+    -- 전역 dedup 키로 못 쓰므로, 실제 발생 시각을 키로 쓴다.
+    UNIQUE (firebase_uid, recorded_at)
 );
 
 CREATE INDEX idx_checkin_firebase_uid ON checkin(firebase_uid);
@@ -5031,6 +5068,7 @@ public class Checkin {
     @Column(name = "country_id", nullable = false)
     private Long countryId;
 
+    // (firebase_uid, recorded_at) 유니크 제약의 기준 컬럼이기도 하다 — 재전송 시 중복 삽입을 막는다.
     @Column(name = "recorded_at", nullable = false)
     private Instant recordedAt;
 
@@ -5058,7 +5096,28 @@ package com.travelfootsteps.footsteps;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
 public interface CheckinRepository extends JpaRepository<Checkin, Long> {
+    Optional<Checkin> findByFirebaseUidAndRecordedAt(String firebaseUid, Instant recordedAt);
+    List<Checkin> findByFirebaseUid(String firebaseUid);
+}
+```
+
+`server/src/main/java/com/travelfootsteps/footsteps/CheckinResponse.java` (복원 조회 응답):
+
+```java
+package com.travelfootsteps.footsteps;
+
+import java.time.Instant;
+
+public record CheckinResponse(Long id, double lat, double lng, Long countryId, Instant recordedAt, String source) {
+    public static CheckinResponse from(Checkin checkin) {
+        return new CheckinResponse(checkin.getId(), checkin.getLat(), checkin.getLng(),
+                checkin.getCountryId(), checkin.getRecordedAt(), checkin.getSource());
+    }
 }
 ```
 
@@ -5120,10 +5179,27 @@ package com.travelfootsteps.footsteps;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 public interface DailyStepRepository extends JpaRepository<DailyStep, Long> {
     Optional<DailyStep> findByFirebaseUidAndDateAndCountryId(String firebaseUid, LocalDate date, Long countryId);
+    List<DailyStep> findByFirebaseUid(String firebaseUid);
+}
+```
+
+`server/src/main/java/com/travelfootsteps/footsteps/DailyStepResponse.java` (복원 조회 응답):
+
+```java
+package com.travelfootsteps.footsteps;
+
+import java.time.LocalDate;
+
+public record DailyStepResponse(Long id, LocalDate date, Long countryId, int stepCount) {
+    public static DailyStepResponse from(DailyStep dailyStep) {
+        return new DailyStepResponse(dailyStep.getId(), dailyStep.getDate(),
+                dailyStep.getCountryId(), dailyStep.getStepCount());
+    }
 }
 ```
 
@@ -5139,14 +5215,14 @@ public record CheckinSyncRequest(Long localId, double lat, double lng, String co
 }
 ```
 
-`server/src/main/java/com/travelfootsteps/footsteps/DailyStepSyncRequest.java` — 클라이언트(Dart `DateTime.toIso8601String()`)는 날짜에도 시각 포함 ISO-8601 문자열을 보내므로 `Instant`로 받은 뒤 UTC 기준 날짜만 취한다:
+`server/src/main/java/com/travelfootsteps/footsteps/DailyStepSyncRequest.java` — **UTC 변환 제거 (2026-09-12 리뷰 반영)**: `date`를 `Instant`로 받아 `ZoneOffset.UTC`로 자르면, 해외에서 현지 자정을 넘겨도 UTC 기준으로는 아직 전날이라 그날 걸음이 다음날로 잘못 집계될 수 있다. 대신 앱이 "그 걸음을 기록한 현지 달력 날짜"를 `yyyy-MM-dd` 문자열(타임존 없음)로 직접 보내고, 서버는 이를 그대로 저장한다(타임존 변환을 하지 않는다):
 
 ```java
 package com.travelfootsteps.footsteps;
 
-import java.time.Instant;
+import java.time.LocalDate;
 
-public record DailyStepSyncRequest(Long localId, Instant date, String countryIso, int stepCount) {
+public record DailyStepSyncRequest(Long localId, LocalDate date, String countryIso, int stepCount) {
 }
 ```
 
@@ -5173,7 +5249,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.List;
 
 @RestController
@@ -5192,10 +5267,16 @@ public class FootstepsSyncController {
         return items.stream()
                 .map(item -> {
                     Country country = findCountryOrThrow(item.countryIso());
-                    Checkin saved = checkinRepository.save(Checkin.of(uid, item.lat(), item.lng(),
-                            country.getId(), item.recordedAt(), item.source()));
+                    Checkin saved = upsertCheckin(uid, item, country.getId());
                     return new SyncResultItem(item.localId(), saved.getId().toString());
                 })
+                .toList();
+    }
+
+    @GetMapping("/checkins")
+    public List<CheckinResponse> listCheckins(Authentication authentication) {
+        return checkinRepository.findByFirebaseUid(authentication.getName()).stream()
+                .map(CheckinResponse::from)
                 .toList();
     }
 
@@ -5206,11 +5287,25 @@ public class FootstepsSyncController {
         return items.stream()
                 .map(item -> {
                     Country country = findCountryOrThrow(item.countryIso());
-                    LocalDate date = item.date().atZone(ZoneOffset.UTC).toLocalDate();
-                    DailyStep saved = upsertDailyStep(uid, date, country.getId(), item.stepCount());
+                    DailyStep saved = upsertDailyStep(uid, item.date(), country.getId(), item.stepCount());
                     return new SyncResultItem(item.localId(), saved.getId().toString());
                 })
                 .toList();
+    }
+
+    @GetMapping("/daily-steps")
+    public List<DailyStepResponse> listDailySteps(Authentication authentication) {
+        return dailyStepRepository.findByFirebaseUid(authentication.getName()).stream()
+                .map(DailyStepResponse::from)
+                .toList();
+    }
+
+    // (uid, recordedAt) 유니크 제약 덕분에 같은 이벤트가 재전송돼도 새 행을 만들지 않고
+    // 기존 행을 그대로 반환한다 — 네트워크 재시도로 인한 중복 체크인을 막는다.
+    private Checkin upsertCheckin(String uid, CheckinSyncRequest item, Long countryId) {
+        return checkinRepository.findByFirebaseUidAndRecordedAt(uid, item.recordedAt())
+                .orElseGet(() -> checkinRepository.save(Checkin.of(uid,
+                        item.lat(), item.lng(), countryId, item.recordedAt(), item.source())));
     }
 
     private DailyStep upsertDailyStep(String uid, LocalDate date, Long countryId, int stepCount) {
