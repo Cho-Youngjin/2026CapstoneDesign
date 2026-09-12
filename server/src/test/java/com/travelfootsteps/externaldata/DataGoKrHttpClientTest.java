@@ -1,6 +1,7 @@
 package com.travelfootsteps.externaldata;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -55,7 +56,7 @@ class DataGoKrHttpClientTest {
 
     /**
      * resultCode가 "00"이 아니면 3회 재시도 후 예외를 던진다.
-     * 이 테스트는 백오프 때문에 약 3초(1s+2s) 소요된다.
+     * 이 테스트는 백오프 때문에 약 7초(1s+2s+4s) 소요된다.
      */
     @Test
     void resultCode가_00이_아니면_3회_재시도_후_예외를_던진다() {
@@ -81,8 +82,37 @@ class DataGoKrHttpClientTest {
         // 클라이언트를 호출한다. resultCode가 "00"이 아니므로 ExternalApiException을 던져야 한다.
         assertThatThrownBy(() -> client.getItems("/test", Map.of(), DummyItem.class))
                 .isInstanceOf(ExternalApiException.class);
-        // resultCode가 "00"이 아니므로, 첫 시도 + 3회 재시도 = 총 3회 시도해야 한다.
-        // (시도 0: 실패 → 재시도 1: 실패 → 재시도 2: 실패 → 예외)
-        assertThat(attempts.get()).isEqualTo(3);
+        // resultCode가 "00"이 아니므로, 첫 시도 + 3회 재시도 = 총 4회 시도해야 한다.
+        // (초기: 실패 → 재시도 1: 실패(1s 대기 후) → 재시도 2: 실패(2s 대기 후) → 재시도 3: 실패(4s 대기 후) → 예외)
+        assertThat(attempts.get()).isEqualTo(4);
+    }
+
+    /**
+     * HTTP 전송 실패(non-2xx 응답, 연결 오류 등)도 ExternalApiException으로 감싸져서
+     * 같은 재시도 정책을 따른다.
+     * 이 테스트는 백오프 때문에 약 7초(1s+2s+4s) 소요된다.
+     */
+    @Test
+    void HTTP_전송_실패도_3회_재시도_후_예외를_던진다() {
+        // 호출 횟수를 세기 위한 카운터.
+        AtomicInteger attempts = new AtomicInteger();
+        // 매 요청마다 시도 횟수를 증가시키고, HTTP 500 오류를 반환한다.
+        RestClient restClient = RestClient.builder()
+                .requestInterceptor((request, requestBody, execution) -> {
+                    attempts.incrementAndGet();
+                    // HTTP 500 응답을 반환하면, RestClient.retrieve()가 RestClientResponseException을 던진다.
+                    var response = new org.springframework.mock.http.client.MockClientHttpResponse(
+                            "{}".getBytes(StandardCharsets.UTF_8), HttpStatus.INTERNAL_SERVER_ERROR);
+                    return response;
+                })
+                .build();
+        DataGoKrHttpClient client = new DataGoKrHttpClient(restClient, new DataGoKrProperties("key"));
+
+        // HTTP 500 오류가 ExternalApiException으로 감싸져서 던져져야 한다.
+        assertThatThrownBy(() -> client.getItems("/test", Map.of(), DummyItem.class))
+                .isInstanceOf(ExternalApiException.class)
+                .hasMessageContaining("호출 실패");
+        // HTTP 전송 오류도 재시도 정책에 포함되므로, 총 4회 시도해야 한다.
+        assertThat(attempts.get()).isEqualTo(4);
     }
 }

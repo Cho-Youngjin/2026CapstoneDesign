@@ -14,9 +14,10 @@ import java.util.Map;
 
 /**
  * 공공데이터포털(data.go.kr) 외교부 오픈API 공통 클라이언트.
- * 국가 단위 호출 실패 시 1s/2s/4s 간격으로 최대 3회 재시도하고,
+ * 국가 단위 호출 실패 시 1회 초기 시도 후 1s/2s/4s 간격으로 최대 3회 재시도하고,
  * 그래도 실패하면 {@link ExternalApiException}을 던진다 — 호출부(수집기)가
  * 그 국가만 건너뛰고 배치를 계속 진행할 수 있게 한다.
+ * HTTP 전송 오류(non-2xx, 연결 실패, 타임아웃 등)도 재시도 정책에 포함된다.
  *
  * @Component: 이 클래스를 스프링 빈으로 등록한다. 생성자에 RestClient.Builder와
  * DataGoKrProperties가 필요하면, 스프링이 자동으로 의존성을 주입한다.
@@ -68,6 +69,8 @@ public class DataGoKrHttpClient {
     /**
      * 재시도 없이 한 번 호출한다. RetryTemplate에 의해 재시도될 수 있다.
      * 공공데이터포털 응답을 파싱하고, resultCode가 "00"이 아니면 예외를 던진다.
+     * HTTP 전송 오류(non-2xx, 타임아웃 등)도 ExternalApiException으로 감싸서
+     * 재시도 정책과 통일된 예외 처리를 보장한다.
      */
     private <T> List<T> fetchOnce(String path, Map<String, String> queryParams, Class<T> itemType) {
         // 쿼리 파라미터에 serviceKey와 returnType을 자동으로 추가한다.
@@ -76,18 +79,20 @@ public class DataGoKrHttpClient {
         allParams.putIfAbsent("serviceKey", properties.serviceKey());
         allParams.putIfAbsent("returnType", "JSON");
 
-        // RestClient를 쓰면 Spring의 선호 HTTP 클라이언트인 RestTemplate보다 간결한 코드를 쓸 수 있다.
-        // uri(uriBuilder -> ...)로 경로와 쿼리 파라미터를 설정한다.
-        String responseBody = restClient.get()
-                .uri(uriBuilder -> {
-                    var builder = uriBuilder.path(path);
-                    allParams.forEach(builder::queryParam);
-                    return builder.build();
-                })
-                .retrieve()
-                .body(String.class);
-
         try {
+            // RestClient를 쓰면 Spring의 선호 HTTP 클라이언트인 RestTemplate보다 간결한 코드를 쓸 수 있다.
+            // uri(uriBuilder -> ...)로 경로와 쿼리 파라미터를 설정한다.
+            // HTTP 전송 오류(non-2xx, 연결 실패, 타임아웃 등)도 여기서 발생하며,
+            // 아래 catch 블록에서 ExternalApiException으로 감싸진다.
+            String responseBody = restClient.get()
+                    .uri(uriBuilder -> {
+                        var builder = uriBuilder.path(path);
+                        allParams.forEach(builder::queryParam);
+                        return builder.build();
+                    })
+                    .retrieve()
+                    .body(String.class);
+
             // JSON 응답을 DataGoKrEnvelope로 파싱한다.
             DataGoKrEnvelope envelope = objectMapper.readValue(responseBody, DataGoKrEnvelope.class);
             // resultCode가 "00"이 아니면 에러 응답이다. 예외를 던진다.
@@ -103,9 +108,9 @@ public class DataGoKrHttpClient {
             // ExternalApiException이면 그대로 던진다. (이미 정의된 예외)
             throw e;
         } catch (Exception e) {
-            // 그 외 모든 예외(JSON 파싱 실패, null reference 등)를 ExternalApiException으로 감싼다.
+            // 그 외 모든 예외(JSON 파싱 실패, HTTP 오류, 연결 실패 등)를 ExternalApiException으로 감싼다.
             // 재시도 정책이 이 예외 타입만 재시도하도록 설정되어 있다.
-            throw new ExternalApiException("공공데이터포털 응답 파싱 실패", e);
+            throw new ExternalApiException("공공데이터포털 호출 실패", e);
         }
     }
 
@@ -132,17 +137,17 @@ public class DataGoKrHttpClient {
 
     /**
      * 재시도 템플릿을 구성한다.
-     * SimpleRetryPolicy: 최대 3회 재시도, ExternalApiException만 재시도한다.
-     * ExponentialBackOffPolicy: 첫 재시도 전 1초 대기, 두 번째 2초, 세 번째 4초 대기.
+     * SimpleRetryPolicy: 총 4회 시도(1회 초기 + 3회 재시도), ExternalApiException만 재시도한다.
+     * ExponentialBackOffPolicy: 1회 초기 시도 후, 재시도 전에 1초/2초/4초 대기.
      */
     private RetryTemplate buildRetryTemplate() {
         RetryTemplate template = new RetryTemplate();
-        // 최대 3회 재시도하고, ExternalApiException만 재시도 가능으로 설정한다.
+        // 총 4회 시도(1회 초기 + 3회 재시도)를 허용하고, ExternalApiException만 재시도 가능으로 설정한다.
         // 다른 예외(e.g., NullPointerException)가 발생하면 재시도하지 않고 즉시 던진다.
-        SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(3, Map.of(ExternalApiException.class, true));
+        SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(4, Map.of(ExternalApiException.class, true));
         template.setRetryPolicy(retryPolicy);
 
-        // 백오프 정책: 1s → 2s → 4s
+        // 백오프 정책: 1s → 2s → 4s (재시도 전 대기)
         org.springframework.retry.backoff.BackOffPolicy backOffPolicy = new ExponentialBackOffPolicy();
         template.setBackOffPolicy(backOffPolicy);
         return template;
