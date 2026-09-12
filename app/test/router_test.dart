@@ -43,8 +43,8 @@ void main() {
       await pumpApp(tester, isLoggedIn: true);
 
       expect(find.text('Google로 계속하기'), findsNothing);
-      expect(find.byType(NavigationBar), findsOneWidget);
-      // AppBar 제목과 본문에 각각 '비자'가 있다
+      expect(find.byKey(const Key('wireframeTabBar')), findsOneWidget);
+      // 탭바 라벨에 '비자'가 있다 (화면 본문은 각 기능 브랜치에서 실 콘텐츠로 교체된다).
       expect(find.text('비자'), findsWidgets);
     });
 
@@ -54,6 +54,7 @@ void main() {
       await tester.tap(find.text('발걸음').last);
       await tester.pumpAndSettle();
 
+      // 발걸음 화면은 헤더도 '발걸음'이라 탭바 라벨과 합쳐 2곳에서 보인다.
       expect(find.text('발걸음'), findsWidgets);
       expect(find.text('준비물'), findsOneWidget); // 탭 라벨만 남는다
     });
