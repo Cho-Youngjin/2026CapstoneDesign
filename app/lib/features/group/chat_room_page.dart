@@ -1,3 +1,4 @@
+import 'package:app/router.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -86,12 +87,15 @@ class _Header extends StatelessWidget {
               ],
             ),
           ),
-          Container(
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.placeholderPrimary, width: 1.5),
-              borderRadius: BorderRadius.circular(6),
+          GestureDetector(
+            onTap: () => context.push(AppRoutes.groupLocation),
+            child: Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                border: Border.all(color: AppColors.placeholderPrimary, width: 1.5),
+                borderRadius: BorderRadius.circular(6),
+              ),
             ),
           ),
         ],
