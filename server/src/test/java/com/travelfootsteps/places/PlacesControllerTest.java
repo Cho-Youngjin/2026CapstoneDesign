@@ -66,4 +66,15 @@ class PlacesControllerTest {
                         .param("lat", "37.5").param("lng", "127.0").param("category", "RESTAURANT"))
                 .andExpect(status().isUnauthorized());
     }
+
+    // category는 PlaceCategory enum 파라미터라, 정의되지 않은 값("FOO")이 오면 스프링이
+    // 바인딩 단계에서 실패한다(MethodArgumentTypeMismatchException) — 별도 처리 코드 없이도
+    // 400으로 응답하는지 확인한다.
+    @Test
+    void 존재하지_않는_카테고리면_400() throws Exception {
+        mockMvc.perform(get("/api/places/nearby")
+                        .header("Authorization", "Bearer valid-token")
+                        .param("lat", "37.5").param("lng", "127.0").param("category", "FOO"))
+                .andExpect(status().isBadRequest());
+    }
 }

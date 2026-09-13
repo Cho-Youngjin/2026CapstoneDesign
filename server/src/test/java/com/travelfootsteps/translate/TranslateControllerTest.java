@@ -90,4 +90,17 @@ class TranslateControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnauthorized());
     }
+
+    // TranslateRequest.text에 붙은 @NotBlank(+ 컨트롤러의 @Valid)가 실제로 검사되는지 확인한다.
+    // 공백 문자열은 "값이 있긴 하지만 비어 있다"는 경우라 null 체크만으로는 못 잡아낸다.
+    @Test
+    void text가_공백이면_400() throws Exception {
+        var request = new TranslateRequest("   ", "en", null);
+
+        mockMvc.perform(post("/api/translate")
+                        .header("Authorization", "Bearer valid-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
 }

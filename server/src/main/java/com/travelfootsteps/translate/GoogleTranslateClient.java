@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
@@ -40,14 +41,21 @@ public class GoogleTranslateClient implements TranslationClient {
     // 정한 대로: 실패하면 대기 없이 즉시 1회만 다시 시도하고, 그마저 실패하면 더 기다리게 하지 않고
     // 바로 502 Bad Gateway로 앱에 알린다 — 앱이 "지금은 번역이 안 된다"고 빠르게 사용자에게
     // 보여줄 수 있게 하기 위함이다.
+    // catch 대상을 Exception이 아니라 RestClientException(RestClient가 던지는 모든 통신 실패의
+    // 공통 상위 타입 — 4xx/5xx 응답, 연결 실패, 타임아웃 등)으로 좁혀둔 이유: Exception을 그대로
+    // 잡으면 우리 코드의 진짜 버그(예: 응답 JSON 구조가 예상과 달라 callOnce()에서 NullPointerException이
+    // 나는 경우)까지 "그냥 통신이 잠깐 실패했나 보다"며 502로 뭉개버린다. 그러면 실제로는 코드를
+    // 고쳐야 하는 문제가 마치 정상적인 외부 서비스 장애처럼 보여서 원인을 찾기 어려워진다.
+    // RestClientException만 잡으면, 프로그래밍 버그는 그대로 500(미처리 예외)으로 드러나고
+    // 진짜 네트워크/HTTP 실패만 이 재시도-후-502 정책의 대상이 된다.
     @Override
     public TranslationResult translate(String text, String targetLanguage, String sourceLanguage) {
         try {
             return callOnce(text, targetLanguage, sourceLanguage);
-        } catch (Exception firstFailure) {
+        } catch (RestClientException firstFailure) {
             try {
                 return callOnce(text, targetLanguage, sourceLanguage);
-            } catch (Exception secondFailure) {
+            } catch (RestClientException secondFailure) {
                 // ResponseStatusException: 스프링이 알아서 이 예외를 지정한 HTTP 상태 코드
                 // 응답으로 바꿔준다. 컨트롤러 어드바이스를 따로 만들 필요가 없다.
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "번역 서비스 호출 실패", secondFailure);
