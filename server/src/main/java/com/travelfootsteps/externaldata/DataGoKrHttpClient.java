@@ -1,6 +1,7 @@
 package com.travelfootsteps.externaldata;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.retry.RetryCallback;
 import org.springframework.retry.backoff.FixedBackOffPolicy;
 import org.springframework.retry.policy.SimpleRetryPolicy;
@@ -36,6 +37,7 @@ public class DataGoKrHttpClient {
     // 생성자 주입: 스프링 컨테이너가 RestClient.Builder를 주입해준다.
     // restClientBuilder가 null이 아니면 base URL을 설정해서 빌드하고,
     // null이면(테스트에서) 전달받은 restClient를 그대로 사용한다.
+    @Autowired
     public DataGoKrHttpClient(RestClient.Builder restClientBuilder, DataGoKrProperties properties) {
         this.restClient = restClientBuilder != null
                 ? restClientBuilder.baseUrl("https://apis.data.go.kr").build()
