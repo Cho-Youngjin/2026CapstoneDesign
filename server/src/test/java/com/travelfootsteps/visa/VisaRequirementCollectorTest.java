@@ -90,7 +90,7 @@ class VisaRequirementCollectorTest {
     void 첫_수집은_새_행을_만들고_파싱_결과를_저장한다() {
         Country vietnam = countryRepository.findByIsoAlpha2("VN").orElseThrow();
         when(entranceVisaClient.fetch("VN")).thenReturn(Optional.of(new EntranceVisaApiItem(
-                "VN", "베트남", "N", "관광 목적 45일 무비자", null, null)));
+                "VN", "베트남", "Y", "45일", null, null)));
 
         collector.collectOne(vietnam);
 
@@ -116,7 +116,7 @@ class VisaRequirementCollectorTest {
         markVerified(verified.getId());
 
         when(entranceVisaClient.fetch("JP")).thenReturn(Optional.of(new EntranceVisaApiItem(
-                "JP", "일본", "N", "관광 목적 15일 무비자로 변경됨(오수집 가정)", null, null)));
+                "JP", "일본", "Y", "15일(오수집 가정)", null, null)));
 
         collector.collectOne(japan);
 

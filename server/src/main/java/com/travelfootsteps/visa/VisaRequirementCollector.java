@@ -88,7 +88,7 @@ public class VisaRequirementCollector {
         } else {
             // 신규 또는 아직 미검증 — 파서로 새로 판정하고 판정 필드 + 원문을 함께 갱신한다.
             ParsedVisaCondition parsed = parser.parse(
-                    item.gnrlPsptVisaYn(), item.gnrlPsptVisaCn(), item.nvisaEntryEvdcCn(), item.remark());
+                    item.gnrlPsptVisaCn(), item.nvisaEntryEvdcCn(), item.remark());
             requirement.applyCollectedData(parsed, item.gnrlPsptVisaCn(), item.nvisaEntryEvdcCn(),
                     item.remark(), now);
         }

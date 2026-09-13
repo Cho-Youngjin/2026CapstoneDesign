@@ -59,32 +59,24 @@ public class VisaConditionParser {
     /**
      * 외교부 API의 원본 필드를 정규화된 {@link ParsedVisaCondition}으로 변환한다.
      *
-     * @param visaYn "Y"(비자 필요) / "N"(무비자) 등 비자 필요 여부 원본 코드.
-     * @param visaCn 비자 조건에 대한 자연어 설명 (예: "관광 목적 90일 무비자").
+     * <p><b>2026-09-13 실 API 검증 결과, visaYn 파라미터는 제거했다</b> — 실제 data.go.kr
+     * EntranceVisaService2를 국가 필터 없이 전수 조회(190개국)한 결과 gnrl_pspt_visa_yn은
+     * 190/190 전부 "Y"였다(비자가 반드시 필요한 아프가니스탄·소말리아·시리아·인도까지 포함).
+     * 즉 이 필드는 "비자 필요 여부"라는 이름과 달리 실제로는 아무 신호도 담고 있지 않다.
+     * 진짜 신호는 gnrl_pspt_visa_cn에 있다 — 무비자 불가 국가는 정확히 "X" 리터럴이고,
+     * 무비자 가능 국가는 일수를 나타내는 자유 텍스트다(예: "45일"). 따라서 visaRequired는
+     * "며칠 무비자로 체류 가능한지 텍스트에서 실제로 뽑아냈는가"로 판단한다 — 못 뽑았으면
+     * (= "X"이거나 파싱 불가한 문구이거나) 비자가 필요하다고 간주한다.
+     *
+     * @param visaCn 비자 조건에 대한 자연어 설명 (예: "45일", 또는 무비자 불가 시 "X").
      * @param evidenceText 근거 문구(있으면). visaCn과 함께 무비자 일수 후보를 찾는 데 쓰인다.
      * @param remark 비고란 자연어 텍스트. 여권 잔여유효기간 요건을 찾는 데 쓰인다.
-     * @return 파싱 결과. visaYn == "Y"이면 visaFreeDays는 항상 0이다(비자가 필요하므로
-     *         "무비자 일수"라는 개념 자체가 해당 없음 = 0일).
+     * @return 파싱 결과.
      */
-    public ParsedVisaCondition parse(String visaYn, String visaCn, String evidenceText, String remark) {
-        boolean visaRequired = "Y".equalsIgnoreCase(trim(visaYn));
+    public ParsedVisaCondition parse(String visaCn, String evidenceText, String remark) {
+        Integer visaFreeDays = extractFreeDays(join(visaCn, evidenceText));
+        boolean visaRequired = (visaFreeDays == null);
 
-        // 비자가 필요한 경우 "무비자 일수"는 개념적으로 0이다 — 파싱 실패(null)가 아니라
-        // 확정된 값이므로 굳이 텍스트에서 숫자를 찾을 필요가 없다.
-        //
-        // 주의: `visaRequired ? 0 : extractFreeDays(...)` 처럼 삼항 연산자로 쓰면 안 된다.
-        // 두 분기의 타입이 각각 int(0)와 Integer(extractFreeDays의 반환값)로 다르면, 자바
-        // 삼항 연산자는 이항 수치 승격(binary numeric promotion) 규칙에 따라 Integer 쪽을
-        // int로 언박싱해 버린다. extractFreeDays(...)가 (의도한 대로) null을 반환하면 이
-        // 언박싱 과정에서 NullPointerException이 터진다 — if/else로 풀어써야 안전하다.
-        Integer visaFreeDays;
-        if (visaRequired) {
-            visaFreeDays = 0;
-        } else {
-            visaFreeDays = extractFreeDays(join(visaCn, evidenceText));
-        }
-
-        // 여권 잔여유효기간은 visaYn과 무관하게(비자가 필요하든 무비자든) 언급 여부를 확인한다.
         Integer passportValidityMonths = extractPassportValidityMonths(join(visaCn, remark, evidenceText));
 
         return new ParsedVisaCondition(visaRequired, visaFreeDays, passportValidityMonths);
@@ -149,9 +141,5 @@ public class VisaConditionParser {
             }
         }
         return sb.toString().trim();
-    }
-
-    private String trim(String s) {
-        return s == null ? "" : s.trim();
     }
 }
