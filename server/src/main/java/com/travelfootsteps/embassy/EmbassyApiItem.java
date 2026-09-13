@@ -9,12 +9,12 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record EmbassyApiItem(
         @JsonProperty("country_iso_alp2") String countryIsoAlp2,
-        @JsonProperty("mission_type") String type,
-        @JsonProperty("mission_nm") String name,
-        @JsonProperty("lat") Double lat,
-        @JsonProperty("lng") Double lng,
+        @JsonProperty("embassy_ty_cd_nm") String type,
+        @JsonProperty("embassy_kor_nm") String name,
+        @JsonProperty("embassy_lat") Double lat,
+        @JsonProperty("embassy_lng") Double lng,
         @JsonProperty("tel_no") String phone,
-        @JsonProperty("emgcy_tel_no") String emergencyPhone,
-        @JsonProperty("addr") String address
+        @JsonProperty("urgency_tel_no") String emergencyPhone,
+        @JsonProperty("emblgbd_addr") String address
 ) {
 }

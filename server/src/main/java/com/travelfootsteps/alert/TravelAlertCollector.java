@@ -54,11 +54,15 @@ public class TravelAlertCollector {
             var items = client.fetch(country.getIsoAlpha2());
             repository.deleteByCountryId(country.getId());
             for (TravelAlertApiItem item : items) {
+                int level = parseLevel(item.alarmLevel());
                 repository.save(TravelAlert.builder()
                         .countryId(country.getId())
-                        .level(parseLevel(item.alarmLevel()))
+                        .level(level)
                         .region(item.region())
-                        .title(item.title())
+                        // 실제 API 응답에는 제목/헤드라인 필드가 없다(docs/api-samples/travel-alarm-vn.json
+                        // 참고). Plan F 계약은 title을 요구하므로, 국가명(Country.nameKo)과 파싱된
+                        // 등급으로 직접 조합해서 만든다 — 예: "베트남 여행경보 1단계".
+                        .title(country.getNameKo() + " 여행경보 " + level + "단계")
                         .issuedAt(parseIssuedAt(item.issuedAt()))
                         .build());
             }

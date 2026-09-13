@@ -8,6 +8,7 @@ import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,7 +57,7 @@ public class DataGoKrHttpClient {
      * @param queryParams 쿼리 파라미터. 예: {"base_date": "20230915", "base_time": "0600"}
      * @param itemType 변환 대상 아이템 클래스. 예: VisaRequirement.class
      * @return 아이템 목록. 결과가 없으면 빈 리스트.
-     * @throws ExternalApiException 응답 코드가 "00"이 아니거나, 파싱에 실패했거나,
+     * @throws ExternalApiException 응답 코드가 "0"(성공)이 아니거나, 파싱에 실패했거나,
      *         3회 재시도 후에도 실패한 경우.
      */
     public <T> List<T> getItems(String path, Map<String, String> queryParams, Class<T> itemType) {
@@ -68,41 +69,55 @@ public class DataGoKrHttpClient {
 
     /**
      * 재시도 없이 한 번 호출한다. RetryTemplate에 의해 재시도될 수 있다.
-     * 공공데이터포털 응답을 파싱하고, resultCode가 "00"이 아니면 예외를 던진다.
+     * 공공데이터포털 응답을 파싱하고, resultCode가 "0"(성공)이 아니면 예외를 던진다.
      * HTTP 전송 오류(non-2xx, 타임아웃 등)도 ExternalApiException으로 감싸서
      * 재시도 정책과 통일된 예외 처리를 보장한다.
      */
     private <T> List<T> fetchOnce(String path, Map<String, String> queryParams, Class<T> itemType) {
-        // 쿼리 파라미터에 serviceKey와 returnType을 자동으로 추가한다.
+        // serviceKey를 제외한 나머지 쿼리 파라미터에 returnType을 추가한다.
         // LinkedHashMap을 쓰면 파라미터 순서가 유지되어 테스트나 디버깅이 쉬워진다.
-        Map<String, String> allParams = new LinkedHashMap<>(queryParams);
-        allParams.putIfAbsent("serviceKey", properties.serviceKey());
-        allParams.putIfAbsent("returnType", "JSON");
+        // serviceKey는 아래 uri(...) 안에서 별도로(인코딩 없이) 붙인다 — 그 이유는 바로 아래 주석 참고.
+        Map<String, String> otherParams = new LinkedHashMap<>(queryParams);
+        otherParams.putIfAbsent("returnType", "JSON");
+        String serviceKey = properties.serviceKey();
 
         try {
             // RestClient를 쓰면 Spring의 선호 HTTP 클라이언트인 RestTemplate보다 간결한 코드를 쓸 수 있다.
             // uri(uriBuilder -> ...)로 경로와 쿼리 파라미터를 설정한다.
             // HTTP 전송 오류(non-2xx, 연결 실패, 타임아웃 등)도 여기서 발생하며,
             // 아래 catch 블록에서 ExternalApiException으로 감싸진다.
+            //
+            // serviceKey는 다른 파라미터들과 달리 uriBuilder.queryParam(...)에 맡기지 않는다.
+            // data.go.kr의 "Encoding" 버전 서비스키는 발급 시점에 이미 퍼센트 인코딩된 문자열이다
+            // (예: '+'가 "%2B"로, '/'가 "%2F"로 되어 있음). uriBuilder.queryParam은 값을 항상 다시
+            // 한 번 인코딩하므로, 이미 인코딩된 키를 그대로 넘기면 "%2B"가 "%252B"로 이중 인코딩되어
+            // 키 자체가 깨진다(실제 API가 SERVICE_KEY_IS_NOT_REGISTERED_ERROR를 반환하는 원인이었다).
+            // 그래서 나머지 파라미터로 URI를 먼저 정상적으로 인코딩해 만든 뒤, serviceKey 문자열만
+            // 손대지 않고 그대로 뒤에 이어붙인다.
             String responseBody = restClient.get()
                     .uri(uriBuilder -> {
                         var builder = uriBuilder.path(path);
-                        allParams.forEach(builder::queryParam);
-                        return builder.build();
+                        otherParams.forEach(builder::queryParam);
+                        URI withoutServiceKey = builder.build();
+                        String separator = withoutServiceKey.getQuery() == null ? "?" : "&";
+                        // URI.create(...)는 이미 완성된 문자열을 그대로 파싱만 할 뿐 추가로
+                        // 인코딩하지 않으므로, serviceKey는 원본 그대로 요청에 실린다.
+                        return URI.create(withoutServiceKey.toString() + separator + "serviceKey=" + serviceKey);
                     })
                     .retrieve()
                     .body(String.class);
 
             // JSON 응답을 DataGoKrEnvelope로 파싱한다.
             DataGoKrEnvelope envelope = objectMapper.readValue(responseBody, DataGoKrEnvelope.class);
-            // resultCode가 "00"이 아니면 에러 응답이다. 예외를 던진다.
+            // resultCode가 "0"이 아니면 에러 응답이다. 예외를 던진다.
+            // (실제 API의 성공 코드는 "0" 한 글자다 — 공공데이터포털 문서 관례인 "00"이 아니다.)
             if (envelope.response() == null || envelope.response().header() == null
-                    || !"00".equals(envelope.response().header().resultCode())) {
+                    || !"0".equals(envelope.response().header().resultCode())) {
                 String msg = envelope.response() != null && envelope.response().header() != null
                         ? envelope.response().header().resultMsg() : "unknown";
                 throw new ExternalApiException("공공데이터포털 응답 오류: " + msg);
             }
-            // resultCode가 "00"이면 성공. 아이템을 추출해서 반환한다.
+            // resultCode가 "0"이면 성공. 아이템을 추출해서 반환한다.
             return extractItems(envelope, itemType);
         } catch (ExternalApiException e) {
             // ExternalApiException이면 그대로 던진다. (이미 정의된 예외)
