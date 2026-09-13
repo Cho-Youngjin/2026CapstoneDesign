@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -24,7 +26,12 @@ public class ExchangeRate {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "currency_code", nullable = false, unique = true, length = 3)
+    // CHAR(3)로 매핑하는 이유는 Country.isoAlpha2/isoAlpha3 필드의 주석과 동일하다 —
+    // columnDefinition만으로는 DDL 생성 문자열만 바뀌고 Hibernate 내부 타입 코드는 VARCHAR로
+    // 남아, ddl-auto=validate가 실제 DB의 CHAR(bpchar) 컬럼과 비교할 때 SchemaManagementException을
+    // 던진다. @JdbcTypeCode(SqlTypes.CHAR)를 함께 붙여야 검증이 통과한다.
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "currency_code", nullable = false, unique = true, length = 3, columnDefinition = "CHAR(3)")
     private String currencyCode;
 
     @Column(name = "krw_rate", nullable = false, precision = 12, scale = 4)
