@@ -33,6 +33,21 @@ class VisaJudgementServiceTest {
     }
 
     @Test
+    void returnDate가_departDate보다_앞서면_stayDays가_음수이므로_UNVERIFIED다() {
+        // 컨트롤러 레벨(CreateTripRequest의 @AssertTrue)이 이미 이런 요청을 400으로 막지만,
+        // judge()는 다른 호출부를 신뢰하지 않는 두 번째 방어선으로서 스스로도 불가능한 날짜
+        // 범위에 대해 "무비자 OK" 같은 판정을 조용히 내놓으면 안 된다.
+        VisaRequirement req = requirement(false, 45, 6);
+
+        VisaJudgement judgement = service.judge(req,
+                LocalDate.of(2027, 1, 9), LocalDate.of(2026, 12, 20),
+                LocalDate.of(2028, 1, 1));
+
+        assertThat(judgement.verdict()).isEqualTo(VisaVerdict.UNVERIFIED);
+        assertThat(judgement.stayDays()).isLessThan(0);
+    }
+
+    @Test
     void visa_free_days가_null이면_무조건_UNVERIFIED() {
         VisaRequirement req = requirement(false, null, null);
 

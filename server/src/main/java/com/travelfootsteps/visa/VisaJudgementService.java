@@ -15,6 +15,14 @@ public class VisaJudgementService {
                                 LocalDate returnDate, LocalDate passportExpiry) {
         int stayDays = (int) ChronoUnit.DAYS.between(departDate, returnDate);
 
+        // 두 번째, 독립적인 방어선: 컨트롤러 레벨의 @AssertTrue(CreateTripRequest)가 이미
+        // returnDate < departDate를 400으로 막지만, 이 서비스는 공개 도메인 서비스이고 다른
+        // 호출부가 그 검증을 거치지 않고 부를 수도 있다 — 호출부를 신뢰하지 않고 이 메서드
+        // 스스로도 불가능한 날짜 범위에 대해 "무비자 OK" 같은 판정을 조용히 내놓지 않는다.
+        if (stayDays < 0) {
+            return new VisaJudgement(VisaVerdict.UNVERIFIED, stayDays, null, false, null, null);
+        }
+
         Integer visaFreeDays = requirement != null ? requirement.getVisaFreeDays() : null;
         VisaVerdict verdict = determineVerdict(requirement, stayDays, visaFreeDays);
 

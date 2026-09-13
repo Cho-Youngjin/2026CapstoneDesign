@@ -141,6 +141,19 @@ class TripControllerTest {
     }
 
     @Test
+    void returnDate가_departDate보다_앞서면_400() throws Exception {
+        givenVietnamVisaFree45Days();
+        var request = new CreateTripRequest("VN",
+                LocalDate.of(2027, 1, 9), LocalDate.of(2026, 12, 20), LocalDate.of(2028, 1, 1));
+
+        mockMvc.perform(post("/api/trips")
+                        .header("Authorization", "Bearer token-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void 존재하지_않는_국가로_생성하면_404() throws Exception {
         var request = new CreateTripRequest("ZZ",
                 LocalDate.of(2026, 12, 20), LocalDate.of(2027, 1, 9), LocalDate.of(2027, 3, 15));
