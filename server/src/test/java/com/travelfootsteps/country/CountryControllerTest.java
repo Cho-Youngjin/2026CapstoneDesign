@@ -67,4 +67,28 @@ class CountryControllerTest {
         mockMvc.perform(get("/api/health"))
                 .andExpect(status().isOk());
     }
+
+    @Test
+    void 국가_상세_정보를_camelCase로_반환한다() throws Exception {
+        mockMvc.perform(get("/api/countries/VN").header("Authorization", "Bearer valid-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isoAlpha2").value("VN"))
+                .andExpect(jsonPath("$.nameKo").value("베트남"))
+                .andExpect(jsonPath("$.tier").value("A"));
+    }
+
+    @Test
+    void 존재하지_않는_국가_상세는_404() throws Exception {
+        mockMvc.perform(get("/api/countries/ZZ").header("Authorization", "Bearer valid-token"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void 준비물_체크리스트는_공통_템플릿_8개를_우선순위순으로_반환한다() throws Exception {
+        mockMvc.perform(get("/api/countries/VN/checklist").header("Authorization", "Bearer valid-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(8))
+                .andExpect(jsonPath("$[0].title").value("플러그 어댑터 준비"))
+                .andExpect(jsonPath("$[0].category").value("POWER"));
+    }
 }

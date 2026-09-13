@@ -17,6 +17,7 @@ server/bin/
 **/*.keystore
 .env
 .env.*
+!**/.env.example
 
 # IDE
 .idea/

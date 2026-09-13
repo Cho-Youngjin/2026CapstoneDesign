@@ -1,4 +1,8 @@
 spring:
+  # server/.env가 있으면 자바 프로퍼티 형식(KEY=VALUE)으로 읽어와 아래 ${...} 값들을 채운다.
+  # optional: 파일이 없어도(CI, 팀원 최초 클론 등) 부팅에 실패하지 않는다. .env 자체는 .gitignore 대상.
+  config:
+    import: optional:file:.env[.properties]
   application:
     name: travel-footsteps-server
   datasource:
@@ -14,6 +18,15 @@ spring:
 
 firebase:
   service-account-path: classpath:firebase-service-account.json
+
+data-go-kr:
+  service-key: ${DATA_GO_KR_SERVICE_KEY:}
+
+google:
+  server-api-key: ${GOOGLE_SERVER_API_KEY:}
+
+korea-exim:
+  api-key: ${KOREA_EXIM_API_KEY:}
 
 server:
   port: 8080
