@@ -42,6 +42,14 @@ public class SecurityConfig {
                         // 다시 요청을 보내는 내부 ERROR 디스패치도 포함된다. 이 줄이 없으면 그 ERROR
                         // 디스패치까지 아래 denyAll()에 걸려서, 진짜 500 에러가 403으로 둔갑해버린다.
                         .requestMatchers("/error").permitAll()
+                        // WebSocket(STOMP) 핸드셰이크 엔드포인트. /api/** 패턴 밖이라 원래도 여기서
+                        // 막히거나 뚫리거나 둘 중 하나인데, 실제 사용자 인증은 이 HTTP 레벨이 아니라
+                        // STOMP CONNECT 프레임 단계(Task 10의 StompAuthChannelInterceptor, Authorization
+                        // 네이티브 헤더 검증)에서 별도로 수행되므로 이 HTTP Upgrade 요청 자체는 통과시킨다.
+                        // permitAll이라고 해서 인증이 생략되는 게 아니다 — "HTTP 핸드셰이크 레벨에는
+                        // 검사할 필요가 없고, 그 다음 계층(STOMP)에서 반드시 검사한다"는 역할 분담이다.
+                        // /ws/** 로만 정확히 스코프돼 있어 /api/** 인증 요구사항에는 영향이 없다.
+                        .requestMatchers("/ws/**").permitAll()
                         .anyRequest().denyAll())                      // 정의되지 않은 나머지는 전부 거부
                 // 인증이 안 된 요청이 위 authenticated() 규칙에 걸리면, 스프링 시큐리티가 이 지점에서
                 // 401 Unauthorized로 응답하도록 지정한다. FirebaseAuthFilter는 401을 직접 만들지 않고
