@@ -10,6 +10,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api")
@@ -35,8 +37,10 @@ public class FootstepsSyncController {
 
     @GetMapping("/checkins")
     public List<CheckinResponse> listCheckins(Authentication authentication) {
-        return checkinRepository.findByFirebaseUid(authentication.getName()).stream()
-                .map(CheckinResponse::from)
+        List<Checkin> checkins = checkinRepository.findByFirebaseUid(authentication.getName());
+        Map<Long, String> isoByCountryId = isoByCountryId(checkins.stream().map(Checkin::getCountryId).toList());
+        return checkins.stream()
+                .map(checkin -> CheckinResponse.from(checkin, isoByCountryId.get(checkin.getCountryId())))
                 .toList();
     }
 
@@ -55,8 +59,10 @@ public class FootstepsSyncController {
 
     @GetMapping("/daily-steps")
     public List<DailyStepResponse> listDailySteps(Authentication authentication) {
-        return dailyStepRepository.findByFirebaseUid(authentication.getName()).stream()
-                .map(DailyStepResponse::from)
+        List<DailyStep> dailySteps = dailyStepRepository.findByFirebaseUid(authentication.getName());
+        Map<Long, String> isoByCountryId = isoByCountryId(dailySteps.stream().map(DailyStep::getCountryId).toList());
+        return dailySteps.stream()
+                .map(dailyStep -> DailyStepResponse.from(dailyStep, isoByCountryId.get(dailyStep.getCountryId())))
                 .toList();
     }
 
@@ -68,13 +74,25 @@ public class FootstepsSyncController {
                         item.lat(), item.lng(), countryId, item.recordedAt(), item.source())));
     }
 
+    // OSIV(open-in-view)가 꺼져 있어 findBy...()가 반환하는 시점에 이미 영속성 컨텍스트가
+    // 닫혀 있다 — existing은 detached 상태이므로, mutate만 하고 save()를 호출하지 않으면
+    // 메모리상의 객체만 바뀌고 DB에는 반영되지 않는다(TripController.markTaskDone()과 같은
+    // 패턴으로 명시적 save()가 필요하다).
     private DailyStep upsertDailyStep(String uid, LocalDate date, Long countryId, int stepCount) {
         return dailyStepRepository.findByFirebaseUidAndDateAndCountryId(uid, date, countryId)
                 .map(existing -> {
                     existing.updateStepCount(stepCount);
-                    return existing;
+                    return dailyStepRepository.save(existing);
                 })
                 .orElseGet(() -> dailyStepRepository.save(DailyStep.of(uid, date, countryId, stepCount)));
+    }
+
+    // 복원 조회 응답에 countryIso를 채우기 위한 country_id -> iso_alpha2 매핑을 한 번의 쿼리로
+    // 만든다(N+1 방지) — CountryController/CountryResponse가 내부 PK를 아예 노출하지 않는 것과
+    // 같은 이유로, 이 두 응답도 PK 대신 ISO 코드를 돌려줘야 클라이언트가 국가 정보를 복원할 수 있다.
+    private Map<Long, String> isoByCountryId(List<Long> countryIds) {
+        return countryRepository.findAllById(countryIds.stream().distinct().toList()).stream()
+                .collect(Collectors.toMap(Country::getId, Country::getIsoAlpha2));
     }
 
     private Country findCountryOrThrow(String iso2) {
