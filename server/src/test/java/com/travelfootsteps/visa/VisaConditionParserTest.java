@@ -23,11 +23,13 @@ class VisaConditionParserTest {
     @Test
     void 실제_API_샘플_인도_X_비자필요() {
         // 실제 라이브 API 응답(2026-09-13 검증): gnrl_pspt_visa_yn=Y(무의미), gnrl_pspt_visa_cn="X"
+        // "X"는 "몰라서 없음"이 아니라 "무비자 불가"라는 확정 신호이므로 visaFreeDays는
+        // null(파싱 실패)이 아니라 0(확정된 0일)이어야 한다 — 2026-09-13 재검토 반영.
         ParsedVisaCondition result = parser.parse("X",
                 "외교관여권 소지자 : 협정 \n 관용여권 소지자 : 협정", "");
 
         assertThat(result.visaRequired()).isTrue();
-        assertThat(result.visaFreeDays()).isNull();
+        assertThat(result.visaFreeDays()).isEqualTo(0);
     }
 
     @Test
@@ -41,15 +43,25 @@ class VisaConditionParserTest {
     }
 
     @Test
-    void 무비자_일수를_뽑아내지_못하면_비자required_이고_freeDays는_null이다() {
-        // "X" 리터럴처럼 일수 패턴이 전혀 없는 문구는 파싱 실패로 취급해 비자 필요로 간주한다.
-        // 예전에는 visaFreeDays를 강제로 0으로 채웠지만(별도 visaYn 파라미터가 있던 시절의
-        // NPE 회피용 분기), 그 분기는 더 이상 존재하지 않는다 — null은 이 클래스 전체에서
-        // "몰라서 없음"을 뜻하므로, 비자가 필요할 때도 그 의미를 그대로 유지한다.
-        ParsedVisaCondition result = parser.parse("X", null, null);
+    void 일수_패턴이_전혀_없는_문구는_파싱_실패로_비자required_이고_freeDays는_null이다() {
+        // "X"가 아닌, 진짜로 알 수 없는 문구는 여전히 null(파싱 실패)로 남아야 한다 — "X"만
+        // 확정 신호(0)로 특별 취급하고, 그 밖의 미확정 케이스의 null 의미는 그대로 유지한다.
+        ParsedVisaCondition result = parser.parse("자료없음(비X)", null, null);
 
         assertThat(result.visaRequired()).isTrue();
         assertThat(result.visaFreeDays()).isNull();
+    }
+
+    @Test
+    void X는_evidenceText에_숫자가_섞여있어도_무비자_오판정되지_않고_확정적으로_비자필요다() {
+        // 2026-09-13 재검토에서 지적된 잠재 위험: "X" 국가의 evidenceText에 우연히 숫자+"일"
+        // 패턴이 섞여 있으면(현재 실제 65개 X 국가 중 0개지만 데이터 갱신 시 생길 수 있는 위험)
+        // extractFreeDays가 그 숫자를 주워서 visaRequired=false(무비자 OK)로 오판정될 수 있었다.
+        // "X"를 evidenceText 탐색보다 먼저 분기하므로 이런 false-positive가 원천 차단되어야 한다.
+        ParsedVisaCondition result = parser.parse("X", "과거 협정상 30일 체류가 언급된 적이 있으나 폐기됨", null);
+
+        assertThat(result.visaRequired()).isTrue();
+        assertThat(result.visaFreeDays()).isEqualTo(0);
     }
 
     @Test

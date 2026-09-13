@@ -64,9 +64,18 @@ public class VisaConditionParser {
      * 190/190 전부 "Y"였다(비자가 반드시 필요한 아프가니스탄·소말리아·시리아·인도까지 포함).
      * 즉 이 필드는 "비자 필요 여부"라는 이름과 달리 실제로는 아무 신호도 담고 있지 않다.
      * 진짜 신호는 gnrl_pspt_visa_cn에 있다 — 무비자 불가 국가는 정확히 "X" 리터럴이고,
-     * 무비자 가능 국가는 일수를 나타내는 자유 텍스트다(예: "45일"). 따라서 visaRequired는
-     * "며칠 무비자로 체류 가능한지 텍스트에서 실제로 뽑아냈는가"로 판단한다 — 못 뽑았으면
-     * (= "X"이거나 파싱 불가한 문구이거나) 비자가 필요하다고 간주한다.
+     * 무비자 가능 국가는 일수를 나타내는 자유 텍스트다(예: "45일").
+     *
+     * <p><b>2026-09-13 재검토로 추가된 "X" 우선 분기</b>: "X"는 "몰라서 없음"이 아니라
+     * "무비자 불가"라는 확정 신호이므로, evidenceText를 뒤져 일수를 뽑기 전에 먼저 분기해서
+     * visaRequired=true, visaFreeDays=0(파싱 실패의 null과 구분되는 "확정된 0일")으로 즉시
+     * 확정한다. 이 분기가 없으면 두 가지 문제가 생긴다: (1)
+     * {@code VisaJudgementService.determineVerdict()}의 최우선 규칙이 visaFreeDays==null이면
+     * 무조건 UNVERIFIED로 처리하므로, "X"가 계속 null을 반환하는 한 VISA_REQUIRED 분기 자체가
+     * 영원히 도달 불가능해진다(인도처럼 실제 비자가 필요한 나라도 UNVERIFIED로 잘못 나온다).
+     * (2) evidenceText에 우연히 숫자+"일" 패턴이 섞여 있으면(현재 65개 X 국가 중 0개지만,
+     * 데이터가 갱신되면 생길 수 있는 잠재 위험) visaFreeDays가 non-null이 되어 무비자 OK로
+     * 오판정될 수 있다. "X"를 최우선으로 분기하면 두 문제 모두 원천 차단된다.
      *
      * @param visaCn 비자 조건에 대한 자연어 설명 (예: "45일", 또는 무비자 불가 시 "X").
      * @param evidenceText 근거 문구(있으면). visaCn과 함께 무비자 일수 후보를 찾는 데 쓰인다.
@@ -74,12 +83,16 @@ public class VisaConditionParser {
      * @return 파싱 결과.
      */
     public ParsedVisaCondition parse(String visaCn, String evidenceText, String remark) {
-        Integer visaFreeDays = extractFreeDays(join(visaCn, evidenceText));
-        boolean visaRequired = (visaFreeDays == null);
-
         Integer passportValidityMonths = extractPassportValidityMonths(join(visaCn, remark, evidenceText));
 
-        return new ParsedVisaCondition(visaRequired, visaFreeDays, passportValidityMonths);
+        if ("X".equalsIgnoreCase(visaCn == null ? "" : visaCn.trim())) {
+            // 확정 신호: 무비자 입국 불가. 0은 "확정된 0일"이고 null("몰라서 없음")과 구분된다 —
+            // evidenceText를 뒤져 일수 후보를 찾는 아래 로직 자체를 아예 타지 않는다.
+            return new ParsedVisaCondition(true, 0, passportValidityMonths);
+        }
+
+        Integer visaFreeDays = extractFreeDays(join(visaCn, evidenceText));
+        return new ParsedVisaCondition(visaFreeDays == null, visaFreeDays, passportValidityMonths);
     }
 
     private Integer extractFreeDays(String text) {

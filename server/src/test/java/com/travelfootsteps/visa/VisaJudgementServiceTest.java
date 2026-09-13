@@ -19,6 +19,28 @@ class VisaJudgementServiceTest {
     }
 
     @Test
+    void 인도_X_실제_API_샘플이_파서를_거쳐_judge까지_이어지면_VISA_REQUIRED다() {
+        // 2026-09-13 재검토로 추가: VisaConditionParserTest는 파서 단위로만 "X" -> visaRequired
+        // 를 검증했는데, judge()와 연결된 통합 검증이 없었다. VisaConditionParser("X"는 확정
+        // 신호이므로 evidenceText를 뒤지기 전에 visaFreeDays=0으로 즉시 확정)와
+        // VisaJudgementService.determineVerdict()(visaFreeDays==null이면 무조건 UNVERIFIED)를
+        // 실제로 이어 붙였을 때, "X" 국가가 UNVERIFIED가 아니라 진짜로 VISA_REQUIRED에
+        // 도달하는지 엔드투엔드로 확인한다 — 이 연결 지점이 이번 재검토에서 지적된 버그(모든
+        // visaRequired==true 케이스가 필연적으로 visaFreeDays==null이 되어 VISA_REQUIRED가
+        // 영원히 도달 불가능해지는 문제)의 핵심이다.
+        ParsedVisaCondition parsed = new VisaConditionParser().parse("X",
+                "외교관여권 소지자 : 협정 \n 관용여권 소지자 : 협정", "");
+        VisaRequirement req = VisaRequirement.newUnverified(1L, "GENERAL");
+        req.applyCollectedData(parsed, "X", null, null, OffsetDateTime.now());
+
+        VisaJudgement judgement = service.judge(req,
+                LocalDate.of(2026, 12, 20), LocalDate.of(2027, 1, 9),
+                LocalDate.of(2028, 1, 1));
+
+        assertThat(judgement.verdict()).isEqualTo(VisaVerdict.VISA_REQUIRED);
+    }
+
+    @Test
     void 스펙_예시_베트남_20일_체류_45일_무비자_여권잔여85일_6개월요건_미달() {
         // 스펙 §6-① 예시: 2026-12-20 출발, 20일 체류, 여권만료 2027-03-15
         VisaRequirement req = requirement(false, 45, 6);
