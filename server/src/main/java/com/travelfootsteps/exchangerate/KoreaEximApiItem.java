@@ -7,6 +7,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 // data.go.kr과 달리 이 API는 response/header/body 같은 "봉투" 구조 없이 배열을 최상위로
 // 바로 반환한다 — 그래서 DataGoKrEnvelope 같은 감싸는 클래스가 필요 없다.
 //
+// TODO/NOTE(검증 필요): result/cur_unit/deal_bas_r 필드명과 result=1(성공) 코드 의미는
+// 공개 문서·자료를 근거로 한 추정이며, 실제 KOREA_EXIM_API_KEY로 라이브 호출해 확인한 적은
+// 없다(Task 9 작업 시점에 유효한 키가 없었음). 실제 키가 생기면 한 번 호출해 이 필드명과
+// result 코드 의미(특히 인증키 오류/한도 초과 시의 응답 형태)를 확인하고 이 주석을 지울 것.
+//
 // @JsonIgnoreProperties(ignoreUnknown = true): 실제 응답에는 cur_nm(국가/통화명), ttb, tts,
 // bkpr 등 이 태스크가 쓰지 않는 필드가 더 있다. 여기 선언하지 않은 필드는 무시하고, 필요한
 // 세 필드만 골라서 매핑한다.

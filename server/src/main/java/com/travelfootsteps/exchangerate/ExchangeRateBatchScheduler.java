@@ -46,6 +46,8 @@ public class ExchangeRateBatchScheduler {
             for (KoreaEximApiItem item : items) {
                 // result != 1: 인증키 오류, DATA코드 오류, 일일 호출 한도 초과 등 그 항목
                 // 자체가 유효한 환율 데이터가 아니라는 뜻이다. 건너뛴다.
+                // TODO/NOTE(검증 필요): result=1(성공) 판정 기준은 KoreaEximApiItem 주석 참고 —
+                // 실제 API 응답으로 확인된 적이 없다.
                 if (item.result() != 1) {
                     continue;
                 }
