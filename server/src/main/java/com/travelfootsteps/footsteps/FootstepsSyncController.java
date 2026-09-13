@@ -2,6 +2,7 @@ package com.travelfootsteps.footsteps;
 
 import com.travelfootsteps.country.Country;
 import com.travelfootsteps.country.CountryRepository;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -23,7 +24,7 @@ public class FootstepsSyncController {
     private final DailyStepRepository dailyStepRepository;
 
     @PostMapping("/checkins")
-    public List<SyncResultItem> syncCheckins(@RequestBody List<CheckinSyncRequest> items,
+    public List<SyncResultItem> syncCheckins(@RequestBody @Valid List<CheckinSyncRequest> items,
                                               Authentication authentication) {
         String uid = authentication.getName();
         return items.stream()
@@ -45,7 +46,7 @@ public class FootstepsSyncController {
     }
 
     @PostMapping("/daily-steps")
-    public List<SyncResultItem> syncDailySteps(@RequestBody List<DailyStepSyncRequest> items,
+    public List<SyncResultItem> syncDailySteps(@RequestBody @Valid List<DailyStepSyncRequest> items,
                                                 Authentication authentication) {
         String uid = authentication.getName();
         return items.stream()
