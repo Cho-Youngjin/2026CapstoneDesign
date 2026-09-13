@@ -19,8 +19,10 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -71,6 +73,7 @@ class TripControllerTest {
     @Autowired ObjectMapper objectMapper;
     @Autowired CountryRepository countryRepository;
     @Autowired VisaRequirementRepository visaRequirementRepository;
+    @Autowired JdbcTemplate jdbcTemplate;
 
     private Country vietnam() {
         return countryRepository.findByIsoAlpha2("VN").orElseThrow();
@@ -255,5 +258,129 @@ class TripControllerTest {
                 .andExpect(jsonPath("$.visaResult.verdict").value("VISA_REQUIRED"))
                 .andExpect(jsonPath("$.judgementStale").value(false))
                 .andExpect(jsonPath("$.tasks[?(@.title=='비자 신청')]").exists());
+    }
+
+    // ─── 준비물 체크리스트(trip_checklist, 2026-09-12 리뷰로 추가) ─────────────────────
+
+    @Test
+    void 여행_생성시_국가_공통_체크리스트_8개가_우선순위순으로_복사된다() throws Exception {
+        givenVietnamVisaFree45Days();
+        Long tripId = createTrip("token-a", "VN",
+                LocalDate.of(2026, 12, 20), LocalDate.of(2027, 1, 9), LocalDate.of(2028, 1, 1));
+
+        mockMvc.perform(get("/api/trips/" + tripId + "/checklist").header("Authorization", "Bearer token-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(8))
+                .andExpect(jsonPath("$[0].title").value("플러그 어댑터 준비"))
+                .andExpect(jsonPath("$[0].category").value("POWER"))
+                .andExpect(jsonPath("$[0].checked").value(false));
+    }
+
+    /**
+     * checklist_template(공통 템플릿)이 여행 생성 이후에 바뀌어도(항목 제목 변경 + 새 항목
+     * 추가) 이미 만든 여행의 trip_checklist는 영향받지 않는지 검증한다 — Trip의 판정 스냅샷을
+     * 검증하는 {@code 조회는_생성_시점의_스냅샷을...} 테스트와 같은 원칙이다.
+     *
+     * <p>이 테스트만 메서드 단위 {@code @Transactional}을 붙여서, checklist_template에 대한
+     * 변경(UPDATE/INSERT)이 테스트가 끝나면 롤백되어 다른 테스트(공통 템플릿이 정확히 8개라고
+     * 가정하는 테스트들 포함)를 오염시키지 않게 한다. MockMvc 호출은 같은 스레드에서 실행되므로
+     * 컨트롤러의 @Transactional(REQUIRED 전파)이 이 테스트의 트랜잭션에 그대로 합류한다.
+     */
+    @Test
+    @Transactional
+    void 체크리스트는_생성_시점_스냅샷이라_이후_공통_템플릿_변경에_영향받지_않는다() throws Exception {
+        givenVietnamVisaFree45Days();
+        Long tripId = createTrip("token-a", "VN",
+                LocalDate.of(2026, 12, 20), LocalDate.of(2027, 1, 9), LocalDate.of(2028, 1, 1));
+
+        // 생성 직후 스냅샷을 미리 확인해 둔다.
+        mockMvc.perform(get("/api/trips/" + tripId + "/checklist").header("Authorization", "Bearer token-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(8))
+                .andExpect(jsonPath("$[0].title").value("플러그 어댑터 준비"));
+
+        // 공통 템플릿을 바꾼다: 기존 항목 제목 변경 + 새 공통 항목 추가(실제로는 관리자가 R4
+        // 검증 작업 중 이렇게 갱신하는 상황을 흉내낸 것이다).
+        jdbcTemplate.update(
+                "UPDATE checklist_template SET title = ? WHERE country_id IS NULL AND title = ?",
+                "플러그 어댑터 준비(수정됨)", "플러그 어댑터 준비");
+        jdbcTemplate.update(
+                "INSERT INTO checklist_template (country_id, category, title, description, priority) " +
+                        "VALUES (NULL, 'ETC', '나중에_추가된_공통_항목', NULL, 999)");
+
+        // 이미 만든 여행의 체크리스트는 개수도, 첫 항목 제목도 그대로여야 한다 — 방금 추가한
+        // 새 공통 항목이 섞여 들어오면 안 된다.
+        mockMvc.perform(get("/api/trips/" + tripId + "/checklist").header("Authorization", "Bearer token-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(8))
+                .andExpect(jsonPath("$[0].title").value("플러그 어댑터 준비"))
+                .andExpect(jsonPath("$[?(@.title=='나중에_추가된_공통_항목')]").doesNotExist());
+
+        // 반면 "지금부터 새로" 만드는 여행은 바뀐 공통 템플릿을 그대로 반영해야 한다 — 즉
+        // 스냅샷이 고정되는 것은 "이미 만든 여행"뿐이지, 템플릿 자체가 얼어붙는 게 아니다.
+        Long newTripId = createTrip("token-a", "VN",
+                LocalDate.of(2026, 12, 21), LocalDate.of(2027, 1, 10), LocalDate.of(2028, 1, 1));
+        mockMvc.perform(get("/api/trips/" + newTripId + "/checklist").header("Authorization", "Bearer token-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(9))
+                .andExpect(jsonPath("$[?(@.title=='나중에_추가된_공통_항목')]").exists());
+    }
+
+    @Test
+    void 체크리스트_항목을_체크하면_checked가_true로_바뀌고_다시_해제하면_false로_바뀐다() throws Exception {
+        givenVietnamVisaFree45Days();
+        Long tripId = createTrip("token-a", "VN",
+                LocalDate.of(2026, 12, 20), LocalDate.of(2027, 1, 9), LocalDate.of(2028, 1, 1));
+
+        String listBody = mockMvc.perform(get("/api/trips/" + tripId + "/checklist")
+                        .header("Authorization", "Bearer token-a"))
+                .andReturn().getResponse().getContentAsString();
+        Long itemId = objectMapper.readTree(listBody).get(0).get("id").asLong();
+
+        String checkedBody = mockMvc.perform(post("/api/trips/" + tripId + "/checklist/" + itemId + "/check")
+                        .header("Authorization", "Bearer token-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"checked\": true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.checked").value(true))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(checkedBody).get("id").asLong()).isEqualTo(itemId);
+
+        // 체크 상태는 정렬 기준(priority)에 영향을 주지 않으므로, 방금 체크한 항목은 여전히
+        // 목록의 첫 번째(우선순위가 가장 높은) 자리에 checked=true로 남아 있어야 한다.
+        String reListedBody = mockMvc.perform(get("/api/trips/" + tripId + "/checklist")
+                        .header("Authorization", "Bearer token-a"))
+                .andReturn().getResponse().getContentAsString();
+        JsonNode firstItem = objectMapper.readTree(reListedBody).get(0);
+        assertThat(firstItem.get("id").asLong()).isEqualTo(itemId);
+        assertThat(firstItem.get("checked").asBoolean()).isTrue();
+
+        mockMvc.perform(post("/api/trips/" + tripId + "/checklist/" + itemId + "/check")
+                        .header("Authorization", "Bearer token-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"checked\": false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.checked").value(false));
+    }
+
+    @Test
+    void 다른_사용자의_체크리스트_조회와_체크는_404() throws Exception {
+        givenVietnamVisaFree45Days();
+        Long tripId = createTrip("token-a", "VN",
+                LocalDate.of(2026, 12, 20), LocalDate.of(2027, 1, 9), LocalDate.of(2028, 1, 1));
+
+        mockMvc.perform(get("/api/trips/" + tripId + "/checklist").header("Authorization", "Bearer token-b"))
+                .andExpect(status().isNotFound());
+
+        String listBody = mockMvc.perform(get("/api/trips/" + tripId + "/checklist")
+                        .header("Authorization", "Bearer token-a"))
+                .andReturn().getResponse().getContentAsString();
+        Long itemId = objectMapper.readTree(listBody).get(0).get("id").asLong();
+
+        mockMvc.perform(post("/api/trips/" + tripId + "/checklist/" + itemId + "/check")
+                        .header("Authorization", "Bearer token-b")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"checked\": true}"))
+                .andExpect(status().isNotFound());
     }
 }

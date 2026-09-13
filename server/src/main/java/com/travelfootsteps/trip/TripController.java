@@ -1,5 +1,6 @@
 package com.travelfootsteps.trip;
 
+import com.travelfootsteps.country.ChecklistTemplateRepository;
 import com.travelfootsteps.country.Country;
 import com.travelfootsteps.country.CountryRepository;
 import com.travelfootsteps.visa.VisaJudgement;
@@ -38,6 +39,8 @@ public class TripController {
     private final VisaRequirementRepository visaRequirementRepository;
     private final TripRepository tripRepository;
     private final TripTaskRepository tripTaskRepository;
+    private final ChecklistTemplateRepository checklistTemplateRepository;
+    private final TripChecklistItemRepository tripChecklistItemRepository;
 
     // 주의: VisaJudgementService와 ScheduleGenerator는 둘 다 (Task 5의 설계상) 스프링 빈이
     // 아니다 — DB에도 HTTP에도 접근하지 않는 순수 로직이라 스프링 없이 바로 단위 테스트가
@@ -47,10 +50,10 @@ public class TripController {
     private final VisaJudgementService visaJudgementService = new VisaJudgementService();
     private final ScheduleGenerator scheduleGenerator = new ScheduleGenerator();
 
-    // @Transactional: 여행 한 건 저장 + 준비물 여러 건 저장을 하나의 DB 트랜잭션으로 묶는다.
-    // 준비물을 만드는 도중 하나라도 실패하면(예: DB 커넥션 문제) 방금 저장한 trip과 그 전까지
-    // 저장한 trip_task까지 전부 롤백되어, "여행은 있는데 준비물 일부만 있는" 반쪽짜리 상태가
-    // DB에 남지 않는다.
+    // @Transactional: 여행 한 건 저장 + 준비물 여러 건 저장 + 체크리스트 스냅샷 복사를 하나의
+    // DB 트랜잭션으로 묶는다. 이 중 하나라도 실패하면(예: DB 커넥션 문제) 방금 저장한 trip과
+    // 그 전까지 저장한 trip_task/trip_checklist까지 전부 롤백되어, "여행은 있는데 준비물이나
+    // 체크리스트 일부만 있는" 반쪽짜리 상태가 DB에 남지 않는다.
     @Transactional
     @PostMapping
     public TripResponse create(@Valid @RequestBody CreateTripRequest request, Authentication authentication) {
@@ -67,6 +70,12 @@ public class TripController {
         trip = tripRepository.save(trip);
 
         List<TripTask> tasks = generateAndSaveTasks(trip, request.departDate(), judgement);
+
+        // 준비물 체크리스트도 여행 생성 시점에 딱 한 번 스냅샷으로 복사해 둔다(TripChecklistItem
+        // 클래스 상단 주석 참고) — 이후 checklist_template이 바뀌어도 이 여행의 목록은 영향받지
+        // 않는다. 판정 스냅샷과 달리 별도 새로고침 대상이 아니므로 refresh()에서는 다시 만들지
+        // 않는다.
+        seedChecklist(trip, country);
 
         // 방금 막 스냅샷을 만들었으므로 이 시점의 staleness는 항상 false여야 정상이다. 그래도
         // "현재 DB 상태와 스냅샷을 비교한다"는 동일한 로직을 GET/refresh와 공유하기 위해
@@ -125,6 +134,41 @@ public class TripController {
         task.markDone();
         tripTaskRepository.save(task);
         return TripTaskResponse.from(task);
+    }
+
+    // GET /api/trips/{id}/checklist — 이 여행 생성 시점에 스냅샷으로 복사해 둔 체크리스트를
+    // 우선순위순으로 돌려준다. 진행률(%)은 여기서 계산해 내려주지 않는다 — 앱이 checked 개수를
+    // 세어 계산한다(2026-09-12 리뷰, 과설계 방지).
+    @GetMapping("/{id}/checklist")
+    public List<TripChecklistItemResponse> checklist(@PathVariable Long id, Authentication authentication) {
+        Trip trip = findOwnedTripOrThrow(id, authentication.getName());
+        return tripChecklistItemRepository.findByTripIdOrderByPriorityAsc(trip.getId())
+                .stream().map(TripChecklistItemResponse::from).toList();
+    }
+
+    // POST /api/trips/{id}/checklist/{itemId}/check — 항목 하나를 체크(또는 체크 해제)한다.
+    // markTaskDone()과 달리 요청 바디의 checked 값을 그대로 반영하므로 체크/해제 양쪽 다 이
+    // 엔드포인트 하나로 처리된다.
+    @PostMapping("/{id}/checklist/{itemId}/check")
+    public TripChecklistItemResponse checkChecklistItem(@PathVariable Long id, @PathVariable Long itemId,
+                                                          @Valid @RequestBody CheckChecklistItemRequest request,
+                                                          Authentication authentication) {
+        findOwnedTripOrThrow(id, authentication.getName());
+        TripChecklistItem item = tripChecklistItemRepository.findByIdAndTripId(itemId, id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "체크리스트 항목을 찾을 수 없습니다"));
+        item.applyChecked(request.checked());
+        tripChecklistItemRepository.save(item);
+        return TripChecklistItemResponse.from(item);
+    }
+
+    // 그 나라 전용 + 공통(country_id IS NULL) checklist_template 행을 전부 이 여행의
+    // trip_checklist 행으로 복사한다. ChecklistTemplateRepository의 쿼리를 CountryController의
+    // 미리보기 엔드포인트와 그대로 공유한다 — "이 나라에 적용되는 템플릿 전체"의 정의가 두 곳
+    // 모두 같아야 하기 때문이다.
+    private void seedChecklist(Trip trip, Country country) {
+        checklistTemplateRepository
+                .findByCountryIdIsNullOrCountryIdOrderByPriorityAsc(country.getId())
+                .forEach(template -> tripChecklistItemRepository.save(TripChecklistItem.fromTemplate(trip.getId(), template)));
     }
 
     private List<TripTask> generateAndSaveTasks(Trip trip, LocalDate departDate, VisaJudgement judgement) {
