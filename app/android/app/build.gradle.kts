@@ -1,8 +1,19 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
+}
+
+// google_maps_flutter 요구사항(Plan C Task 7 Global Constraints): Maps API 키는
+// 커밋하지 않고 local.properties(.gitignore 대상)에서 읽어 매니페스트 플레이스홀더로 넣는다.
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -20,9 +31,10 @@ android {
         applicationId = "com.travelfootsteps.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        // firebase_auth requires minSdk 23; take the higher of that and Flutter's own default so a
-        // future Flutter upgrade that raises flutter.minSdkVersion above 23 doesn't silently regress.
-        minSdk = maxOf(flutter.minSdkVersion, 23)
+        // firebase_auth requires minSdk 23, health(Health Connect) requires minSdk 26 (Plan C
+        // Task 4). Take the highest of these and Flutter's own default so a future Flutter
+        // upgrade that raises flutter.minSdkVersion above 26 doesn't silently regress.
+        minSdk = maxOf(flutter.minSdkVersion, 26)
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
@@ -30,6 +42,8 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["MAPS_ANDROID_API_KEY"] =
+            localProperties.getProperty("MAPS_ANDROID_API_KEY", "")
     }
 
     buildTypes {

@@ -28,6 +28,14 @@ google:
 korea-exim:
   api-key: ${KOREA_EXIM_API_KEY:}
 
+# 발걸음 도로 스냅/해외 매핑용 OSRM 인스턴스(osrm/ 디렉터리, 국가별로 별도 인스턴스).
+# 주소를 비워 두면 해당 국가는 미지원으로 취급해 요청이 ok:false(스냅은 원본 좌표 반환)로 끝난다.
+osrm:
+  profile: ${OSRM_PROFILE:foot}
+  base-urls:
+    KR: ${OSRM_BASE_URL:}
+    JP: ${OSRM_BASE_URL_JP:}
+
 server:
   port: 8080
 

@@ -13,10 +13,12 @@ import 'app.dart';
 import 'core/auth/auth_providers.dart';
 import 'core/auth/dev_auth_repository.dart';
 import 'core/prefs/shared_preferences_provider.dart';
+import 'core/maps/configure_google_maps.dart';
 import 'router.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  configureGoogleMapsRendering();
   final prefs = await SharedPreferences.getInstance();
   runApp(
     ProviderScope(

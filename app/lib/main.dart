@@ -6,11 +6,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app.dart';
 import 'core/auth/auth_providers.dart';
 import 'core/prefs/shared_preferences_provider.dart';
+import 'core/maps/configure_google_maps.dart';
+import 'features/footsteps/background/footstep_workmanager.dart';
 import 'router.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  configureGoogleMapsRendering();
+  registerFootstepBackgroundTask();
   final prefs = await SharedPreferences.getInstance();
   runApp(
     ProviderScope(

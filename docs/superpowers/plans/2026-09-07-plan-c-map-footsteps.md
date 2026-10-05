@@ -104,7 +104,7 @@ app/
 
 > **왜 로컬 전용 도메인 모델을 따로 두는가**: drift는 `@DriftDatabase` 어노테이션으로 `Checkin` 같은 이름의 row 클래스를 자동 생성한다. 이름이 겹치면 혼란스러우므로, drift가 생성하는 로우 타입은 `CheckinRow`로 별칭 처리하고 `data/checkin.dart`의 `Checkin`이 앱 전체가 실제로 사용하는 타입이 되게 한다.
 
-- [ ] **Step 1: 패키지 추가** `[단위 테스트로 검증 가능]`
+- [x] **Step 1: 패키지 추가** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app
@@ -122,7 +122,7 @@ flutter:
     - assets/geo/world_countries.geojson
 ```
 
-- [ ] **Step 2: CI에 sqlite3 네이티브 라이브러리 설치 단계 추가**
+- [x] **Step 2: CI에 sqlite3 네이티브 라이브러리 설치 단계 추가**
 
 `.github/workflows/ci.yml`의 `app` job, `flutter pub get` 다음 줄에 추가한다. drift 테스트가 `NativeDatabase.memory()`로 실제 SQLite를 열기 때문에 Ubuntu 러너에 헤더가 없으면 실패한다.
 
@@ -133,7 +133,7 @@ flutter:
       - run: flutter test
 ```
 
-- [ ] **Step 3: 도메인 모델 작성**
+- [x] **Step 3: 도메인 모델 작성**
 
 `app/lib/features/footsteps/data/checkin.dart`:
 
@@ -192,7 +192,7 @@ class DailyStep {
 }
 ```
 
-- [ ] **Step 4: 실패하는 DB 테스트 작성**
+- [x] **Step 4: 실패하는 DB 테스트 작성**
 
 `app/test/db/app_database_test.dart`:
 
@@ -271,7 +271,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 5: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 5: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/db/app_database_test.dart
@@ -279,7 +279,7 @@ cd app && flutter test test/db/app_database_test.dart
 
 기대: 컴파일 실패 — `app/core/db/app_database.dart`를 찾을 수 없음.
 
-- [ ] **Step 6: drift 스키마 구현**
+- [x] **Step 6: drift 스키마 구현**
 
 `app/lib/core/db/app_database.dart`:
 
@@ -447,7 +447,7 @@ final appDatabaseProvider = Provider<AppDatabase>((ref) {
 
 > `_openConnection`의 `File(...)`은 `dart:io`의 `File`이다. 실제 구현 시 파일 상단에 `import 'dart:io';`를 추가한다 — 위 스니펫은 지면상 생략했다.
 
-- [ ] **Step 7: 코드 생성**
+- [x] **Step 7: 코드 생성**
 
 ```bash
 cd app && dart run build_runner build --delete-conflicting-outputs
@@ -455,7 +455,7 @@ cd app && dart run build_runner build --delete-conflicting-outputs
 
 기대: `app/lib/core/db/app_database.g.dart` 생성.
 
-- [ ] **Step 8: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 8: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/db/app_database_test.dart
@@ -463,7 +463,7 @@ cd app && flutter test test/db/app_database_test.dart
 
 기대: 5개 테스트 모두 PASS.
 
-- [ ] **Step 9: 커밋**
+- [x] **Step 9: 커밋**
 
 ```bash
 git add app/pubspec.yaml app/pubspec.lock .github/workflows/ci.yml \
@@ -494,7 +494,7 @@ git commit -m "feat(app): 발걸음 로컬 drift DB (checkins, daily_steps)"
 
 > **왜 `CountryResolver`를 인터페이스로 분리하는가**: `geocoding` 패키지는 네트워크·플랫폼 채널을 타므로 위젯 테스트/유닛 테스트에서 직접 호출할 수 없다. 이 경계가 없으면 Task 3(WorkManager)과 Task 5(Timeline 임포트)의 로직을 단위 테스트할 방법이 없어진다.
 
-- [ ] **Step 1: 매니페스트에 위치 권한 추가**
+- [x] **Step 1: 매니페스트에 위치 권한 추가**
 
 `app/android/app/src/main/AndroidManifest.xml`의 `<manifest>` 태그 안, `<application>` 앞에 추가한다.
 
@@ -507,7 +507,7 @@ git commit -m "feat(app): 발걸음 로컬 drift DB (checkins, daily_steps)"
 
 `ACCESS_BACKGROUND_LOCATION`은 Task 3의 WorkManager 주기 작업이 앱이 백그라운드에 있을 때도 좌표를 읽기 위해 필요하다.
 
-- [ ] **Step 2: 실패하는 `CountryResolver` 인터페이스 테스트 작성**
+- [x] **Step 2: 실패하는 `CountryResolver` 인터페이스 테스트 작성**
 
 `app/test/footsteps/country_resolver_test.dart`:
 
@@ -543,7 +543,7 @@ void main() {
 
 이 테스트는 인터페이스 계약(실패해도 예외 대신 'XX')을 회귀로 지키는 용도다. `CountryResolver`가 아직 없으므로 컴파일이 실패한다.
 
-- [ ] **Step 3: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 3: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/country_resolver_test.dart
@@ -551,7 +551,7 @@ cd app && flutter test test/footsteps/country_resolver_test.dart
 
 기대: 컴파일 실패 — `country_resolver.dart`를 찾을 수 없음.
 
-- [ ] **Step 4: 인터페이스와 실제 구현체 작성**
+- [x] **Step 4: 인터페이스와 실제 구현체 작성**
 
 `app/lib/features/footsteps/data/country_resolver.dart`:
 
@@ -590,7 +590,7 @@ extension on List<Placemark> {
 }
 ```
 
-- [ ] **Step 5: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 5: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/country_resolver_test.dart
@@ -598,7 +598,7 @@ cd app && flutter test test/footsteps/country_resolver_test.dart
 
 기대: 2개 테스트 모두 PASS.
 
-- [ ] **Step 6: 실패하는 repository 테스트 작성**
+- [x] **Step 6: 실패하는 repository 테스트 작성**
 
 `app/test/footsteps/footsteps_repository_test.dart`:
 
@@ -655,7 +655,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 7: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 7: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/footsteps_repository_test.dart
@@ -663,7 +663,7 @@ cd app && flutter test test/footsteps/footsteps_repository_test.dart
 
 기대: 컴파일 실패 — `footsteps_repository.dart`를 찾을 수 없음.
 
-- [ ] **Step 8: `FootstepsRepository` 구현 (위치 조회 포함)**
+- [x] **Step 8: `FootstepsRepository` 구현 (위치 조회 포함)**
 
 `app/lib/features/footsteps/data/footsteps_repository.dart`:
 
@@ -748,7 +748,7 @@ class FootstepsRepository {
 }
 ```
 
-- [ ] **Step 9: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 9: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/footsteps_repository_test.dart
@@ -756,7 +756,7 @@ cd app && flutter test test/footsteps/footsteps_repository_test.dart
 
 기대: 2개 테스트 모두 PASS.
 
-- [ ] **Step 10: Riverpod provider 배선**
+- [x] **Step 10: Riverpod provider 배선**
 
 `app/lib/features/footsteps/providers/footsteps_providers.dart`:
 
@@ -778,7 +778,7 @@ final footstepsRepositoryProvider = Provider<FootstepsRepository>((ref) {
 });
 ```
 
-- [ ] **Step 11: 커밋**
+- [x] **Step 11: 커밋**
 
 ```bash
 git add app/android/app/src/main/AndroidManifest.xml \
@@ -787,7 +787,7 @@ git add app/android/app/src/main/AndroidManifest.xml \
 git commit -m "feat(app): 국가 판정과 포그라운드 수동 체크인"
 ```
 
-- [ ] **Step 12: 실기기 검증 — "여기 저장" 버튼 임시 배선** `[실기기 필요]`
+- [x] **Step 12: 실기기 검증 — "여기 저장" 버튼 임시 배선** `[실기기 필요]`
 
 `FootstepsPage`는 Task 8에서 최종 UI로 교체되지만, 이 시점에 실기기에서 권한 플로우를 확인해야 한다. 임시로 `footsteps_page.dart`에 버튼 하나를 붙여 실행한다.
 
@@ -821,7 +821,7 @@ FilledButton(
 
 > **왜 실제 동작 검증이 어려운가**: WorkManager 최소 주기는 15분이며 안드로이드가 정확한 시각을 보장하지 않는다. 에뮬레이터/CI에서 "1시간 뒤 실행됨"을 자동 검증할 수 없다. 이 태스크는 **등록 로직**과 **콜백 안의 판단 로직**만 단위 테스트하고, 실제 주기 실행은 실기기에서 배터리를 소모해 가며 관찰한다.
 
-- [ ] **Step 1: 매니페스트에 WorkManager 관련 권한 추가**
+- [x] **Step 1: 매니페스트에 WorkManager 관련 권한 추가**
 
 `app/android/app/src/main/AndroidManifest.xml`에 Task 2에서 추가한 권한 아래에 추가한다.
 
@@ -832,7 +832,7 @@ FilledButton(
 
 `RECEIVE_BOOT_COMPLETED`는 기기 재부팅 후에도 WorkManager 주기 작업이 재등록되게 하기 위함이다(`workmanager` 패키지가 내부적으로 사용).
 
-- [ ] **Step 2: 실패하는 핸들러 테스트 작성**
+- [x] **Step 2: 실패하는 핸들러 테스트 작성**
 
 `app/test/footsteps/footstep_task_handler_test.dart`:
 
@@ -898,7 +898,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 3: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 3: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/footstep_task_handler_test.dart
@@ -906,7 +906,7 @@ cd app && flutter test test/footsteps/footstep_task_handler_test.dart
 
 기대: 컴파일 실패 — `footstep_task_handler.dart`를 찾을 수 없음.
 
-- [ ] **Step 4: 핸들러 구현**
+- [x] **Step 4: 핸들러 구현**
 
 `app/lib/features/footsteps/background/footstep_task_handler.dart`:
 
@@ -938,7 +938,7 @@ Future<void> handleFootstepTask({
 }
 ```
 
-- [ ] **Step 5: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 5: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/footstep_task_handler_test.dart
@@ -946,7 +946,7 @@ cd app && flutter test test/footsteps/footstep_task_handler_test.dart
 
 기대: 2개 테스트 모두 PASS.
 
-- [ ] **Step 6: WorkManager 등록/디스패처 작성** `[실기기 필요]`
+- [x] **Step 6: WorkManager 등록/디스패처 작성** `[실기기 필요]`
 
 `app/lib/features/footsteps/background/footstep_workmanager.dart`:
 
@@ -1001,7 +1001,7 @@ void registerFootstepBackgroundTask() {
 
 > WorkManager의 최소 주기는 15분이지만 안드로이드 시스템이 정확한 시각을 보장하지 않는다 — Doze 모드에서는 더 밀릴 수 있다. 스펙 §6-③이 이미 "무해하다"고 판단했으므로 여기서 정확도를 강제하지 않는다.
 
-- [ ] **Step 7: 배터리 최적화 예외 요청 플로우 작성** `[실기기 필요]`
+- [x] **Step 7: 배터리 최적화 예외 요청 플로우 작성** `[실기기 필요]`
 
 `app/lib/features/footsteps/background/battery_optimization.dart`:
 
@@ -1019,7 +1019,7 @@ Future<bool> requestIgnoreBatteryOptimization() async {
 }
 ```
 
-- [ ] **Step 8: `main.dart`에 배선**
+- [x] **Step 8: `main.dart`에 배선**
 
 `app/lib/main.dart`에 백그라운드 작업 등록을 추가한다. Firebase 초기화(다른 계획에서 이미 붙어 있음) 이후, `runApp` 이전에 호출한다.
 
@@ -1040,7 +1040,7 @@ void main() {
 
 배터리 최적화 예외 요청(`requestIgnoreBatteryOptimization`)은 `main.dart`가 아니라 로그인 직후 1회성 다이얼로그로 Task 8의 `FootstepsPage` 첫 진입 시 호출한다 — 앱 시작 직후 권한 팝업을 띄우면 로그인 화면 위에 겹쳐 UX가 나빠지기 때문이다.
 
-- [ ] **Step 9: 커밋**
+- [x] **Step 9: 커밋**
 
 ```bash
 git add app/android/app/src/main/AndroidManifest.xml app/lib/main.dart \
@@ -1074,7 +1074,7 @@ git commit -m "feat(app): WorkManager 1시간 주기 백그라운드 체크인�
 
 > **왜 귀속 로직을 분리하는가**: `health` 패키지의 Health Connect 연동은 실제 기기의 Health Connect 앱 설치·권한 승인이 필요해 CI에서 검증할 수 없다. "그날 어느 나라에 귀속시키는가"라는 판단(가장 많이 체크인된 국가)은 순수 Dart 로직이므로 별도 함수로 빼서 여기만 확실히 단위 테스트한다.
 
-- [ ] **Step 1: Health Connect 의존성 설정**
+- [x] **Step 1: Health Connect 의존성 설정**
 
 `app/android/app/build.gradle`의 `android { defaultConfig { ... } }`에 최소 SDK를 확인한다. `health` 패키지는 Health Connect 연동에 `minSdkVersion 26` 이상을 요구한다.
 
@@ -1096,7 +1096,7 @@ git commit -m "feat(app): WorkManager 1시간 주기 백그라운드 체크인�
     </queries>
 ```
 
-- [ ] **Step 2: 실패하는 귀속 로직 테스트 작성**
+- [x] **Step 2: 실패하는 귀속 로직 테스트 작성**
 
 `app/test/footsteps/step_attribution_test.dart`:
 
@@ -1147,7 +1147,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 3: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 3: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/step_attribution_test.dart
@@ -1155,7 +1155,7 @@ cd app && flutter test test/footsteps/step_attribution_test.dart
 
 기대: 컴파일 실패 — `step_attribution.dart`를 찾을 수 없음.
 
-- [ ] **Step 4: 귀속 로직 구현**
+- [x] **Step 4: 귀속 로직 구현**
 
 `app/lib/features/footsteps/health/step_attribution.dart`:
 
@@ -1186,7 +1186,7 @@ String? attributeCountryForDate(DateTime date, List<Checkin> allCheckins) {
 }
 ```
 
-- [ ] **Step 5: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 5: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/step_attribution_test.dart
@@ -1194,7 +1194,7 @@ cd app && flutter test test/footsteps/step_attribution_test.dart
 
 기대: 3개 테스트 모두 PASS.
 
-- [ ] **Step 6: Health Connect 래퍼 작성** `[실기기 필요]`
+- [x] **Step 6: Health Connect 래퍼 작성** `[실기기 필요]`
 
 `app/lib/features/footsteps/health/health_steps_service.dart`:
 
@@ -1226,7 +1226,7 @@ class HealthStepsService {
 }
 ```
 
-- [ ] **Step 7: 귀속 결과를 DB에 반영하는 조합 함수 작성**
+- [x] **Step 7: 귀속 결과를 DB에 반영하는 조합 함수 작성**
 
 `step_attribution.dart` 하단에 이어서 작성한다.
 
@@ -1255,7 +1255,7 @@ Future<void> syncTodayStepsToDatabase({
 
 > `import '../data/footsteps_repository.dart';`와 `import 'health_steps_service.dart';`는 파일 최상단으로 옮긴다 — 위에서는 설명을 위해 나눠 보였다.
 
-- [ ] **Step 8: 전체 테스트 재실행** `[단위 테스트로 검증 가능]`
+- [x] **Step 8: 전체 테스트 재실행** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/step_attribution_test.dart
@@ -1263,7 +1263,7 @@ cd app && flutter test test/footsteps/step_attribution_test.dart
 
 기대: 여전히 3개 PASS (조합 함수는 Health Connect 의존이라 여기서는 유닛 테스트하지 않는다 — Step 9에서 실기기로 검증).
 
-- [ ] **Step 9: 커밋**
+- [x] **Step 9: 커밋**
 
 ```bash
 git add app/android/app/build.gradle app/android/app/src/main/AndroidManifest.xml \
@@ -1271,7 +1271,7 @@ git add app/android/app/build.gradle app/android/app/src/main/AndroidManifest.xm
 git commit -m "feat(app): Health Connect 걸음 수 읽기와 국가 귀속"
 ```
 
-- [ ] **Step 10: 실기기 검증** `[실기기 필요]`
+- [x] **Step 10: 실기기 검증** `[실기기 필요]`
 
 Health Connect 앱이 설치된 실기기(Android 14는 OS 내장, 그 이하는 Play Store에서 설치)에서: 권한 요청 다이얼로그 노출 확인 → 걸음 수가 있는 날짜에 대해 `syncTodayStepsToDatabase` 호출 → `daily_steps` 테이블에 값이 들어오는지 확인. Health Connect에 표본 데이터가 없으면 Google Fit이나 삼성 헬스 등 다른 걸음 수 소스 앱을 함께 설치해 Health Connect로 동기화되게 해 둔다.
 
@@ -1291,7 +1291,7 @@ Health Connect 앱이 설치된 실기기(Android 14는 OS 내장, 그 이하는
 
 > **Google Timeline 내보내기 형식**: Google의 "내 활동 데이터 다운로드"(Takeout)로 받는 Timeline JSON은 버전에 따라 스키마가 다르다. 이 계획은 2024년 이후 널리 쓰이는 `semanticSegments`/`timelinePath` 형식(각 세그먼트에 `startTime`과 `point`("위도,경도" 문자열 또는 `latE7`/`lngE7` 정수) 필드가 있는 형태)을 1차로 지원하고, 알 수 없는 필드는 조용히 건너뛴다. **실제 내보내기 파일로 재검증이 필요하다** — 파서를 구현하는 사람은 자신의 Google 계정에서 Timeline을 내보내 실제 필드명을 확인하고, 아래 fixture와 파서를 그 결과에 맞게 조정한다.
 
-- [ ] **Step 1: 샘플 fixture 작성**
+- [x] **Step 1: 샘플 fixture 작성**
 
 `app/test/fixtures/timeline_export_sample.json`:
 
@@ -1325,7 +1325,7 @@ Health Connect 앱이 설치된 실기기(Android 14는 OS 내장, 그 이하는
 
 세 번째 항목은 잘못된 타임스탬프를 가진 "깨진" 항목으로, 파서가 이를 건너뛰고 나머지 2개(방문 1개 + 이동 시작점 1개, 총 2개 좌표)만 반환하는지 검증하는 데 쓴다.
 
-- [ ] **Step 2: 실패하는 파서 테스트 작성**
+- [x] **Step 2: 실패하는 파서 테스트 작성**
 
 `app/test/footsteps/timeline_import_parser_test.dart`:
 
@@ -1365,7 +1365,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 3: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 3: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/timeline_import_parser_test.dart
@@ -1373,7 +1373,7 @@ cd app && flutter test test/footsteps/timeline_import_parser_test.dart
 
 기대: 컴파일 실패 — `timeline_import_parser.dart`를 찾을 수 없음.
 
-- [ ] **Step 4: 파서 구현**
+- [x] **Step 4: 파서 구현**
 
 `app/lib/features/footsteps/import/timeline_import_parser.dart`:
 
@@ -1456,7 +1456,7 @@ TimelinePoint? _extractPoint(Map<String, dynamic> segment) {
 }
 ```
 
-- [ ] **Step 5: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 5: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/timeline_import_parser_test.dart
@@ -1464,7 +1464,7 @@ cd app && flutter test test/footsteps/timeline_import_parser_test.dart
 
 기대: 4개 테스트 모두 PASS.
 
-- [ ] **Step 6: file_picker UI 작성** `[실기기 필요]`
+- [x] **Step 6: file_picker UI 작성** `[실기기 필요]`
 
 `app/lib/features/footsteps/import/timeline_import_page.dart`:
 
@@ -1542,7 +1542,7 @@ class _TimelineImportPageState extends ConsumerState<TimelineImportPage> {
 }
 ```
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add app/lib/features/footsteps/import app/test/footsteps/timeline_import_parser_test.dart \
@@ -1580,7 +1580,7 @@ git commit -m "feat(app): Google Timeline 내보내기 JSON 임포트"
 > ```
 > 로컬 id를 요청에 실어 보내고 응답이 같은 순서로 온다고 가정한 것은 서버가 아직 없어 실제로 검증되지 않았다 — Task 7~8 진행 전에 R1과 계약을 확정한다.
 
-- [ ] **Step 1: 실패하는 sync 서비스 테스트 작성 (가짜 API로 대체)**
+- [x] **Step 1: 실패하는 sync 서비스 테스트 작성 (가짜 API로 대체)**
 
 `app/test/footsteps/footsteps_sync_service_test.dart`:
 
@@ -1657,7 +1657,7 @@ class _CountryResolverAdapter implements _FixedCountryResolver {
 
 > `_CountryResolverAdapter`가 어색하게 보이면 실제 구현 시 `import '.../data/country_resolver.dart';`의 `CountryResolver`를 직접 구현하도록 정리한다 — 위 테스트의 핵심은 sync 로직이지 국가 판정이 아니므로, `FootstepsRepository`가 요구하는 실제 `CountryResolver` 인터페이스를 구현하는 간단한 fake 하나로 교체해서 작성한다.
 
-- [ ] **Step 2: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 2: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/footsteps_sync_service_test.dart
@@ -1665,7 +1665,7 @@ cd app && flutter test test/footsteps/footsteps_sync_service_test.dart
 
 기대: 컴파일 실패 — `footsteps_api.dart`, `footsteps_sync_service.dart`를 찾을 수 없음.
 
-- [ ] **Step 3: `FootstepsApi` 인터페이스와 dio 구현체 작성**
+- [x] **Step 3: `FootstepsApi` 인터페이스와 dio 구현체 작성**
 
 `app/lib/features/footsteps/data/footsteps_api.dart`:
 
@@ -1729,7 +1729,7 @@ class DioFootstepsApi implements FootstepsApi {
 }
 ```
 
-- [ ] **Step 4: sync 서비스 구현**
+- [x] **Step 4: sync 서비스 구현**
 
 `app/lib/features/footsteps/data/footsteps_sync_service.dart`:
 
@@ -1759,7 +1759,7 @@ Future<void> syncFootsteps({
 }
 ```
 
-- [ ] **Step 5: 테스트 통과 확인 (테스트 파일의 fake `CountryResolver` 배선 정리 포함)** `[단위 테스트로 검증 가능]`
+- [x] **Step 5: 테스트 통과 확인 (테스트 파일의 fake `CountryResolver` 배선 정리 포함)** `[단위 테스트로 검증 가능]`
 
 Step 1의 테스트에서 `_FixedCountryResolver`/`_CountryResolverAdapter`를 실제 `CountryResolver` 인터페이스를 구현하는 단일 클래스로 정리한 뒤 실행한다.
 
@@ -1769,7 +1769,7 @@ cd app && flutter test test/footsteps/footsteps_sync_service_test.dart
 
 기대: 2개 테스트 모두 PASS.
 
-- [ ] **Step 6: Riverpod provider와 주기 동기화 배선**
+- [x] **Step 6: Riverpod provider와 주기 동기화 배선**
 
 `app/lib/features/footsteps/providers/footsteps_providers.dart`에 추가한다.
 
@@ -1792,7 +1792,7 @@ Future<void> runFootstepsSync(WidgetRef ref) {
 
 `FootstepsPage`(Task 8)가 화면 진입 시(`initState`)와 당겨서 새로고침(pull-to-refresh) 시 `runFootstepsSync`를 호출한다. 스펙에 별도 동기화 주기 요구가 없으므로 별도 WorkManager 작업을 새로 만들지 않고 앱 사용 시점에 맞춰 동기화한다.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add app/lib/features/footsteps/data/footsteps_api.dart \
@@ -1822,7 +1822,7 @@ git commit -m "feat(app): 체크인·걸음수 서버 동기화"
 
 > **GeoJSON 데이터 출처**: `app/assets/geo/world_countries.geojson`은 이 계획에 포함하지 않은 외부 데이터 파일이다. 공개 도메인 국가 경계 데이터(예: Natural Earth 110m 또는 `datasets/geo-countries` 저장소의 `countries.geojson`, ISO-3166 alpha-2 속성을 포함하는 것)를 받아 이 경로에 둔다. 파일 용량이 크면(수 MB) 저해상도(110m 축척)를 쓴다 — 이 앱은 국가 단위 채색이 목적이라 정밀한 해안선이 필요 없다.
 
-- [ ] **Step 1: 재사용 가능한 지도 셸 작성**
+- [x] **Step 1: 재사용 가능한 지도 셸 작성**
 
 `app/lib/features/footsteps/map/base_google_map.dart`:
 
@@ -1866,7 +1866,7 @@ class BaseGoogleMap extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 2: 실패하는 GeoJSON 파서 테스트 작성**
+- [x] **Step 2: 실패하는 GeoJSON 파서 테스트 작성**
 
 `app/test/footsteps/world_geojson_parser_test.dart`:
 
@@ -1933,7 +1933,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 3: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 3: 테스트 실패 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/world_geojson_parser_test.dart
@@ -1941,7 +1941,7 @@ cd app && flutter test test/footsteps/world_geojson_parser_test.dart
 
 기대: 컴파일 실패 — `world_geojson_parser.dart`를 찾을 수 없음.
 
-- [ ] **Step 4: 파서 구현**
+- [x] **Step 4: 파서 구현**
 
 `app/lib/features/footsteps/map/world_geojson_parser.dart`:
 
@@ -2003,7 +2003,7 @@ List<LatLng> _ringFromCoords(List<dynamic> coords) {
 }
 ```
 
-- [ ] **Step 5: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 5: 테스트 통과 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test test/footsteps/world_geojson_parser_test.dart
@@ -2011,11 +2011,11 @@ cd app && flutter test test/footsteps/world_geojson_parser_test.dart
 
 기대: 3개 테스트 모두 PASS.
 
-- [ ] **Step 6: GeoJSON 에셋 배치** `[실기기 필요]`
+- [x] **Step 6: GeoJSON 에셋 배치** `[실기기 필요]`
 
 담당자가 위 "GeoJSON 데이터 출처"에서 설명한 공개 데이터를 내려받아 `app/assets/geo/world_countries.geojson`에 저장한다. 각 feature의 국가 코드 속성 키가 `ISO_A2`가 아니면(`ISO_A2_EH`, `iso_a2`, `ADM0_A3` 등 소스마다 다름) `world_geojson_parser.dart`의 `map['properties']?['ISO_A2']` 부분을 실제 키로 바꾸고, Step 2의 테스트 fixture도 그 키 이름으로 맞춰 갱신한다.
 
-- [ ] **Step 7: 상위 지도 화면 작성** `[실기기 필요]`
+- [x] **Step 7: 상위 지도 화면 작성** `[실기기 필요]`
 
 `app/lib/features/footsteps/map/world_map_page.dart`:
 
@@ -2132,7 +2132,7 @@ class _CountryStepsList extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 8: 커밋**
+- [x] **Step 8: 커밋**
 
 ```bash
 git add app/assets/geo app/lib/features/footsteps/map/base_google_map.dart \
@@ -2142,7 +2142,7 @@ git add app/assets/geo app/lib/features/footsteps/map/base_google_map.dart \
 git commit -m "feat(app): 상위 세계지도 choropleth와 국가별 걸음 카드"
 ```
 
-- [ ] **Step 9: 실기기 검증** `[실기기 필요]`
+- [x] **Step 9: 실기기 검증** `[실기기 필요]`
 
 실기기(또는 Google Play 서비스가 있는 에뮬레이터)에서 Maps API 키가 올바르게 로드되는지(회색 격자 지도만 보이면 키 문제), 방문국이 채색되는지, 카드를 탭하면 `onCountryTap`이 호출되는지 확인한다.
 
@@ -2158,7 +2158,7 @@ git commit -m "feat(app): 상위 세계지도 choropleth와 국가별 걸음 카
 - Consumes: Task 2의 `footstepsRepositoryProvider.checkinsForCountry`, Task 3의 `requestIgnoreBatteryOptimization`, Task 6의 `runFootstepsSync`, Task 7의 `WorldMapPage`, Task 5의 `TimelineImportPage`
 - Produces: `FootstepsPage` — Phase 0이 만든 라우팅 셸(`app/lib/features/footsteps/footsteps_page.dart`)의 최종 내용. go_router에 새 라우트를 추가하지 않고, 내부 상태(`String? _selectedCountryIso`)로 상위/하위 화면을 전환한다.
 
-- [ ] **Step 1: 하위 지도(국가 상세) 화면 작성** `[실기기 필요]`
+- [x] **Step 1: 하위 지도(국가 상세) 화면 작성** `[실기기 필요]`
 
 `app/lib/features/footsteps/map/country_detail_map_page.dart`:
 
@@ -2270,7 +2270,7 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
 }
 ```
 
-- [ ] **Step 2: `FootstepsPage` 최종 구현**
+- [x] **Step 2: `FootstepsPage` 최종 구현**
 
 `app/lib/features/footsteps/footsteps_page.dart` 전체를 아래로 교체한다. Task 2 Step 12에서 붙인 임시 "여기 저장" 버튼은 여기서 정식 위치로 옮겨진다.
 
@@ -2360,7 +2360,7 @@ class _FootstepsPageState extends ConsumerState<FootstepsPage> {
 }
 ```
 
-- [ ] **Step 3: `flutter analyze` 통과 확인** `[단위 테스트로 검증 가능]`
+- [x] **Step 3: `flutter analyze` 통과 확인** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter analyze
@@ -2368,7 +2368,7 @@ cd app && flutter analyze
 
 기대: 무경고. Task 2 Step 12에서 붙인 임시 버튼 코드가 남아 있다면 지운다.
 
-- [ ] **Step 4: 전체 테스트 재실행** `[단위 테스트로 검증 가능]`
+- [x] **Step 4: 전체 테스트 재실행** `[단위 테스트로 검증 가능]`
 
 ```bash
 cd app && flutter test
@@ -2376,14 +2376,14 @@ cd app && flutter test
 
 기대: Phase 0이 만든 테스트(`router_test.dart`, `auth_state_test.dart`, `api_client_test.dart`)와 이 계획의 모든 테스트가 함께 PASS한다. `router_test.dart`의 "탭을 누르면 해당 화면으로 이동한다" 테스트가 `find.text('발걸음')`을 찾는데, `FootstepsPage`가 이제 지도를 렌더링하므로 `google_maps_flutter`의 플랫폼 채널이 위젯 테스트 환경에 없어 실패할 수 있다 — 실패하면 `router_test.dart`의 해당 어서션에 `google_maps_flutter_platform_interface`의 테스트용 목(mock) 등록이 필요하다는 것이므로, Phase 0 담당자(R2)와 조율해 `flutter_test`의 `setUpAll`에 `GoogleMapsFlutterPlatform.instance = _FakeGoogleMapsFlutterPlatform();` 같은 목 등록을 추가한다.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add app/lib/features/footsteps/footsteps_page.dart app/lib/features/footsteps/map/country_detail_map_page.dart
 git commit -m "feat(app): 발걸음 탭 최종 UI — 상위/하위 지도, 수동 체크인, Timeline 임포트 진입점"
 ```
 
-- [ ] **Step 6: 통합 실기기 시연 리허설** `[실기기 필요]`
+- [x] **Step 6: 통합 실기기 시연 리허설** `[실기기 필요]`
 
 Phase 4(스펙 §9)의 리허설 전에 이 계획 단독으로 한 번 더 확인한다: 로그인 → 발걸음 탭 진입 → "여기 저장" 몇 번 → Timeline JSON 임포트 → 상위 지도에 방문국 채색·카드 표시 → 카드 탭 → 하위 지도에서 날짜 칩 전환하며 점선 경로 확인. 이 흐름이 전부 되면 백그라운드 자동 추적이 기기에서 죽어도 시연이 가능하다(스펙 §10 백업 경로 확인 완료).
 

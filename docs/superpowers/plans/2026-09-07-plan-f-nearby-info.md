@@ -107,7 +107,7 @@ app/
   - `selectedCountryProvider` (`StateProvider<String?>`, 초기값 `null`) — Task 4, 5가 사용
   - Task 2의 `PlaceCategory` enum을 import해서 쓴다 (Task 2에서 먼저 정의되지 않았다면 이 태스크에서 `models/place.dart`에 enum만 먼저 만들어도 된다 — 아래 Step 3에서 처리)
 
-- [ ] **Step 1: `PlaceCategory` enum 선(先)정의**
+- [x] **Step 1: `PlaceCategory` enum 선(先)정의**
 
 Task 2가 `Place` 모델과 함께 이 enum을 완성하지만, Task 1의 provider가 먼저 필요로 하므로 여기서 enum만 만든다. `app/lib/features/nearby/models/place.dart`:
 
@@ -125,7 +125,7 @@ enum PlaceCategory {
 }
 ```
 
-- [ ] **Step 2: 실패하는 위치 저장소 테스트 작성**
+- [x] **Step 2: 실패하는 위치 저장소 테스트 작성**
 
 `app/test/nearby/location_repository_test.dart`:
 
@@ -151,7 +151,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 3: 테스트 실패 확인**
+- [x] **Step 3: 테스트 실패 확인**
 
 ```bash
 cd app && flutter test test/nearby/location_repository_test.dart
@@ -159,7 +159,7 @@ cd app && flutter test test/nearby/location_repository_test.dart
 
 기대: 컴파일 실패 — `location_repository.dart`, `Position` 타입(geolocator 패키지)을 찾을 수 없음.
 
-- [ ] **Step 4: geolocator 의존성 확인/추가**
+- [x] **Step 4: geolocator 의존성 확인/추가**
 
 `app/pubspec.yaml`의 `dependencies:` 아래에 이미 `geolocator:`가 있는지 확인한다(Plan C가 먼저 완료되었으므로 이미 있을 가능성이 높다). 없으면 추가:
 
@@ -171,7 +171,7 @@ cd app && flutter test test/nearby/location_repository_test.dart
 cd app && flutter pub get
 ```
 
-- [ ] **Step 5: `LocationRepository` 구현**
+- [x] **Step 5: `LocationRepository` 구현**
 
 `app/lib/features/nearby/location/location_repository.dart`:
 
@@ -218,7 +218,7 @@ class GeolocatorLocationRepository implements LocationRepository {
 }
 ```
 
-- [ ] **Step 6: 테스트 통과 확인**
+- [x] **Step 6: 테스트 통과 확인**
 
 ```bash
 cd app && flutter test test/nearby/location_repository_test.dart
@@ -226,7 +226,7 @@ cd app && flutter test test/nearby/location_repository_test.dart
 
 기대: PASS.
 
-- [ ] **Step 7: AndroidManifest 위치 권한 확인**
+- [x] **Step 7: AndroidManifest 위치 권한 확인**
 
 `app/android/app/src/main/AndroidManifest.xml`의 `<manifest>` 태그 바로 아래에 다음 두 줄이 이미 있는지 확인한다(Plan C가 발걸음 기록을 위해 추가했을 가능성이 높다). 없으면 추가:
 
@@ -235,7 +235,7 @@ cd app && flutter test test/nearby/location_repository_test.dart
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 ```
 
-- [ ] **Step 8: 실패하는 선택 상태 테스트 작성**
+- [x] **Step 8: 실패하는 선택 상태 테스트 작성**
 
 `app/test/nearby/nearby_selection_providers_test.dart`:
 
@@ -271,7 +271,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 9: 테스트 실패 확인**
+- [x] **Step 9: 테스트 실패 확인**
 
 ```bash
 cd app && flutter test test/nearby/nearby_selection_providers_test.dart
@@ -279,7 +279,7 @@ cd app && flutter test test/nearby/nearby_selection_providers_test.dart
 
 기대: 컴파일 실패 — `nearby_selection_providers.dart`를 찾을 수 없음.
 
-- [ ] **Step 10: provider 구현**
+- [x] **Step 10: provider 구현**
 
 `app/lib/features/nearby/providers/nearby_selection_providers.dart`:
 
@@ -306,7 +306,7 @@ final nearbyCategoryProvider =
 final selectedCountryProvider = StateProvider<String?>((ref) => null);
 ```
 
-- [ ] **Step 11: 테스트 통과 확인**
+- [x] **Step 11: 테스트 통과 확인**
 
 ```bash
 cd app && flutter test test/nearby/nearby_selection_providers_test.dart
@@ -314,7 +314,7 @@ cd app && flutter test test/nearby/nearby_selection_providers_test.dart
 
 기대: PASS.
 
-- [ ] **Step 12: 전체 검사 및 커밋**
+- [x] **Step 12: 전체 검사 및 커밋**
 
 ```bash
 cd app && flutter analyze && flutter test
@@ -343,7 +343,7 @@ git commit -m "feat(nearby): 위치 획득과 카테고리/국가 선택 상태 
   - `CategoryFilterTabs` 위젯 — Task 5가 `NearbyPage` 상단에 배치
   - `PlaceListTile` 위젯 — Task 5가 하단 리스트에서 사용
 
-- [ ] **Step 1: `Place` 모델의 실패하는 테스트 작성**
+- [x] **Step 1: `Place` 모델의 실패하는 테스트 작성**
 
 `app/test/nearby/places_api_test.dart`:
 
@@ -429,7 +429,7 @@ class _FakePlacesAdapter implements HttpClientAdapter {
 }
 ```
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 ```bash
 cd app && flutter test test/nearby/places_api_test.dart
@@ -437,7 +437,7 @@ cd app && flutter test test/nearby/places_api_test.dart
 
 기대: 컴파일 실패 — `places_api.dart`, `Place.fromJson`, `fetchNearbyPlaces`를 찾을 수 없음.
 
-- [ ] **Step 3: `Place` 모델 추가**
+- [x] **Step 3: `Place` 모델 추가**
 
 `app/lib/features/nearby/models/place.dart`에 Step 1(Task 1)의 enum 뒤에 이어서 추가:
 
@@ -473,7 +473,7 @@ class Place {
 }
 ```
 
-- [ ] **Step 4: `places_api.dart` 구현**
+- [x] **Step 4: `places_api.dart` 구현**
 
 `app/lib/features/nearby/api/places_api.dart`:
 
@@ -523,7 +523,7 @@ final nearbyPlacesProvider = FutureProvider<List<Place>>((ref) async {
 });
 ```
 
-- [ ] **Step 5: 테스트 통과 확인**
+- [x] **Step 5: 테스트 통과 확인**
 
 ```bash
 cd app && flutter test test/nearby/places_api_test.dart
@@ -531,7 +531,7 @@ cd app && flutter test test/nearby/places_api_test.dart
 
 기대: PASS.
 
-- [ ] **Step 6: 필터 탭 위젯**
+- [x] **Step 6: 필터 탭 위젯**
 
 `app/lib/features/nearby/widgets/category_filter_tabs.dart`:
 
@@ -571,7 +571,7 @@ class CategoryFilterTabs extends ConsumerWidget {
 }
 ```
 
-- [ ] **Step 7: 리스트 항목 위젯**
+- [x] **Step 7: 리스트 항목 위젯**
 
 `app/lib/features/nearby/widgets/place_list_tile.dart`:
 
@@ -597,7 +597,7 @@ class PlaceListTile extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 8: 전체 검사 및 커밋**
+- [x] **Step 8: 전체 검사 및 커밋**
 
 ```bash
 cd app && flutter analyze && flutter test
@@ -621,7 +621,7 @@ git commit -m "feat(nearby): Places 조회와 카테고리 필터 리스트 추�
 
 > **Plan C 재사용 메모**: Plan C가 발걸음 지도를 위해 카메라 이동·마커 클러스터링을 포함한 공용 지도 컴포넌트를 이미 뽑아 두었다면(`app/lib/features/footsteps/widgets/` 하위 등), 이 태스크를 건너뛰고 그 컴포넌트에 마커 리스트를 주입하는 방식으로 대체한다. 그런 컴포넌트가 없다면 아래처럼 이 화면 전용으로 최소 구현한다 — `GoogleMap`을 직접 감싸는 20여 줄짜리 위젯이라 나중에 공용화해도 교체 비용이 낮다.
 
-- [ ] **Step 1: `google_maps_flutter` 의존성 확인**
+- [x] **Step 1: `google_maps_flutter` 의존성 확인**
 
 `app/pubspec.yaml`에 이미 있는지 확인한다(Plan C가 추가했을 가능성이 높다). 없으면 추가:
 
@@ -633,7 +633,7 @@ git commit -m "feat(nearby): Places 조회와 카테고리 필터 리스트 추�
 cd app && flutter pub get
 ```
 
-- [ ] **Step 2: `NearbyMapView` 구현**
+- [x] **Step 2: `NearbyMapView` 구현**
 
 이 위젯은 순수 조립 로직이라 자동화 테스트보다 수동 확인이 비용 대비 효율적이다(`GoogleMap`은 플랫폼 뷰라 위젯 테스트로 렌더링을 검증할 수 없다) — Task 5의 통합 단계에서 실기기/에뮬레이터로 확인한다.
 
@@ -692,11 +692,11 @@ class NearbyMapView extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 3: 정적 분석 확인 (컴파일만 확인, `Embassy`는 Task 4에서 완성됨)**
+- [x] **Step 3: 정적 분석 확인 (컴파일만 확인, `Embassy`는 Task 4에서 완성됨)**
 
 Task 4를 먼저 병행하지 않는 한 `flutter analyze`가 `embassy.dart` 미존재로 실패하는 것이 정상이다. Task 4 완료 후 다시 확인한다.
 
-- [ ] **Step 4: 커밋**
+- [x] **Step 4: 커밋**
 
 ```bash
 git add app/lib/features/nearby/widgets/nearby_map_view.dart app/pubspec.yaml
@@ -729,7 +729,7 @@ git commit -m "feat(nearby): Places/재외공관 마커를 표시하는 지도 �
   - `AlertBadge` 위젯 — `level`(1~4)을 받아 색상 배지 렌더링
   - `EmbassyCard` 위젯 — 전화 걸기 버튼 포함
 
-- [ ] **Step 1: 배지 색상 규칙의 실패하는 테스트 작성**
+- [x] **Step 1: 배지 색상 규칙의 실패하는 테스트 작성**
 
 `app/test/nearby/alert_badge_test.dart`:
 
@@ -750,7 +750,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 ```bash
 cd app && flutter test test/nearby/alert_badge_test.dart
@@ -758,7 +758,7 @@ cd app && flutter test test/nearby/alert_badge_test.dart
 
 기대: 컴파일 실패 — `alert_badge.dart`를 찾을 수 없음.
 
-- [ ] **Step 3: `TravelAlert`, `Embassy` 모델 작성**
+- [x] **Step 3: `TravelAlert`, `Embassy` 모델 작성**
 
 `app/lib/features/nearby/models/travel_alert.dart`:
 
@@ -825,7 +825,7 @@ class Embassy {
 }
 ```
 
-- [ ] **Step 4: `AlertBadge` 위젯 구현**
+- [x] **Step 4: `AlertBadge` 위젯 구현**
 
 `app/lib/features/nearby/widgets/alert_badge.dart`:
 
@@ -884,7 +884,7 @@ class AlertBadge extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 5: 테스트 통과 확인**
+- [x] **Step 5: 테스트 통과 확인**
 
 ```bash
 cd app && flutter test test/nearby/alert_badge_test.dart
@@ -892,7 +892,7 @@ cd app && flutter test test/nearby/alert_badge_test.dart
 
 기대: PASS.
 
-- [ ] **Step 6: 여행경보 API의 실패하는 테스트 작성**
+- [x] **Step 6: 여행경보 API의 실패하는 테스트 작성**
 
 `app/test/nearby/travel_alert_api_test.dart`:
 
@@ -944,7 +944,7 @@ class _FakeAlertsAdapter implements HttpClientAdapter {
 }
 ```
 
-- [ ] **Step 7: 테스트 실패 확인**
+- [x] **Step 7: 테스트 실패 확인**
 
 ```bash
 cd app && flutter test test/nearby/travel_alert_api_test.dart
@@ -952,7 +952,7 @@ cd app && flutter test test/nearby/travel_alert_api_test.dart
 
 기대: 컴파일 실패 — `travel_alert_api.dart`를 찾을 수 없음.
 
-- [ ] **Step 8: `travel_alert_api.dart` 구현**
+- [x] **Step 8: `travel_alert_api.dart` 구현**
 
 `app/lib/features/nearby/api/travel_alert_api.dart`:
 
@@ -981,7 +981,7 @@ final travelAlertsProvider =
 });
 ```
 
-- [ ] **Step 9: 테스트 통과 확인**
+- [x] **Step 9: 테스트 통과 확인**
 
 ```bash
 cd app && flutter test test/nearby/travel_alert_api_test.dart
@@ -989,7 +989,7 @@ cd app && flutter test test/nearby/travel_alert_api_test.dart
 
 기대: PASS.
 
-- [ ] **Step 10: 재외공관 API의 실패하는 테스트 작성**
+- [x] **Step 10: 재외공관 API의 실패하는 테스트 작성**
 
 `app/test/nearby/embassy_api_test.dart`:
 
@@ -1044,7 +1044,7 @@ class _FakeEmbassyAdapter implements HttpClientAdapter {
 }
 ```
 
-- [ ] **Step 11: 테스트 실패 확인**
+- [x] **Step 11: 테스트 실패 확인**
 
 ```bash
 cd app && flutter test test/nearby/embassy_api_test.dart
@@ -1052,7 +1052,7 @@ cd app && flutter test test/nearby/embassy_api_test.dart
 
 기대: 컴파일 실패 — `embassy_api.dart`를 찾을 수 없음.
 
-- [ ] **Step 12: `embassy_api.dart` 구현**
+- [x] **Step 12: `embassy_api.dart` 구현**
 
 `app/lib/features/nearby/api/embassy_api.dart`:
 
@@ -1081,7 +1081,7 @@ final embassiesProvider =
 });
 ```
 
-- [ ] **Step 13: 테스트 통과 확인**
+- [x] **Step 13: 테스트 통과 확인**
 
 ```bash
 cd app && flutter test test/nearby/embassy_api_test.dart
@@ -1089,7 +1089,7 @@ cd app && flutter test test/nearby/embassy_api_test.dart
 
 기대: PASS.
 
-- [ ] **Step 14: `url_launcher` 의존성 추가**
+- [x] **Step 14: `url_launcher` 의존성 추가**
 
 `app/pubspec.yaml`의 `dependencies:` 아래:
 
@@ -1101,7 +1101,7 @@ cd app && flutter test test/nearby/embassy_api_test.dart
 cd app && flutter pub get
 ```
 
-- [ ] **Step 15: `EmbassyCard` 위젯 구현**
+- [x] **Step 15: `EmbassyCard` 위젯 구현**
 
 `app/lib/features/nearby/widgets/embassy_card.dart`:
 
@@ -1163,7 +1163,7 @@ class EmbassyCard extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 16: 전체 검사 및 커밋**
+- [x] **Step 16: 전체 검사 및 커밋**
 
 ```bash
 cd app && flutter analyze && flutter test
@@ -1187,7 +1187,7 @@ git commit -m "feat(nearby): 여행경보·재외공관 조회와 배지/카드 
 - Consumes: Task 1의 `selectedCountryProvider`, `currentPositionProvider`; Task 2의 `nearbyPlacesProvider`, `CategoryFilterTabs`, `PlaceListTile`; Task 3의 `NearbyMapView`; Task 4의 `travelAlertsProvider`, `embassiesProvider`, `AlertBadge`, `EmbassyCard`; Phase 0 Task 9의 `countryListProvider`
 - Produces: 완성된 `NearbyPage` — Plan F의 최종 산출물. 이후 계획서는 이 화면을 수정하지 않는다.
 
-- [ ] **Step 1: 실패하는 통합 위젯 테스트 작성**
+- [x] **Step 1: 실패하는 통합 위젯 테스트 작성**
 
 실제 GPS·지도·네트워크 없이 조립 로직만 검증한다. `GoogleMap`은 플랫폼 뷰라 위젯 테스트에서 렌더링되지 않으므로, 지도를 감싸는 영역이 존재하는지까지만 확인하고 나머지(필터 탭, 배지, 공관 카드)는 실제 데이터로 검증한다.
 
@@ -1276,7 +1276,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 ```bash
 cd app && flutter test test/nearby/nearby_page_test.dart
@@ -1284,7 +1284,7 @@ cd app && flutter test test/nearby/nearby_page_test.dart
 
 기대: 컴파일 실패 또는 실패 — `NearbyPage`가 아직 `'주변'` 텍스트만 표시하는 Phase 0 껍데기이므로 위 `expect`들이 매치되지 않는다.
 
-- [ ] **Step 3: `NearbyPage` 구현**
+- [x] **Step 3: `NearbyPage` 구현**
 
 `app/lib/features/nearby/nearby_page.dart` 전체를 아래로 교체한다.
 
@@ -1440,7 +1440,7 @@ class NearbyPage extends ConsumerWidget {
 }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
 ```bash
 cd app && flutter test test/nearby/nearby_page_test.dart
@@ -1448,7 +1448,7 @@ cd app && flutter test test/nearby/nearby_page_test.dart
 
 기대: PASS.
 
-- [ ] **Step 5: 실기기/에뮬레이터 수동 확인**
+- [x] **Step 5: 실기기/에뮬레이터 수동 확인**
 
 ```bash
 cd server && ./gradlew bootRun
@@ -1465,7 +1465,7 @@ cd app && flutter run
 4. 공관 카드의 "긴급연락" 버튼을 누르면 전화 앱이 열린다(에뮬레이터에서는 다이얼러 화면 전환까지 확인)
 5. 위치 권한을 거부하면 에러 메시지가 표시되고 앱이 크래시하지 않는다
 
-- [ ] **Step 6: 전체 검사**
+- [x] **Step 6: 전체 검사**
 
 ```bash
 cd app && flutter analyze && flutter test
@@ -1473,7 +1473,7 @@ cd app && flutter analyze && flutter test
 
 기대: 전체 PASS. `flutter analyze`가 Task 3에서 남긴 `Embassy` 미해결 경고까지 이 시점에는 모두 해소되어 있어야 한다.
 
-- [ ] **Step 7: 커밋과 PR**
+- [x] **Step 7: 커밋과 PR**
 
 ```bash
 git add app/lib/features/nearby/nearby_page.dart app/test/nearby/nearby_page_test.dart
@@ -1487,9 +1487,9 @@ git push origin HEAD
 
 ## Plan F 완료 체크리스트
 
-- [ ] '주변' 탭에서 현재 위치 기준 관광지/음식점/약국/ATM 필터가 동작한다
-- [ ] 지도 마커와 하단 리스트가 같은 데이터로 동기화되어 있다
-- [ ] 선택한 국가의 여행경보 1~4단계가 배지로 표시된다
-- [ ] 선택한 국가의 재외공관 연락처·위치가 카드로 표시되고 전화 연결이 동작한다
-- [ ] 리뷰·평점 작성, 예약, 일정 자동 추천 기능이 존재하지 않는다 (스펙 §6-⑥ 제외 범위 확인)
-- [ ] `flutter analyze`, `flutter test` 모두 PASS
+- [x] '주변' 탭에서 현재 위치 기준 관광지/음식점/약국/ATM 필터가 동작한다
+- [x] 지도 마커와 하단 리스트가 같은 데이터로 동기화되어 있다
+- [x] 선택한 국가의 여행경보 1~4단계가 배지로 표시된다
+- [x] 선택한 국가의 재외공관 연락처·위치가 카드로 표시되고 전화 연결이 동작한다
+- [x] 리뷰·평점 작성, 예약, 일정 자동 추천 기능이 존재하지 않는다 (스펙 §6-⑥ 제외 범위 확인)
+- [x] `flutter analyze`, `flutter test` 모두 PASS

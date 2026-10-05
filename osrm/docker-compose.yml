@@ -1,0 +1,28 @@
+# 발걸음(R3) 실시간 경로를 실제 도로 위로 스냅하기 위한 OSRM 서버.
+# Google Roads API는 한국 도로 데이터를 아예 갖고 있지 않아(국내 공간정보
+# 반출 규제 때문으로 추정 — 서울/부산/강남/제주 어디를 찍어도 빈 응답만 옴)
+# 대신 OpenStreetMap 기반 OSRM으로 대체했다. 실행 전 setup.sh로 한국 도로
+# 데이터를 한 번 받아 전처리해야 한다 — 자세한 건 README.md 참고.
+#
+# 실행: docker compose up -d
+# 종료: docker compose down
+services:
+  osrm:
+    image: osrm/osrm-backend
+    command: osrm-routed --algorithm mld --max-matching-size 100 /data/south-korea.osrm
+    ports:
+      - "5001:5000"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  # 해외 발걸음(일본) 데모용. 실행 전 ./setup-japan.sh로 간토 지역 도로
+  # 데이터를 한 번 전처리해야 한다 — README.md 참고.
+  osrm-japan:
+    image: osrm/osrm-backend
+    command: osrm-routed --algorithm mld --max-matching-size 100 /data/kanto.osrm
+    ports:
+      - "5002:5000"
+    volumes:
+      - ./data-japan:/data
+    restart: unless-stopped
