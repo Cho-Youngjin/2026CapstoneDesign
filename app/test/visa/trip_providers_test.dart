@@ -1,4 +1,5 @@
 import 'package:app/features/visa/data/trip_api.dart';
+import 'package:app/core/prefs/shared_preferences_provider.dart';
 import 'package:app/features/visa/data/trip_providers.dart';
 import 'package:app/features/visa/models/trip.dart';
 import 'package:dio/dio.dart';
