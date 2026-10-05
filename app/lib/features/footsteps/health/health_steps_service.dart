@@ -42,12 +42,16 @@ Future<void> syncStepsToDatabase({
   required FootstepsRepository repository,
   required DateTime date,
 }) async {
-  final steps = await health.stepsOn(date);
+  // 호출자가 DateTime.now()를 그대로 넘겨도 같은 날이면 같은 행을 갱신해야 한다.
+  // 시각이 섞인 값을 그대로 키로 쓰면 하루에 행이 여러 개 쌓이고 누적이 중복 합산된다.
+  final day = dayKeyOf(date);
+
+  final steps = await health.stepsOn(day);
   if (steps == null) return;
 
   final allCheckins = await repository.allCheckins();
-  final country = attributeCountryForDate(date, allCheckins);
+  final country = attributeCountryForDate(day, allCheckins);
   if (country == null) return;
 
-  await repository.upsertDailySteps(date, country, steps);
+  await repository.upsertDailySteps(day, country, steps);
 }

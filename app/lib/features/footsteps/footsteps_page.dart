@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import 'background/background_location_permission.dart';
 import 'background/battery_optimization.dart';
 import 'import/timeline_import_page.dart';
 import 'map/country_detail_map_page.dart';
@@ -46,6 +47,9 @@ class _FootstepsPageState extends ConsumerState<FootstepsPage> with WidgetsBindi
       if (!_batteryPromptShown && mounted) {
         _batteryPromptShown = true;
         try {
+          // "항상 허용"을 먼저 받는다 — 이게 없으면 1시간 주기 자동 체크인이
+          // 백그라운드에서 위치를 못 읽어 조용히 아무것도 기록하지 않는다.
+          await requestBackgroundLocation();
           await requestIgnoreBatteryOptimization();
         } catch (_) {}
       }

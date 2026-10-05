@@ -25,9 +25,12 @@ class NearbyPage extends ConsumerWidget {
     final currentLocationIso2 = ref.watch(currentLocationCountryProvider).asData?.value;
 
     // 사용자가 직접 고른 국가 > 현재 위치가 속한 국가 > 국가 목록의 첫 항목 순.
-    // 마지막 fallback은 위치 판정이 아직 끝나지 않았거나 실패했을 때만 쓰인다.
-    String? effectiveIso2(List<Country> list) =>
-        selectedIso2 ?? currentLocationIso2 ?? (list.isEmpty ? null : list.first.isoAlpha2);
+    // 목록에 없는 값은 건너뛴다 — 자세한 이유는 effectiveCountryIso2 주석 참고.
+    String? effectiveIso2(List<Country> list) => effectiveCountryIso2(
+          selected: selectedIso2,
+          currentLocation: currentLocationIso2,
+          available: [for (final c in list) c.isoAlpha2],
+        );
 
     return Scaffold(
       appBar: AppBar(

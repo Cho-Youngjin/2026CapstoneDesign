@@ -8,6 +8,40 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 void main() {
+  group('effectiveCountryIso2', () {
+    const available = ['JP', 'VN', 'TH'];
+
+    test('현재 위치 국가가 목록에 없으면 목록 첫 항목으로 떨어진다', () {
+      // 한국에서 주변정보 탭을 열면 KR이 Tier A 목록에 없어, 그대로 쓰면
+      // DropdownButton의 "value는 items 중 정확히 하나와 같아야 한다" assertion에 걸렸다.
+      expect(
+        effectiveCountryIso2(selected: null, currentLocation: 'KR', available: available),
+        'JP',
+      );
+    });
+
+    test('직접 고른 국가가 목록에 없으면 무시한다', () {
+      expect(
+        effectiveCountryIso2(selected: 'KR', currentLocation: 'JP', available: available),
+        'JP',
+      );
+    });
+
+    test('직접 고른 국가가 목록에 있으면 그것을 쓴다', () {
+      expect(
+        effectiveCountryIso2(selected: 'VN', currentLocation: 'JP', available: available),
+        'VN',
+      );
+    });
+
+    test('목록이 비어 있으면 null이다', () {
+      expect(
+        effectiveCountryIso2(selected: 'JP', currentLocation: 'JP', available: const []),
+        isNull,
+      );
+    });
+  });
+
   test('카테고리 기본값은 관광지다', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);

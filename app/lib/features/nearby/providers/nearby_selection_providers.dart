@@ -37,3 +37,20 @@ final nearbyCategoryProvider =
 /// 화면에서는 null일 때 현재 위치가 속한 국가(currentLocationCountryProvider)를
 /// 기본값으로 쓴다 — 그마저 판정되지 않았으면 국가 목록의 첫 항목으로 대체한다.
 final selectedCountryProvider = StateProvider<String?>((ref) => null);
+
+/// 드롭다운에 실제로 넣을 국가(ISO2)를 고른다.
+///
+/// `DropdownButton`은 value가 items 중 정확히 하나와 일치해야 하고, 아니면 assertion으로
+/// 터진다. 현재 위치 국가는 목록(Tier A)에 없을 수 있다 — 한국에서 열면 KR이 그렇다 —
+/// 그래서 선택값·위치값 모두 목록에 있는지 확인한 뒤에만 쓴다.
+String? effectiveCountryIso2({
+  required String? selected,
+  required String? currentLocation,
+  required List<String> available,
+}) {
+  bool isAvailable(String? iso) => iso != null && available.contains(iso);
+
+  if (isAvailable(selected)) return selected;
+  if (isAvailable(currentLocation)) return currentLocation;
+  return available.isEmpty ? null : available.first;
+}

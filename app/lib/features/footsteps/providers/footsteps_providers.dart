@@ -14,6 +14,7 @@ import '../data/footsteps_sync_service.dart';
 import '../data/geocoding_country_resolver.dart';
 import '../data/polygon_country_resolver.dart';
 import '../health/health_steps_service.dart' show HealthStepsService, syncStepsToDatabase;
+import '../health/step_attribution.dart' show dayKeyOf;
 import '../map/live_route_tracker.dart';
 import '../map/world_geojson_parser.dart';
 
@@ -92,7 +93,7 @@ Future<void> runFootstepsSync(WidgetRef ref) async {
     await syncStepsToDatabase(
       health: health,
       repository: repository,
-      date: DateTime.now().toUtc(),
+      date: dayKeyOf(DateTime.now()),
     );
   } catch (_) {}
 

@@ -79,13 +79,33 @@ public class HttpOsrmClient implements OsrmClient {
         return geometry(data.path("routes").path(0).path("geometry"));
     }
 
+    // OSRM /match는 한 번에 받는 좌표 수가 제한돼 있다(osrm-routed --max-matching-size).
+    // 컨트롤러는 500점까지 받는데 앱은 10m 간격으로 좌표를 쌓으므로, 1km가 넘는 평범한
+    // 경로도 이 한계를 넘는다. 앞 100점만 보내고 그 결과를 "전체 경로"라고 돌려주면
+    // 뒷부분이 통째로 사라지므로, 구간을 나눠 호출하고 결과를 이어 붙인다.
     @Override
     public List<GeoPoint> match(String country, List<GeoPoint> points) {
         String baseUrl = properties.baseUrl(country);
         if (baseUrl.isEmpty() || points.size() < 2) return List.of();
 
-        String coords = points.stream().limit(MAX_MATCH_POINTS)
-                .map(HttpOsrmClient::lngLat).collect(Collectors.joining(";"));
+        List<GeoPoint> out = new ArrayList<>();
+        // 구간 경계에서 선이 끊기지 않게 좌표 1점을 겹쳐서 자른다(그래서 step은 한계 - 1).
+        for (int start = 0; start < points.size() - 1; start += MAX_MATCH_POINTS - 1) {
+            List<GeoPoint> chunk =
+                    points.subList(start, Math.min(start + MAX_MATCH_POINTS, points.size()));
+            List<GeoPoint> matched = matchChunk(baseUrl, chunk);
+            // 한 구간이라도 실패하면 전체를 실패로 다룬다 — 일부만 그리면 "성공했지만
+            // 엉뚱한 경로"가 되어, 호출자가 원본 좌표로 폴백할 기회를 잃는다.
+            if (matched.isEmpty()) return List.of();
+            // 겹쳐 보낸 좌표 때문에 앞 구간의 끝과 이 구간의 시작이 같은 지점이다.
+            out.addAll(out.isEmpty() ? matched : matched.subList(1, matched.size()));
+        }
+        return out;
+    }
+
+    private List<GeoPoint> matchChunk(String baseUrl, List<GeoPoint> chunk) {
+        if (chunk.size() < 2) return List.of();
+        String coords = chunk.stream().map(HttpOsrmClient::lngLat).collect(Collectors.joining(";"));
         JsonNode data = get(baseUrl + "/match/v1/" + properties.profile() + "/" + coords
                 + "?overview=full&geometries=geojson");
         if (data == null || !"Ok".equals(data.path("code").asText())) return List.of();

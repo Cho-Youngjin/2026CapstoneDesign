@@ -4,14 +4,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
@@ -87,5 +90,27 @@ class HttpOsrmClientTest {
         assertThat(client.nearest("KR", a, 50)).isEmpty();
         assertThat(client.match("KR", List.of(a, a))).isEmpty();
         server.verify(); // 기대한 요청이 하나도 없으므로 실제 호출이 있었다면 여기서 실패한다
+    }
+
+    @Test
+    void match는_OSRM_좌표_한계를_넘는_궤적을_나눠_보내고_결과를_이어_붙인다() {
+        // 앱은 10m 간격으로 좌표를 쌓으므로 1km가 넘는 평범한 경로도 100점을 넘는다.
+        // 앞 100점만 보내고 그 결과를 "전체 경로"로 돌려주면 뒷부분이 통째로 사라진다.
+        List<GeoPoint> trace = new ArrayList<>();
+        for (int i = 0; i < 150; i++) {
+            trace.add(new GeoPoint(35.0 + i * 0.0001, 139.0 + i * 0.0001));
+        }
+
+        server.expect(ExpectedCount.times(2), requestTo(startsWith("http://jp.osrm:5002/match/v1/foot/")))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {"code":"Ok","matchings":[{"geometry":{"coordinates":[[139.0,35.0],[139.1,35.1]]}}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        List<GeoPoint> matched = client.match("JP", trace);
+
+        server.verify();
+        // 두 구간이 좌표 1점을 공유하므로 이어 붙일 때 중복 하나를 떼어낸다: 2 + (2 - 1).
+        assertThat(matched).hasSize(3);
     }
 }
