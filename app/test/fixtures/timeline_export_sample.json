@@ -1,0 +1,25 @@
+{
+  "semanticSegments": [
+    {
+      "startTime": "2026-12-20T09:15:00.000+09:00",
+      "endTime": "2026-12-20T09:20:00.000+09:00",
+      "visit": {
+        "topCandidate": {
+          "placeLocation": { "latLng": "35.681236, 139.767125" }
+        }
+      }
+    },
+    {
+      "startTime": "2026-12-20T14:00:00.000+09:00",
+      "endTime": "2026-12-20T14:05:00.000+09:00",
+      "activity": {
+        "start": { "latLng": "35.658034, 139.701636" },
+        "end": { "latLng": "35.6586, 139.7454" }
+      }
+    },
+    {
+      "startTime": "not-a-valid-timestamp",
+      "visit": { "topCandidate": { "placeLocation": { "latLng": "0,0" } } }
+    }
+  ]
+}

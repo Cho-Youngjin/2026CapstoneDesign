@@ -24,5 +24,11 @@ server/bin/
 *.iml
 .vscode/
 
+# macOS
+.DS_Store
+
 # Project-specific
 CLAUDE.md
+
+# 로컬 검증용 목 서버 — 저장소에 포함하지 않는다
+mock-server/
