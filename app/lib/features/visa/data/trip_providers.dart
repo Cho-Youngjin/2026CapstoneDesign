@@ -2,18 +2,11 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/prefs/shared_preferences_provider.dart';
 import '../models/trip.dart';
 import 'trip_api.dart';
 
 const _activeTripIdKey = 'active_trip_id';
-
-/// 앱 시작 시 `SharedPreferences.getInstance()` 결과로 override한다
-/// (main.dart, main_dev.dart, 테스트). override 없이 읽으면 바로 알 수 있게 예외를 던진다.
-final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
-  throw UnimplementedError(
-    'sharedPreferencesProvider는 ProviderScope에서 override해야 합니다',
-  );
-});
 
 /// 현재 화면에 표시 중인 여행의 서버 id. 앱을 재시작해도 유지된다.
 ///

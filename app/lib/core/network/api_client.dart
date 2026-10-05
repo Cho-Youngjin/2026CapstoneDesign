@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/auth_providers.dart';
@@ -34,7 +35,9 @@ final apiClientProvider = Provider<Dio>((ref) {
   final authRepository = ref.watch(authRepositoryProvider);
 
   final dio = Dio(BaseOptions(
-    baseUrl: resolveBaseUrl(isAndroid: Platform.isAndroid),
+    // 웹에서는 dart:io의 Platform을 건드리기만 해도 런타임 에러가 나므로
+    // (Unsupported operation: Platform._operatingSystem), kIsWeb으로 먼저 걸러낸다.
+    baseUrl: resolveBaseUrl(isAndroid: !kIsWeb && Platform.isAndroid),
     connectTimeout: const Duration(seconds: 10),
     receiveTimeout: const Duration(seconds: 10),
   ));

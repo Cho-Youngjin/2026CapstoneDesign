@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
 import 'core/auth/auth_providers.dart';
-import 'features/visa/data/trip_providers.dart';
+import 'core/prefs/shared_preferences_provider.dart';
 import 'router.dart';
 
 Future<void> main() async {
