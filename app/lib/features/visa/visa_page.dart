@@ -21,6 +21,14 @@ int stayDaysBetween(DateTime depart, DateTime ret) =>
         .difference(DateTime.utc(depart.year, depart.month, depart.day))
         .inDays;
 
+/// showDatePicker는 initialDate가 [first, last]를 벗어나면 assertion으로 터진다.
+/// 출발일을 앞으로 당기면 이미 고른 귀국일이 새 last를 넘을 수 있어 양쪽 모두 맞춰준다.
+DateTime clampDate(DateTime value, DateTime first, DateTime last) {
+  if (value.isBefore(first)) return first;
+  if (value.isAfter(last)) return last;
+  return value;
+}
+
 /// 서버 오류를 사용자에게 보여줄 문장으로 바꾼다.
 String tripErrorMessage(Object error) {
   if (error is DioException) {
@@ -81,11 +89,12 @@ class _VisaPageState extends ConsumerState<VisaPage> {
     required DateTime? current,
     required DateTime first,
     required DateTime last,
+    DateTime? fallback,
   }) {
-    final initial = current ?? first;
+    final initial = current ?? fallback ?? first;
     return showDatePicker(
       context: context,
-      initialDate: initial.isBefore(first) ? first : initial,
+      initialDate: clampDate(initial, first, last),
       firstDate: first,
       lastDate: last,
     );
@@ -119,6 +128,8 @@ class _VisaPageState extends ConsumerState<VisaPage> {
       current: _passportExpiry,
       first: today.subtract(const Duration(days: 365 * 5)),
       last: today.add(const Duration(days: 365 * 11)),
+      // 과거를 열어두더라도 달력이 처음 열릴 때는 오늘이 선택돼 있어야 한다.
+      fallback: today,
     );
     if (picked != null) setState(() => _passportExpiry = picked);
   }

@@ -99,6 +99,32 @@ void main() {
     });
   });
 
+  group('clampDate', () {
+    test('last보다 뒤인 값은 last로 내린다', () {
+      // 출발일을 앞으로 당기면 이미 고른 귀국일이 새 last를 넘을 수 있다.
+      // 그대로 showDatePicker에 넘기면 initialDate <= lastDate assertion에서 터진다.
+      final today = DateTime(2026, 10, 5);
+      expect(
+        clampDate(today.add(const Duration(days: 900)), today, today.add(const Duration(days: 730))),
+        today.add(const Duration(days: 730)),
+      );
+    });
+
+    test('first보다 앞선 값은 first로 올린다', () {
+      final today = DateTime(2026, 10, 5);
+      expect(
+        clampDate(today.subtract(const Duration(days: 1)), today, today.add(const Duration(days: 730))),
+        today,
+      );
+    });
+
+    test('범위 안의 값은 그대로 둔다', () {
+      final today = DateTime(2026, 10, 5);
+      final inRange = today.add(const Duration(days: 10));
+      expect(clampDate(inRange, today, today.add(const Duration(days: 730))), inRange);
+    });
+  });
+
   group('tripErrorMessage', () {
     DioException withStatus(int code) {
       final options = RequestOptions(path: '/api/trips');
@@ -169,6 +195,20 @@ void main() {
 
       expect(container.read(activeTripIdProvider), 42);
       expect(find.text('결과 화면'), findsOneWidget);
+    });
+
+    testWidgets('여권 만료일을 고르지 않고 확인하면 오늘이 선택된다', (tester) async {
+      // 만료된 여권도 입력할 수 있어야 하므로 firstDate는 과거로 열어두지만,
+      // 달력이 처음 열릴 때 그 과거 날짜가 선택돼 있으면 안 된다.
+      final api = FakeTripApi();
+      await _pumpVisaPage(tester, api: api);
+
+      await _fillForm(tester);
+      await tester.tap(find.byKey(const Key('submitTripButton')));
+      await tester.pumpAndSettle();
+
+      final today = DateUtils.dateOnly(DateTime.now());
+      expect(api.createTripCalls.single['passportExpiry'], today);
     });
 
     testWidgets('서버가 거절하면 오류 문구를 보여주고 화면에 남는다', (tester) async {
