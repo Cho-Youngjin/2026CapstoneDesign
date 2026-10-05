@@ -276,17 +276,19 @@ class TripControllerTest {
     // ─── 준비물 체크리스트(trip_checklist, 2026-09-12 리뷰로 추가) ─────────────────────
 
     @Test
-    void 여행_생성시_국가_공통_체크리스트_8개가_우선순위순으로_복사된다() throws Exception {
+    void 여행_생성시_공통_체크리스트와_국가별_항목이_우선순위순으로_복사된다() throws Exception {
         givenVietnamVisaFree45Days();
         Long tripId = createTrip("token-a", "VN",
                 LocalDate.of(2026, 12, 20), LocalDate.of(2027, 1, 9), LocalDate.of(2028, 1, 1));
 
         mockMvc.perform(get("/api/trips/" + tripId + "/checklist").header("Authorization", "Bearer token-a"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(8))
+                // 공통 8개(V5) + 베트남 결제 특이사항 1개(V9).
+                .andExpect(jsonPath("$.length()").value(9))
                 .andExpect(jsonPath("$[0].title").value("플러그 어댑터 준비"))
                 .andExpect(jsonPath("$[0].category").value("POWER"))
-                .andExpect(jsonPath("$[0].checked").value(false));
+                .andExpect(jsonPath("$[0].checked").value(false))
+                .andExpect(jsonPath("$[8].title").value("소액권 현지통화 사전 환전"));
     }
 
     /**
@@ -309,7 +311,7 @@ class TripControllerTest {
         // 생성 직후 스냅샷을 미리 확인해 둔다.
         mockMvc.perform(get("/api/trips/" + tripId + "/checklist").header("Authorization", "Bearer token-a"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(8))
+                .andExpect(jsonPath("$.length()").value(9))
                 .andExpect(jsonPath("$[0].title").value("플러그 어댑터 준비"));
 
         // 공통 템플릿을 바꾼다: 기존 항목 제목 변경 + 새 공통 항목 추가(실제로는 관리자가 R4
@@ -325,7 +327,7 @@ class TripControllerTest {
         // 새 공통 항목이 섞여 들어오면 안 된다.
         mockMvc.perform(get("/api/trips/" + tripId + "/checklist").header("Authorization", "Bearer token-a"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(8))
+                .andExpect(jsonPath("$.length()").value(9))
                 .andExpect(jsonPath("$[0].title").value("플러그 어댑터 준비"))
                 .andExpect(jsonPath("$[?(@.title=='나중에_추가된_공통_항목')]").doesNotExist());
 
@@ -335,7 +337,7 @@ class TripControllerTest {
                 LocalDate.of(2026, 12, 21), LocalDate.of(2027, 1, 10), LocalDate.of(2028, 1, 1));
         mockMvc.perform(get("/api/trips/" + newTripId + "/checklist").header("Authorization", "Bearer token-a"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(9))
+                .andExpect(jsonPath("$.length()").value(10))
                 .andExpect(jsonPath("$[?(@.title=='나중에_추가된_공통_항목')]").exists());
     }
 
