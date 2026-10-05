@@ -7,17 +7,22 @@
 // 흉내 낼 뿐, Google 로그인이나 서버 API를 실제로 호출하지 않는다.
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
 import 'core/auth/auth_providers.dart';
 import 'core/auth/dev_auth_repository.dart';
+import 'features/visa/data/trip_providers.dart';
 import 'router.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
   runApp(
     ProviderScope(
       overrides: [
         authRepositoryProvider.overrideWithValue(DevAuthRepository()),
+        sharedPreferencesProvider.overrideWithValue(prefs),
       ],
       child: const _DevRoot(),
     ),
