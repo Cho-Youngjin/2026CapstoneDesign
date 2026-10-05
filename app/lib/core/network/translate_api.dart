@@ -33,7 +33,7 @@ class TranslateApi {
       data: {
         'text': text,
         'targetLanguage': targetLanguage,
-        if (sourceLanguage != null) 'sourceLanguage': sourceLanguage,
+        'sourceLanguage': ?sourceLanguage,
       },
     );
     return TranslationResult.fromJson(response.data!);

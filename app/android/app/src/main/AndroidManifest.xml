@@ -44,5 +44,14 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Android 11+ 패키지 가시성 때문에 이 선언이 없으면 speech_to_text가
+             기기의 음성 인식 서비스를 발견하지 못하고 "사용 불가"로 초기화된다. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
+        </intent>
+        <!-- flutter_tts도 같은 이유로 TTS 엔진을 찾지 못할 수 있다. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
+        </intent>
     </queries>
 </manifest>

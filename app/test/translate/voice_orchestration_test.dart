@@ -3,16 +3,25 @@ import 'package:app/features/translate/voice/speech_services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeSpeechRecognitionService implements SpeechRecognitionService {
-  _FakeSpeechRecognitionService(this.textToReturn);
+  _FakeSpeechRecognitionService(this.textToReturn, {this.initializeResult = true});
 
   final String? textToReturn;
+  final bool initializeResult;
   String? lastLocaleId;
+  int initializeCount = 0;
+  int listenCount = 0;
+  bool initializedBeforeFirstListen = false;
 
   @override
-  Future<bool> initialize() async => true;
+  Future<bool> initialize() async {
+    initializeCount++;
+    return initializeResult;
+  }
 
   @override
   Future<String?> listenOnce({required String localeId}) async {
+    if (listenCount == 0) initializedBeforeFirstListen = initializeCount > 0;
+    listenCount++;
     lastLocaleId = localeId;
     return textToReturn;
   }
@@ -87,6 +96,64 @@ void main() {
       expect(result, isNull);
       expect(api.lastText, isNull);
       expect(tts.spokenText, isNull);
+    });
+
+    test('듣기 전에 음성 인식을 초기화한다', () async {
+      // speech_to_text는 initialize() 성공 전에 listen()을 받지 않는다.
+      final speech = _FakeSpeechRecognitionService('안녕하세요');
+      final orchestrator = VoiceTurnOrchestrator(
+        speech: speech,
+        tts: _FakeTextToSpeechService(),
+        api: _FakeTranslateApi(const TranslationResult(translatedText: 'Hello')),
+      );
+
+      await orchestrator.runTurn(
+        sourceLocaleId: 'ko-KR',
+        targetLanguageCode: 'en',
+        targetLocaleId: 'en-US',
+      );
+
+      expect(speech.initializedBeforeFirstListen, isTrue);
+    });
+
+    test('초기화가 실패하면 듣지 않고 null을 반환한다', () async {
+      final speech = _FakeSpeechRecognitionService('안녕하세요', initializeResult: false);
+      final api = _FakeTranslateApi(const TranslationResult(translatedText: 'unused'));
+      final orchestrator = VoiceTurnOrchestrator(
+        speech: speech,
+        tts: _FakeTextToSpeechService(),
+        api: api,
+      );
+
+      final result = await orchestrator.runTurn(
+        sourceLocaleId: 'ko-KR',
+        targetLanguageCode: 'en',
+        targetLocaleId: 'en-US',
+      );
+
+      expect(result, isNull);
+      expect(speech.listenCount, 0);
+      expect(api.lastText, isNull);
+    });
+
+    test('초기화는 턴마다 반복하지 않는다', () async {
+      final speech = _FakeSpeechRecognitionService('안녕하세요');
+      final orchestrator = VoiceTurnOrchestrator(
+        speech: speech,
+        tts: _FakeTextToSpeechService(),
+        api: _FakeTranslateApi(const TranslationResult(translatedText: 'Hello')),
+      );
+
+      for (var i = 0; i < 2; i++) {
+        await orchestrator.runTurn(
+          sourceLocaleId: 'ko-KR',
+          targetLanguageCode: 'en',
+          targetLocaleId: 'en-US',
+        );
+      }
+
+      expect(speech.initializeCount, 1);
+      expect(speech.listenCount, 2);
     });
   });
 }

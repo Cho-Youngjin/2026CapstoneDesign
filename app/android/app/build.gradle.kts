@@ -50,3 +50,12 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // google_mlkit_text_recognition 플러그인은 라틴 모델만 implementation으로 넣고
+    // 나머지 문자 체계는 compileOnly로 선언한다 — 앱에서 직접 추가하지 않으면
+    // APK에 모델이 빠져 일본어·중국어·한글 OCR이 런타임에 실패한다.
+    implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
+    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+}

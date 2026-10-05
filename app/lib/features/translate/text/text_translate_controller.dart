@@ -1,4 +1,3 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../../../core/network/translate_api.dart';
@@ -33,14 +32,12 @@ class TextTranslateFailure extends TextTranslateState {
 /// "번역하기" 버튼을 눌렀을 때의 흐름을 담당한다.
 class TextTranslateController extends StateNotifier<TextTranslateState> {
   TextTranslateController({
-    required TranslateApi api,
-    required String Function() targetLanguageCode,
-  })  : _api = api,
-        _targetLanguageCode = targetLanguageCode,
-        super(const TextTranslateIdle());
+    required this.api,
+    required this.targetLanguageCode,
+  }) : super(const TextTranslateIdle());
 
-  final TranslateApi _api;
-  final String Function() _targetLanguageCode;
+  final TranslateApi api;
+  final String Function() targetLanguageCode;
 
   Future<void> translate(String sourceText) async {
     final trimmed = sourceText.trim();
@@ -51,9 +48,9 @@ class TextTranslateController extends StateNotifier<TextTranslateState> {
 
     state = const TextTranslateLoading();
     try {
-      final result = await _api.translate(
+      final result = await api.translate(
         text: trimmed,
-        targetLanguage: _targetLanguageCode(),
+        targetLanguage: targetLanguageCode(),
       );
       state = TextTranslateSuccess(trimmed, result);
     } catch (e) {

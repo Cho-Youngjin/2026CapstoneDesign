@@ -17,7 +17,8 @@ final _ocrOrchestratorProvider = Provider<OcrTranslateOrchestrator>((ref) {
   return OcrTranslateOrchestrator(
     recognizer: ref.watch(_textRecognizerServiceProvider),
     api: ref.watch(translateApiProvider),
-    targetLanguageCode: () => ref.read(targetLanguageProvider).code,
+    // 촬영물은 목적국 언어로 적혀 있다 — 번역 대상이 아니라 원문 언어다.
+    sourceLanguageCode: () => ref.read(targetLanguageProvider).code,
   );
 });
 

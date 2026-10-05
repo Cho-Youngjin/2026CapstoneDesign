@@ -1,4 +1,3 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 /// 번역 대상 언어 하나(코드 + 화면에 보여줄 한글 이름).
