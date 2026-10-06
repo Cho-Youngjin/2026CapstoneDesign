@@ -89,6 +89,15 @@ class _FootstepsPageState extends ConsumerState<FootstepsPage> with WidgetsBindi
     ref.invalidate(cumulativeStepsProvider);
   }
 
+  // 임포트는 체크인 행을 새로 넣으므로, 돌아올 때 지도 데이터를 다시 읽어야 한다 —
+  // 그냥 push만 하면 캐시된 방문국 목록이 그대로 남아 새 국가가 세계지도에 안 뜬다.
+  Future<void> _openTimelineImport() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const TimelineImportPage()),
+    );
+    if (mounted) _refreshMapData();
+  }
+
   // 검증용 도구(설계 문서 §9) — 팝업에서 해외 출발 좌표를 고르고 검증까지
   // 통과하면, 좌/우 분할 화면으로 넘어가 실시간 매핑을 보여준다. 여기서 만든
   // 경로는 체크인/RoutePoint로 저장되지 않는다.
@@ -129,9 +138,7 @@ class _FootstepsPageState extends ConsumerState<FootstepsPage> with WidgetsBindi
           FloatingActionButton.small(
             heroTag: 'timeline_import',
             tooltip: 'Timeline 가져오기',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const TimelineImportPage()),
-            ),
+            onPressed: _openTimelineImport,
             child: const Icon(Icons.file_upload_outlined),
           ),
           const SizedBox(height: 12),

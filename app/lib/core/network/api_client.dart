@@ -28,7 +28,7 @@ class AuthInterceptor extends Interceptor {
   }
 }
 
-/// --dart-define=API_BASE_URL=http://<PC의 LAN IP>:8080 로 실행하면 그 값을 그대로 쓴다
+/// `--dart-define=API_BASE_URL=http://<PC의 LAN IP>:8080` 로 실행하면 그 값을 그대로 쓴다
 /// (실기기 테스트용 — 기기와 PC가 같은 Wi-Fi에 있어야 한다). 지정하지 않으면 기존 기본값
 /// 그대로: 에뮬레이터는 10.0.2.2(호스트 PC를 가리키는 에뮬레이터 전용 주소), 그 외(웹 등)는
 /// localhost. 배포 후에는 이 기본값을 서버 도메인/IP로 바꾼다(Phase 0 문서 참고).
