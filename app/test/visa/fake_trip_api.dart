@@ -3,7 +3,14 @@ import 'package:app/features/visa/models/trip.dart';
 import 'package:dio/dio.dart';
 
 /// 테스트용 샘플 여행. 필요한 값만 바꿔 쓴다.
-Trip sampleTrip({int id = 7, String iso2 = 'VN', String nameKo = '베트남'}) {
+Trip sampleTrip({
+  int id = 7,
+  String iso2 = 'VN',
+  String nameKo = '베트남',
+  VisaResult? visaResult,
+  List<TripTask> tasks = const [],
+  bool judgementStale = false,
+}) {
   return Trip(
     id: id,
     countryIso2: iso2,
@@ -11,14 +18,16 @@ Trip sampleTrip({int id = 7, String iso2 = 'VN', String nameKo = '베트남'}) {
     departDate: DateTime(2026, 12, 20),
     returnDate: DateTime(2027, 1, 9),
     passportExpiry: DateTime(2027, 3, 15),
-    visaResult: const VisaResult(
-      verdict: VisaVerdict.visaFreeOk,
-      stayDays: 20,
-      visaFreeDays: 45,
-      passportOk: true,
-      passportValidityMonths: 6,
-    ),
-    tasks: const [],
+    visaResult: visaResult ??
+        const VisaResult(
+          verdict: VisaVerdict.visaFreeOk,
+          stayDays: 20,
+          visaFreeDays: 45,
+          passportOk: true,
+          passportValidityMonths: 6,
+        ),
+    tasks: tasks,
+    judgementStale: judgementStale,
   );
 }
 
@@ -27,16 +36,23 @@ Trip sampleTrip({int id = 7, String iso2 = 'VN', String nameKo = '베트남'}) {
 class FakeTripApi implements TripApi {
   FakeTripApi({
     Trip? tripToReturn,
+    this.tripAfterRefresh,
     this.createTripStatusCode,
     this.getTripStatusCode,
   }) : tripToReturn = tripToReturn ?? sampleTrip();
 
   final Trip tripToReturn;
+
+  /// refreshTrip이 돌려줄 여행. 지정하지 않으면 [tripToReturn]을 그대로 준다.
+  final Trip? tripAfterRefresh;
+
   final int? createTripStatusCode;
   final int? getTripStatusCode;
 
   final List<Map<String, Object>> createTripCalls = [];
   final List<int> getTripCalls = [];
+  final List<int> refreshTripCalls = [];
+  final List<({int tripId, int taskId})> markTaskDoneCalls = [];
 
   @override
   Future<Trip> createTrip({
@@ -67,11 +83,16 @@ class FakeTripApi implements TripApi {
   }
 
   @override
-  Future<Trip> refreshTrip(int id) async => tripToReturn;
+  Future<Trip> refreshTrip(int id) async {
+    refreshTripCalls.add(id);
+    return tripAfterRefresh ?? tripToReturn;
+  }
 
   @override
-  Future<TripTask> markTaskDone(int tripId, int taskId) async =>
-      tripToReturn.tasks.firstWhere((t) => t.id == taskId).copyWith(done: true);
+  Future<TripTask> markTaskDone(int tripId, int taskId) async {
+    markTaskDoneCalls.add((tripId: tripId, taskId: taskId));
+    return tripToReturn.tasks.firstWhere((t) => t.id == taskId).copyWith(done: true);
+  }
 
   DioException _error(String path, int statusCode) {
     final options = RequestOptions(path: path);
