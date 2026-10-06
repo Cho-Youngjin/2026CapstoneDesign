@@ -19,6 +19,9 @@ server/bin/
 .env.*
 !**/.env.example
 
+# 참고용으로 임시로 받아둔 외부 문서 (원본 배포처에서 다시 받을 수 있어 저장소에 안 넣는다)
+/doc/
+
 # IDE
 .idea/
 *.iml
@@ -32,3 +35,6 @@ CLAUDE.md
 
 # 로컬 검증용 목 서버 — 저장소에 포함하지 않는다
 mock-server/
+
+# Claude Code 로컬 설정·워크트리 (개인 환경이라 공유하지 않는다)
+/.claude/
