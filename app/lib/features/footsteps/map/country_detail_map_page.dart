@@ -6,6 +6,9 @@ import '../../../core/network/api_client.dart';
 import '../data/checkin.dart';
 import '../data/route_point.dart';
 import '../data/route_snapping_api.dart';
+// 날짜 묶음 기준을 걸음수 귀속(DailySteps)과 똑같이 맞춘다 — 여기서 따로 만들면
+// 한쪽은 UTC 플래그, 한쪽은 로컬 플래그가 되어 같은 날짜가 달라 보인다.
+import '../health/step_attribution.dart' show dayKeyOf;
 import '../providers/footsteps_providers.dart';
 import 'base_google_map.dart';
 
@@ -47,10 +50,12 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
   // 도로 스냅 결과 캐시. 매 build마다 서버를 부르면 안 되므로, 원본 좌표
   // 개수가 바뀔 때만(새 RoutePoint가 쌓였을 때만) 다시 요청한다. 실패하거나
   // 아직 응답이 없으면 원본 좌표를 그대로 그린다.
+  //
+  // 캐시 키에 날짜가 같이 들어가야 한다 — 개수만 보면 좌표 개수가 같은 다른
+  // 날짜를 골랐을 때 재요청을 건너뛰고 전날 선을 그대로 그린다.
   List<LatLng>? _snappedRouteLine;
+  DateTime? _snappedForDay;
   int _snappedForPointCount = -1;
-
-  DateTime _dayOf(DateTime at) => DateTime.utc(at.year, at.month, at.day);
 
   void _showTimestamp(DateTime recordedAt) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -60,7 +65,15 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
 
   LatLng? _lastOrNull(List<LatLng> points) => points.isEmpty ? null : points.last;
 
-  void _snapRouteLineIfNeeded(List<LatLng> rawLine) {
+  void _snapRouteLineIfNeeded(DateTime day, List<LatLng> rawLine) {
+    if (day != _snappedForDay) {
+      // 날짜를 바꿨으면 전날 스냅 결과는 더 이상 쓸 수 없다. 여기서 버리지 않으면
+      // 좌표 개수가 같은 날짜로 바꿨을 때 재요청을 건너뛰어 전날 선이 그대로 남고,
+      // 새 날짜의 좌표가 1개뿐이라 스냅을 건너뛰는 경우에도 전날 선이 남는다.
+      _snappedForDay = day;
+      _snappedRouteLine = null;
+      _snappedForPointCount = -1;
+    }
     if (rawLine.length < 2 || rawLine.length == _snappedForPointCount) return;
     _snappedForPointCount = rawLine.length;
 
@@ -99,29 +112,32 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('경로를 불러오지 못했습니다\n$e')),
         data: (checkins) {
-          if (checkins.isEmpty) {
-            return const Center(child: Text('이 나라의 체크인 기록이 없습니다'));
-          }
-
           final checkinsByDate = <DateTime, List<Checkin>>{};
           for (final c in checkins) {
-            checkinsByDate.putIfAbsent(_dayOf(c.recordedAt), () => []).add(c);
+            checkinsByDate.putIfAbsent(dayKeyOf(c.recordedAt), () => []).add(c);
           }
           final routePointsByDate = <DateTime, List<RoutePoint>>{};
           for (final r in routePoints) {
-            routePointsByDate.putIfAbsent(_dayOf(r.recordedAt), () => []).add(r);
+            routePointsByDate.putIfAbsent(dayKeyOf(r.recordedAt), () => []).add(r);
           }
 
           // 체크인만 있는 날(오래된 기록)과 RoutePoint만 있는 날(국경을 넘지 않고
           // 같은 나라 안에서만 걸은 날)이 둘 다 날짜 선택지에 나와야 한다.
           final dates = {...checkinsByDate.keys, ...routePointsByDate.keys}.toList()..sort();
+          // 체크인이 하나도 없어도 경로 좌표만 있으면 그려야 한다 — 실시간 추적은
+          // 국경을 넘을 때까지 체크인을 만들지 않으므로, 체크인 유무로 화면을
+          // 덮어버리면 같은 나라 안에서 걸은 경로가 전혀 보이지 않는다.
+          if (dates.isEmpty) {
+            return const Center(child: Text('이 나라의 이동 기록이 없습니다'));
+          }
+
           final selected = _selectedDate ?? dates.last;
           final dayCheckins = checkinsByDate[selected] ?? const <Checkin>[];
           final dayRoutePoints = routePointsByDate[selected] ?? const <RoutePoint>[];
 
           final checkinPoints = [for (final c in dayCheckins) LatLng(c.lat, c.lng)];
           final rawRouteLine = [for (final r in dayRoutePoints) LatLng(r.lat, r.lng)];
-          _snapRouteLineIfNeeded(rawRouteLine);
+          _snapRouteLineIfNeeded(selected, rawRouteLine);
           // 스냅 응답이 아직 없거나 실패했으면 원본 GPS 좌표를 그대로 쓴다.
           final routeLine = _snappedRouteLine ?? rawRouteLine;
 
@@ -129,12 +145,10 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
           // 가운데에 놓는다 — "발걸음 상세 지도는 언제나 현재 위치 중심"이라는
           // 요구사항. 아직 GPS fix가 없으면(화면 진입 직후) 과거 기록으로 대체한다.
           final livePosition = _lastOrNull(ref.watch(liveRouteProvider).asData?.value ?? const []);
+          // dates가 비어 있지 않으면 선택된 날짜에는 체크인이나 경로 좌표가 반드시
+          // 하나는 있다. 스냅 결과(routeLine)가 아니라 원본 좌표를 폴백으로 쓴다.
           final initialCameraTarget = livePosition ??
-              (checkinPoints.isNotEmpty
-                  ? checkinPoints.first
-                  : (routeLine.isNotEmpty
-                      ? routeLine.first
-                      : LatLng(checkins.first.lat, checkins.first.lng)));
+              (checkinPoints.isNotEmpty ? checkinPoints.first : rawRouteLine.first);
 
           return Column(
             children: [
