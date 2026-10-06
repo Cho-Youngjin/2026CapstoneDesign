@@ -37,8 +37,13 @@ public class FirebaseConfig {
     // ID Token이 진짜인지 검증할 수 있다.
     @Bean
     public FirebaseApp firebaseApp() throws IOException {
-        // FirebaseApp은 프로세스당 한 번만 초기화해야 한다. 스프링이 테스트 등에서 컨텍스트를
+        // FirebaseApp은 프로세스당 한 번만 초기화해야 한다(싱글톤 패턴 — "이미 인스턴스가 있으면
+        // 새로 안 만들고 기존 걸 재사용한다"가 싱글톤의 핵심이다). 스프링이 테스트 등에서 컨텍스트를
         // 다시 띄울 때 중복 초기화 예외가 나지 않도록, 이미 초기화돼 있으면 기존 인스턴스를 재사용한다.
+        // 참고로 스프링 빈 자체도 기본 스코프가 싱글톤이라 컨테이너 안에서는 한 번만 만들어지는데,
+        // 여기서 굳이 수동 체크를 하는 이유는 Firebase SDK가 "같은 프로세스에서 두 번 초기화하면
+        // 예외를 던진다"는 자체 정책을 갖고 있어, 스프링 컨텍스트가 여러 번 재시작될 때(테스트 등)
+        // 그 SDK 레벨 중복 초기화까지 막기 위함이다.
         if (!FirebaseApp.getApps().isEmpty()) {
             return FirebaseApp.getInstance();
         }
