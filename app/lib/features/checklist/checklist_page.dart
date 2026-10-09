@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/network/checklist_api.dart';
 import '../../core/network/country_api.dart';
@@ -7,7 +8,9 @@ import '../../core/network/country_detail_api.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
+import '../../router.dart';
 import 'data/checklist_providers.dart';
+import 'data/power_bank_item.dart';
 
 /// 준비물 · 짐/서류 체크리스트 화면.
 ///
@@ -41,13 +44,19 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 detailAsync.when(
-                  data: (detail) => _CountryInfoRow(detail: detail),
+                  data: (detail) => _CountryInfoRow(
+                    detail: detail,
+                    onOpenWallet: () => context.push(AppRoutes.walletOf(_isoAlpha2)),
+                  ),
                   loading: () => const _InfoLoading(),
                   error: (e, _) => _InfoError('국가 정보를 불러오지 못했습니다: $e'),
                 ),
                 const SizedBox(height: 14),
                 checklistAsync.when(
-                  data: (items) {
+                  data: (serverItems) {
+                    // 보조배터리는 상단 카드에서 체크리스트 행으로 옮겼다(지갑·환율 알림 설계 §5.1).
+                    final items = withPowerBankItem(
+                        serverItems, detailAsync.value?.powerBankWhLimit);
                     final checkedCount =
                         items.where((i) => checkedIds.contains(i.id)).length;
                     return Column(
@@ -222,9 +231,10 @@ class _InfoError extends StatelessWidget {
 }
 
 class _CountryInfoRow extends StatelessWidget {
-  const _CountryInfoRow({required this.detail});
+  const _CountryInfoRow({required this.detail, required this.onOpenWallet});
 
   final CountryDetail detail;
+  final VoidCallback onOpenWallet;
 
   @override
   Widget build(BuildContext context) {
@@ -232,9 +242,7 @@ class _CountryInfoRow extends StatelessWidget {
         ? '${detail.plugTypes}형 ${detail.voltageV}V'
         : '정보 없음';
     final payment = detail.paymentTier?.labelKo ?? '정보 없음';
-    final powerBank = detail.powerBankWhLimit != null
-        ? '${detail.powerBankWhLimit}Wh'
-        : '정보 없음';
+    final currency = detail.currencyCode?.trim();
 
     return Row(
       children: [
@@ -242,52 +250,66 @@ class _CountryInfoRow extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(child: _CountryInfoCard(label: '결제', value: payment)),
         const SizedBox(width: 8),
-        Expanded(child: _CountryInfoCard(label: '보조배터리', value: powerBank)),
+        Expanded(
+          child: _CountryInfoCard(
+            key: const Key('walletCard'),
+            label: '지갑',
+            value: currency == null || currency.isEmpty ? '정보 없음' : '$currency ›',
+            onTap: onOpenWallet,
+          ),
+        ),
       ],
     );
   }
 }
 
 class _CountryInfoCard extends StatelessWidget {
-  const _CountryInfoCard({required this.label, required this.value});
+  const _CountryInfoCard({super.key, required this.label, required this.value, this.onTap});
 
   final String label;
   final String value;
 
+  /// 있으면 카드를 누를 수 있다(지갑 카드). 누를 수 있는 카드는 값 글자를 파란색으로 보인다.
+  final VoidCallback? onTap;
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.borderLight),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 16,
-            height: 16,
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: AppColors.placeholderPrimary,
-                width: 1.5,
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          border: Border.all(color: AppColors.borderLight),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: AppColors.placeholderPrimary,
+                  width: 1.5,
+                ),
+                borderRadius: BorderRadius.circular(4),
               ),
-              borderRadius: BorderRadius.circular(4),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(label, style: AppTextStyles.caption),
-          Text(
-            value,
-            style: const TextStyle(
-              fontFamily: 'Noto Sans KR',
-              fontWeight: FontWeight.w700,
-              fontSize: 12,
-              color: AppColors.ink,
+            const SizedBox(height: 6),
+            Text(label, style: AppTextStyles.caption),
+            Text(
+              value,
+              style: TextStyle(
+                fontFamily: 'Noto Sans KR',
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+                color: onTap == null ? AppColors.ink : AppColors.accent,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
