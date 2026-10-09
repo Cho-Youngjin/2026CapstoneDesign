@@ -72,7 +72,7 @@ public class ExchangeRateBatchScheduler {
     private void upsert(String currencyCode, BigDecimal rate, LocalDate baseDate) {
         repository.findByCurrencyCode(currencyCode)
                 .ifPresentOrElse(
-                        existing -> existing.update(rate, baseDate),
+                        existing -> existing.apply(rate, baseDate, RateSource.EXIM),
                         () -> repository.save(ExchangeRate.of(currencyCode, rate, baseDate))
                 );
     }
