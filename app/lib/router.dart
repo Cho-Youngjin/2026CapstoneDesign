@@ -13,6 +13,7 @@ import 'features/nearby/nearby_page.dart';
 import 'features/translate/translate_page.dart';
 import 'features/visa/visa_page.dart';
 import 'features/visa/visa_result_page.dart';
+import 'features/wallet/wallet_page.dart';
 
 class AppRoutes {
   static const login = '/login';
@@ -43,6 +44,11 @@ class AppRoutes {
   static const footstepsDetail = '/footsteps/detail';
   static const groupChat = '/group/chat';
   static const groupLocation = '/group/location';
+
+  /// 나라별 지갑. 준비물 탭 아래 화면이라 경로를 /checklist로 시작해 탭바의 준비물 탭이 켜진 채로 둔다.
+  static const wallet = '/checklist/wallet';
+
+  static String walletOf(String isoAlpha2) => '$wallet?iso=$isoAlpha2';
 }
 
 GoRouter createRouter({required bool isLoggedIn, VoidCallback? onSignIn}) {
@@ -68,6 +74,11 @@ GoRouter createRouter({required bool isLoggedIn, VoidCallback? onSignIn}) {
           GoRoute(path: AppRoutes.visa, builder: (_, _) => const VisaPage()),
           GoRoute(path: AppRoutes.visaResult, builder: (_, _) => const VisaResultPage()),
           GoRoute(path: AppRoutes.checklist, builder: (_, _) => const ChecklistPage()),
+          GoRoute(
+            path: AppRoutes.wallet,
+            builder: (_, state) =>
+                WalletPage(isoAlpha2: state.uri.queryParameters['iso'] ?? 'VN'),
+          ),
           GoRoute(path: AppRoutes.footsteps, builder: (_, _) => const FootstepsPage()),
           GoRoute(
             path: AppRoutes.footstepsDetail,
