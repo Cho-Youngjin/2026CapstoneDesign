@@ -29,12 +29,17 @@ class CurrencyInfo {
 
   int get _scale => math.pow(10, minorDigits).toInt();
 
+  /// 정수부 최대 자릿수. 1조(10^12) 미만이면 최소단위(×100)로 바꿔도 2^53보다 훨씬 작아
+  /// 어떤 플랫폼에서도 넘치지 않는다. 여행 경비로는 충분히 크다.
+  static const _maxWholeDigits = 12;
+
   /// "1,200" / "12.5" 같은 입력을 최소단위 정수로 바꾼다.
   /// 형식이 틀리거나, 소수 자릿수가 이 통화보다 많거나, 0 이하면 null.
   int? parseToMinor(String input) {
     final text = input.replaceAll(',', '').trim();
     final match = RegExp(r'^(\d+)(?:\.(\d+))?$').firstMatch(text);
     if (match == null) return null;
+    if (match.group(1)!.length > _maxWholeDigits) return null;
     final whole = int.parse(match.group(1)!);
     final fraction = match.group(2) ?? '';
     if (fraction.length > minorDigits) return null;

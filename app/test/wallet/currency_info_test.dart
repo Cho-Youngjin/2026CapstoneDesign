@@ -9,6 +9,12 @@ void main() {
   final vnd = currencyInfoOf('VND');
 
   group('CurrencyInfo.parseToMinor', () {
+    test('정수부가 12자리를 넘으면 예외 대신 null', () {
+      expect(jpy.parseToMinor('999999999999'), 999999999999);
+      expect(jpy.parseToMinor('1000000000000'), isNull);
+      expect(usd.parseToMinor('1${'0' * 30}'), isNull);
+    });
+
     test('콤마가 섞인 정수 입력을 최소단위로 바꾼다', () {
       expect(jpy.parseToMinor('1,200'), 1200);
       expect(usd.parseToMinor('12.5'), 1250);

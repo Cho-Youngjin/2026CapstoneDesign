@@ -7,7 +7,6 @@ import '../../core/network/country_detail_api.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
-import 'data/exchange_rate.dart';
 import 'data/wallet_database.dart';
 import 'data/wallet_rate.dart';
 import 'domain/currency_info.dart';
@@ -106,7 +105,7 @@ class _WalletPageState extends ConsumerState<WalletPage> {
                 child: PillButton(
                   key: const Key('addExpenseButton'),
                   label: '지출 기록',
-                  onPressed: () => _addExpense(currency, rate),
+                  onPressed: () => _addExpense(currency),
                 ),
               ),
               const SizedBox(width: 10),
@@ -126,16 +125,18 @@ class _WalletPageState extends ConsumerState<WalletPage> {
 
   WalletDatabase get _db => ref.read(walletDatabaseProvider);
 
-  /// 새 지출은 지금 화면에 보이는 환율로 원화 값을 고정한다(설계 §5.3).
-  Future<void> _addExpense(CurrencyInfo currency, RateSnapshot? rate) async {
+  /// 새 지출은 저장하는 순간의 환율로 원화 값을 고정한다(설계 §5.3). 폼을 연 동안 새 환율이
+  /// 도착했을 수 있으므로, 폼이 닫힌 뒤에 다시 읽는다.
+  Future<void> _addExpense(CurrencyInfo currency) async {
     final input = await showExpenseFormSheet(context, currency: currency);
-    if (input == null) return;
+    if (input == null || !mounted) return;
+    final rateNow = ref.read(walletRateProvider(currency.code)).value;
     await _db.addExpense(
       isoAlpha2: widget.isoAlpha2,
       currencyCode: currency.code,
       category: input.category.code,
       amountMinor: input.amountMinor,
-      krwPerUnitAtEntry: rate?.rate.krwRate,
+      krwPerUnitAtEntry: rateNow?.rate.krwRate,
       memo: input.memo,
       spentOn: input.spentOn,
     );
@@ -144,7 +145,7 @@ class _WalletPageState extends ConsumerState<WalletPage> {
   /// 수정해도 기록 시점 환율(krwPerUnitAtEntry)은 그대로 둔다.
   Future<void> _editExpense(CurrencyInfo currency, ExpenseRow row) async {
     final input = await showExpenseFormSheet(context, currency: currency, initial: row);
-    if (input == null) return;
+    if (input == null || !mounted) return;
     await _db.updateExpense(row.copyWith(
       category: input.category.code,
       amountMinor: input.amountMinor,
@@ -155,7 +156,7 @@ class _WalletPageState extends ConsumerState<WalletPage> {
 
   Future<void> _addExchange(CurrencyInfo currency) async {
     final input = await showExchangeFormSheet(context, currency: currency);
-    if (input == null) return;
+    if (input == null || !mounted) return;
     await _db.addExchange(
       isoAlpha2: widget.isoAlpha2,
       currencyCode: currency.code,
@@ -168,7 +169,7 @@ class _WalletPageState extends ConsumerState<WalletPage> {
 
   Future<void> _editExchange(CurrencyInfo currency, ExchangeRow row) async {
     final input = await showExchangeFormSheet(context, currency: currency, initial: row);
-    if (input == null) return;
+    if (input == null || !mounted) return;
     await _db.updateExchange(row.copyWith(
       amountMinor: input.amountMinor,
       krwPaid: Value(input.krwPaid),
@@ -178,21 +179,21 @@ class _WalletPageState extends ConsumerState<WalletPage> {
   }
 
   Future<void> _deleteExpense(ExpenseRow row) async {
-    if (await _confirm('기록 삭제', '이 지출 기록을 삭제할까요?')) {
-      await _db.deleteExpense(row.id);
-    }
+    if (!await _confirm('기록 삭제', '이 지출 기록을 삭제할까요?') || !mounted) return;
+    await _db.deleteExpense(row.id);
   }
 
   Future<void> _deleteExchange(ExchangeRow row) async {
-    if (await _confirm('기록 삭제', '이 환전 기록을 삭제할까요?')) {
-      await _db.deleteExchange(row.id);
-    }
+    if (!await _confirm('기록 삭제', '이 환전 기록을 삭제할까요?') || !mounted) return;
+    await _db.deleteExchange(row.id);
   }
 
   Future<void> _clear(String countryName) async {
-    if (await _confirm('지갑 비우기', '$countryName 지갑의 지출·환전 기록을 모두 지울까요? 되돌릴 수 없습니다.')) {
-      await _db.clearWallet(widget.isoAlpha2);
+    if (!await _confirm('지갑 비우기', '$countryName 지갑의 지출·환전 기록을 모두 지울까요? 되돌릴 수 없습니다.') ||
+        !mounted) {
+      return;
     }
+    await _db.clearWallet(widget.isoAlpha2);
   }
 
   Future<bool> _confirm(String title, String message) async {

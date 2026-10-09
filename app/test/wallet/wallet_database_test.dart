@@ -8,6 +8,15 @@ void main() {
   setUp(() => db = WalletDatabase.forTesting(NativeDatabase.memory()));
   tearDown(() => db.close());
 
+  test('날짜는 시간대와 무관한 달력 날짜로 저장·복원된다', () {
+    const converter = CalendarDateConverter();
+
+    expect(converter.toSql(DateTime(2026, 10, 9, 18, 30)), DateTime.utc(2026, 10, 9));
+    // DB에서 읽을 때 drift는 같은 순간을 기기 로컬 시간으로 돌려준다. 어떤 시간대든 10월 9일이어야 한다.
+    expect(converter.fromSql(DateTime.utc(2026, 10, 9).toLocal()), DateTime(2026, 10, 9));
+    expect(converter.fromSql(DateTime.utc(2026, 10, 9)), DateTime(2026, 10, 9));
+  });
+
   test('지출을 저장하면 그 나라 목록에 그대로 나온다', () async {
     await db.addExpense(
       isoAlpha2: 'JP', currencyCode: 'JPY', category: 'FOOD', amountMinor: 1200,

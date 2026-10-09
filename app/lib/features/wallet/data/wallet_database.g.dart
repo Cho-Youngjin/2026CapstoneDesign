@@ -88,17 +88,15 @@ class $ExpensesTable extends Expenses
     requiredDuringInsert: false,
     defaultValue: const Constant(''),
   );
-  static const VerificationMeta _spentOnMeta = const VerificationMeta(
-    'spentOn',
-  );
   @override
-  late final GeneratedColumn<DateTime> spentOn = GeneratedColumn<DateTime>(
-    'spent_on',
-    aliasedName,
-    false,
-    type: DriftSqlType.dateTime,
-    requiredDuringInsert: true,
-  );
+  late final GeneratedColumnWithTypeConverter<DateTime, DateTime> spentOn =
+      GeneratedColumn<DateTime>(
+        'spent_on',
+        aliasedName,
+        false,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: true,
+      ).withConverter<DateTime>($ExpensesTable.$converterspentOn);
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -178,14 +176,6 @@ class $ExpensesTable extends Expenses
         memo.isAcceptableOrUnknown(data['memo']!, _memoMeta),
       );
     }
-    if (data.containsKey('spent_on')) {
-      context.handle(
-        _spentOnMeta,
-        spentOn.isAcceptableOrUnknown(data['spent_on']!, _spentOnMeta),
-      );
-    } else if (isInserting) {
-      context.missing(_spentOnMeta);
-    }
     return context;
   }
 
@@ -223,10 +213,12 @@ class $ExpensesTable extends Expenses
         DriftSqlType.string,
         data['${effectivePrefix}memo'],
       )!,
-      spentOn: attachedDatabase.typeMapping.read(
-        DriftSqlType.dateTime,
-        data['${effectivePrefix}spent_on'],
-      )!,
+      spentOn: $ExpensesTable.$converterspentOn.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.dateTime,
+          data['${effectivePrefix}spent_on'],
+        )!,
+      ),
     );
   }
 
@@ -234,6 +226,9 @@ class $ExpensesTable extends Expenses
   $ExpensesTable createAlias(String alias) {
     return $ExpensesTable(attachedDatabase, alias);
   }
+
+  static TypeConverter<DateTime, DateTime> $converterspentOn =
+      const CalendarDateConverter();
 }
 
 class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
@@ -272,7 +267,11 @@ class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
       map['krw_per_unit_at_entry'] = Variable<double>(krwPerUnitAtEntry);
     }
     map['memo'] = Variable<String>(memo);
-    map['spent_on'] = Variable<DateTime>(spentOn);
+    {
+      map['spent_on'] = Variable<DateTime>(
+        $ExpensesTable.$converterspentOn.toSql(spentOn),
+      );
+    }
     return map;
   }
 
@@ -506,7 +505,9 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseRow> {
       map['memo'] = Variable<String>(memo.value);
     }
     if (spentOn.present) {
-      map['spent_on'] = Variable<DateTime>(spentOn.value);
+      map['spent_on'] = Variable<DateTime>(
+        $ExpensesTable.$converterspentOn.toSql(spentOn.value),
+      );
     }
     return map;
   }
@@ -600,17 +601,15 @@ class $ExchangesTable extends Exchanges
     requiredDuringInsert: false,
     defaultValue: const Constant(''),
   );
-  static const VerificationMeta _exchangedOnMeta = const VerificationMeta(
-    'exchangedOn',
-  );
   @override
-  late final GeneratedColumn<DateTime> exchangedOn = GeneratedColumn<DateTime>(
-    'exchanged_on',
-    aliasedName,
-    false,
-    type: DriftSqlType.dateTime,
-    requiredDuringInsert: true,
-  );
+  late final GeneratedColumnWithTypeConverter<DateTime, DateTime> exchangedOn =
+      GeneratedColumn<DateTime>(
+        'exchanged_on',
+        aliasedName,
+        false,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: true,
+      ).withConverter<DateTime>($ExchangesTable.$converterexchangedOn);
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -678,17 +677,6 @@ class $ExchangesTable extends Exchanges
         memo.isAcceptableOrUnknown(data['memo']!, _memoMeta),
       );
     }
-    if (data.containsKey('exchanged_on')) {
-      context.handle(
-        _exchangedOnMeta,
-        exchangedOn.isAcceptableOrUnknown(
-          data['exchanged_on']!,
-          _exchangedOnMeta,
-        ),
-      );
-    } else if (isInserting) {
-      context.missing(_exchangedOnMeta);
-    }
     return context;
   }
 
@@ -722,10 +710,12 @@ class $ExchangesTable extends Exchanges
         DriftSqlType.string,
         data['${effectivePrefix}memo'],
       )!,
-      exchangedOn: attachedDatabase.typeMapping.read(
-        DriftSqlType.dateTime,
-        data['${effectivePrefix}exchanged_on'],
-      )!,
+      exchangedOn: $ExchangesTable.$converterexchangedOn.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.dateTime,
+          data['${effectivePrefix}exchanged_on'],
+        )!,
+      ),
     );
   }
 
@@ -733,6 +723,9 @@ class $ExchangesTable extends Exchanges
   $ExchangesTable createAlias(String alias) {
     return $ExchangesTable(attachedDatabase, alias);
   }
+
+  static TypeConverter<DateTime, DateTime> $converterexchangedOn =
+      const CalendarDateConverter();
 }
 
 class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
@@ -763,7 +756,11 @@ class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
       map['krw_paid'] = Variable<int>(krwPaid);
     }
     map['memo'] = Variable<String>(memo);
-    map['exchanged_on'] = Variable<DateTime>(exchangedOn);
+    {
+      map['exchanged_on'] = Variable<DateTime>(
+        $ExchangesTable.$converterexchangedOn.toSql(exchangedOn),
+      );
+    }
     return map;
   }
 
@@ -973,7 +970,9 @@ class ExchangesCompanion extends UpdateCompanion<ExchangeRow> {
       map['memo'] = Variable<String>(memo.value);
     }
     if (exchangedOn.present) {
-      map['exchanged_on'] = Variable<DateTime>(exchangedOn.value);
+      map['exchanged_on'] = Variable<DateTime>(
+        $ExchangesTable.$converterexchangedOn.toSql(exchangedOn.value),
+      );
     }
     return map;
   }
@@ -1070,10 +1069,11 @@ class $$ExpensesTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<DateTime> get spentOn => $composableBuilder(
-    column: $table.spentOn,
-    builder: (column) => ColumnFilters(column),
-  );
+  ColumnWithTypeConverterFilters<DateTime, DateTime, DateTime> get spentOn =>
+      $composableBuilder(
+        column: $table.spentOn,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
 }
 
 class $$ExpensesTableOrderingComposer
@@ -1162,7 +1162,7 @@ class $$ExpensesTableAnnotationComposer
   GeneratedColumn<String> get memo =>
       $composableBuilder(column: $table.memo, builder: (column) => column);
 
-  GeneratedColumn<DateTime> get spentOn =>
+  GeneratedColumnWithTypeConverter<DateTime, DateTime> get spentOn =>
       $composableBuilder(column: $table.spentOn, builder: (column) => column);
 }
 
@@ -1327,9 +1327,10 @@ class $$ExchangesTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<DateTime> get exchangedOn => $composableBuilder(
+  ColumnWithTypeConverterFilters<DateTime, DateTime, DateTime>
+  get exchangedOn => $composableBuilder(
     column: $table.exchangedOn,
-    builder: (column) => ColumnFilters(column),
+    builder: (column) => ColumnWithTypeConverterFilters(column),
   );
 }
 
@@ -1409,10 +1410,11 @@ class $$ExchangesTableAnnotationComposer
   GeneratedColumn<String> get memo =>
       $composableBuilder(column: $table.memo, builder: (column) => column);
 
-  GeneratedColumn<DateTime> get exchangedOn => $composableBuilder(
-    column: $table.exchangedOn,
-    builder: (column) => column,
-  );
+  GeneratedColumnWithTypeConverter<DateTime, DateTime> get exchangedOn =>
+      $composableBuilder(
+        column: $table.exchangedOn,
+        builder: (column) => column,
+      );
 }
 
 class $$ExchangesTableTableManager

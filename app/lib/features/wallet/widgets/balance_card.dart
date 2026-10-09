@@ -31,22 +31,21 @@ class BalanceCard extends StatelessWidget {
         children: [
           Text('남은 돈', style: AppTextStyles.label),
           const SizedBox(height: 4),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.end,
+            spacing: 8,
             children: [
               Text(
                 currency.format(summary.balanceMinor),
                 key: const Key('balanceLocal'),
                 style: AppTextStyles.screenTitle,
               ),
-              if (rate != null) ...[
-                const SizedBox(width: 8),
+              if (rate != null)
                 Text(
                   '≈ ${formatKrw(currency.toKrw(summary.balanceMinor, rate))}',
                   key: const Key('balanceKrw'),
                   style: AppTextStyles.chip,
                 ),
-              ],
             ],
           ),
           const SizedBox(height: 6),

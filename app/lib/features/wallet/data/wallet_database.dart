@@ -8,6 +8,23 @@ import 'package:path_provider/path_provider.dart';
 
 part 'wallet_database.g.dart';
 
+/// 지갑 기록의 날짜는 "달력 날짜"다(시각 없음). drift 기본 dateTime()은 유닉스 시각으로 저장하고
+/// 읽을 때 기기의 현재 시간대로 바꾸기 때문에, 한국에서 10월 9일로 적은 기록이 베트남(UTC+7)에서는
+/// 10월 8일로 보인다. 그래서 저장은 항상 UTC 자정으로 하고, 읽을 때 UTC 기준 연·월·일을 꺼내
+/// 로컬 자정으로 돌려준다 — 어느 시간대에서 읽어도 같은 날짜가 나온다.
+class CalendarDateConverter extends TypeConverter<DateTime, DateTime> {
+  const CalendarDateConverter();
+
+  @override
+  DateTime fromSql(DateTime fromDb) {
+    final utc = fromDb.toUtc();
+    return DateTime(utc.year, utc.month, utc.day);
+  }
+
+  @override
+  DateTime toSql(DateTime value) => DateTime.utc(value.year, value.month, value.day);
+}
+
 /// 지출 기록. 금액은 현지 통화 최소단위 정수(엔은 1엔, 달러는 1센트).
 @DataClassName('ExpenseRow')
 class Expenses extends Table {
@@ -23,7 +40,7 @@ class Expenses extends Table {
   /// 그때 환율을 몰랐으면 null이고, 화면에 "환율 없음"으로 보인다.
   RealColumn get krwPerUnitAtEntry => real().nullable()();
   TextColumn get memo => text().withDefault(const Constant(''))();
-  DateTimeColumn get spentOn => dateTime()();
+  DateTimeColumn get spentOn => dateTime().map(const CalendarDateConverter())();
 }
 
 /// 환전 기록. [amountMinor]는 받은 현지 통화, [krwPaid]는 그때 낸 원화(선택, 평가손익 계산용).
@@ -35,7 +52,7 @@ class Exchanges extends Table {
   IntColumn get amountMinor => integer()();
   IntColumn get krwPaid => integer().nullable()();
   TextColumn get memo => text().withDefault(const Constant(''))();
-  DateTimeColumn get exchangedOn => dateTime()();
+  DateTimeColumn get exchangedOn => dateTime().map(const CalendarDateConverter())();
 }
 
 /// 지갑 전용 로컬 DB(`wallet.sqlite`). 발걸음 기능의 AppDatabase와 파일을 나눠,

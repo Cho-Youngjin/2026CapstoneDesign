@@ -31,7 +31,24 @@ void main() {
     expect(find.byKey(const Key('balanceGain')), findsNothing);
   });
 
-  testWidgets('낸 원화가 입력된 환전이 있으면 평가손익을 보여준다', (tester) async {
+  testWidgets('좁은 화면에서 큰 금액이어도 넘치지 않는다', (tester) async {
+    final big = WalletSummary.of(
+        expenses: const [], exchanges: [exchange(currency: 'VND', amount: 987654321)]);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 220,
+          child: BalanceCard(currency: currencyInfoOf('VND'), summary: big, krwPerUnit: 0.051934),
+        ),
+      ),
+    ));
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('₫987,654,321'), findsOneWidget);
+  });
+
+  testWidgets('낸 원화가 입력된 환전이 있으면 평가손익을 보여준다',(tester) async {
     final paid = WalletSummary.of(
         expenses: const [], exchanges: [exchange(amount: 50000, krwPaid: 420000)]);
 
