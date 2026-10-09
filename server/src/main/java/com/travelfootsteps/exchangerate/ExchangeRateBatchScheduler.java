@@ -77,11 +77,11 @@ public class ExchangeRateBatchScheduler {
         log.info("환율 갱신 완료: 수출입은행 {}건", eximCodes.size());
     }
 
-    // 캐시가 비어 있거나, 수출입은행 행 중 아직 이전값이 없는 행이 있을 때만 보정 실행을 한다.
-    // 기동 시(ExchangeRateStartupBackfill)에 부른다.
+    // 수출입은행 행이 하나도 없거나(캐시가 비었거나 참고환율 행만 있는 경우), 수출입은행 행 중 아직
+    // 이전값이 없는 행이 있을 때만 보정 실행을 한다. 기동 시(ExchangeRateStartupBackfill)에 부른다.
     @Transactional
     public void backfillIfNeeded(LocalDate today) {
-        boolean needed = repository.count() == 0
+        boolean needed = !repository.existsBySource(RateSource.EXIM)
                 || repository.existsBySourceAndPreviousKrwRateIsNull(RateSource.EXIM);
         if (!needed) {
             log.info("환율 캐시가 이미 채워져 있어 보정 실행을 건너뛴다");

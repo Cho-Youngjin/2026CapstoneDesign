@@ -77,6 +77,8 @@ public class ExchangeRate {
      * 새로 받은 환율을 이 캐시 행에 반영한다(설계 §4.3).
      *
      * <ul>
+     *   <li>출처가 현재와 다름: 날짜와 상관없이 이 값으로 행을 새로 시작하고 이전값 칸을 비운다.
+     *       서로 다른 소스(수출입은행/참고환율)의 값을 이전값으로 섞으면 등락률이 의미 없어지기 때문이다.</li>
      *   <li>더 늦은 고시일: 지금 값을 이전값 칸으로 밀어내고 새 값을 현재값으로 삼는다.</li>
      *   <li>같은 고시일: 같은 날 배치가 여러 번 돌았거나 값이 정정된 경우다. 현재값만 바꾸고 이전값은 둔다.</li>
      *   <li>더 이른 고시일: 기동 시 보정 실행이 과거 영업일을 채울 때다. 이전값 칸이 비어 있을 때만 채운다.</li>
@@ -86,6 +88,14 @@ public class ExchangeRate {
      * 자동 UPDATE 되므로, 이 메서드를 부른 쪽은 별도로 save()를 호출할 필요가 없다.
      */
     public void apply(BigDecimal rate, LocalDate date, RateSource source) {
+        if (source != this.source) {
+            this.krwRate = rate;
+            this.baseDate = date;
+            this.source = source;
+            this.previousKrwRate = null;
+            this.previousBaseDate = null;
+            return;
+        }
         if (date.isAfter(baseDate)) {
             this.previousKrwRate = this.krwRate;
             this.previousBaseDate = this.baseDate;

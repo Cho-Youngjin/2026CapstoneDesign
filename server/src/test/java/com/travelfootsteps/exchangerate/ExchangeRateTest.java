@@ -14,6 +14,26 @@ class ExchangeRateTest {
     static final LocalDate D8 = LocalDate.of(2026, 10, 8);
 
     @Test
+    void 출처가_바뀌면_이전값을_섞지_않고_새로_시작한다() {
+        ExchangeRate rate = ExchangeRate.of("USD", new BigDecimal("1342.281900"), D8, RateSource.ER_API);
+        rate.apply(new BigDecimal("1333.6"), D6, RateSource.ER_API); // previous 칸 채움(같은 출처)
+
+        rate.apply(new BigDecimal("1333.6"), D7, RateSource.EXIM);
+
+        assertThat(rate.getSource()).isEqualTo(RateSource.EXIM);
+        assertThat(rate.getKrwRate()).isEqualByComparingTo("1333.6");
+        assertThat(rate.getBaseDate()).isEqualTo(D7);
+        assertThat(rate.getPreviousKrwRate()).isNull();
+        assertThat(rate.getPreviousBaseDate()).isNull();
+        assertThat(rate.changePercent()).isNull();
+
+        rate.apply(new BigDecimal("1339.2"), D8, RateSource.EXIM);
+
+        assertThat(rate.getPreviousKrwRate()).isEqualByComparingTo("1333.6");
+        assertThat(rate.getPreviousBaseDate()).isEqualTo(D7);
+    }
+
+    @Test
     void 더_늦은_고시일이_오면_기존값을_이전값으로_밀어낸다() {
         ExchangeRate rate = ExchangeRate.of("USD", new BigDecimal("1333.6"), D7, RateSource.EXIM);
 

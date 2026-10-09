@@ -68,6 +68,8 @@ class ExchangeRateBatchSchedulerTest {
         when(repository.existsBySourceAndPreviousKrwRateIsNull(any())).thenAnswer(inv ->
                 stored.values().stream().anyMatch(r ->
                         r.getSource() == inv.getArgument(0) && r.getPreviousKrwRate() == null));
+        when(repository.existsBySource(any())).thenAnswer(inv ->
+                stored.values().stream().anyMatch(r -> r.getSource() == inv.getArgument(0)));
         countries("USD", "JPY", "VND");
         scheduler = new ExchangeRateBatchScheduler(eximClient, erApiClient, repository, countryRepository);
     }
@@ -226,6 +228,27 @@ class ExchangeRateBatchSchedulerTest {
         scheduler.backfillIfNeeded(D9);
 
         assertThat(stored.get("USD").getPreviousKrwRate()).isEqualByComparingTo("1333.6");
+    }
+
+    @Test
+    void 참고환율_행만_있고_수출입은행_행이_없으면_보정_실행으로_수출입은행_값을_되찾는다() {
+        // 첫 기동 때 수출입은행 보정이 실패해서 참고환율이 USD까지 채워 둔 상태
+        stored.put("USD", ExchangeRate.of("USD", new BigDecimal("1342.281900"), D9, RateSource.ER_API));
+        stored.put("VND", ExchangeRate.of("VND", new BigDecimal("0.051934"), D9, RateSource.ER_API));
+        when(eximClient.fetchRates(D9)).thenReturn(List.of());
+        when(eximClient.fetchRates(D8)).thenReturn(List.of(new KoreaEximApiItem(1, "USD", "1,339.2")));
+        when(eximClient.fetchRates(D7)).thenReturn(List.of(new KoreaEximApiItem(1, "USD", "1,333.6")));
+        when(erApiClient.fetchKrwBase()).thenReturn(erRates(ER_UPDATED_UNIX, "VND", "19.255146"));
+
+        scheduler.backfillIfNeeded(D9);
+
+        ExchangeRate usd = stored.get("USD");
+        assertThat(usd.getSource()).isEqualTo(RateSource.EXIM);
+        assertThat(usd.getKrwRate()).isEqualByComparingTo("1339.2");
+        assertThat(usd.getBaseDate()).isEqualTo(D8);
+        assertThat(usd.getPreviousKrwRate()).isEqualByComparingTo("1333.6");
+        assertThat(usd.getPreviousBaseDate()).isEqualTo(D7);
+        assertThat(stored.get("VND").getSource()).isEqualTo(RateSource.ER_API);
     }
 
     @Test
