@@ -32,9 +32,22 @@ class _RateAlertPageState extends ConsumerState<RateAlertPage> {
   final _amount = TextEditingController();
   TargetDirection _direction = TargetDirection.below;
   String? _amountError;
+  String? _currencyCode;
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    // 백그라운드 작업이 기록한 "도달함"을 알림 탭 등으로 앱이 다시 앞으로 올 때 반영한다.
+    _lifecycle = AppLifecycleListener(onResume: () {
+      final code = _currencyCode;
+      if (mounted && code != null) ref.invalidate(rateAlertSettingsProvider(code));
+    });
+  }
 
   @override
   void dispose() {
+    _lifecycle.dispose();
     _amount.dispose();
     super.dispose();
   }
@@ -59,6 +72,7 @@ class _RateAlertPageState extends ConsumerState<RateAlertPage> {
   }
 
   Widget _page(CountryDetail detail, CurrencyInfo currency) {
+    _currencyCode = currency.code;
     final snapshot = ref.watch(walletRateProvider(currency.code)).value;
     final settings = ref.watch(rateAlertSettingsProvider(currency.code)).value;
 
@@ -72,6 +86,7 @@ class _RateAlertPageState extends ConsumerState<RateAlertPage> {
               : RefreshIndicator(
                   onRefresh: () async {
                     ref.invalidate(walletRateProvider(currency.code));
+                    ref.invalidate(rateAlertSettingsProvider(currency.code));
                     await ref.read(walletRateProvider(currency.code).future);
                   },
                   child: ListView(

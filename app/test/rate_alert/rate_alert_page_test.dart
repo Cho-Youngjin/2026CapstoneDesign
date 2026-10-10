@@ -207,6 +207,41 @@ void main() {
     expect(h.scheduler.calls.last, isFalse);
   });
 
+  testWidgets('앱이 다시 앞으로 오면 백그라운드에서 바뀐 도달 상태를 보여준다', (tester) async {
+    final target = RateTarget(
+      id: 9,
+      unit: 100,
+      targetKrw: 850,
+      direction: TargetDirection.below,
+      active: true,
+      createdAt: DateTime(2026, 10, 1),
+    );
+    final h = await _pump(tester, initialPrefs: {
+      RateAlertStore.key: jsonEncode({'JPY': RateAlertSettings(targets: [target]).toJson()}),
+    });
+    expect(find.text('대기 중'), findsOneWidget);
+
+    // 백그라운드 작업이 도달을 기록한 것을 흉내낸다.
+    await h.store.save(
+      'JPY',
+      RateAlertSettings(
+        targets: [target.copyWith(active: false, firedAt: DateTime(2026, 10, 11, 2, 10))],
+      ),
+    );
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(find.text('도달 · 10월 11일'), findsOneWidget);
+    expect(find.text('대기 중'), findsNothing);
+    expect(_switchValue(tester, 'targetSwitch_9'), isFalse);
+  });
+
   testWidgets('환율을 모르면 목표 추가 폼 대신 안내를 보여준다', (tester) async {
     await _pump(tester, withRate: false);
 

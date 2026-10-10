@@ -63,6 +63,8 @@ final rateAlertStoreProvider = Provider<RateAlertStore>((ref) {
 });
 
 /// 통화 코드별 알림 설정. 화면에서 바꾼 뒤에는 이 프로바이더를 invalidate 한다.
-final rateAlertSettingsProvider = FutureProvider.family<RateAlertSettings, String>((ref, currencyCode) {
+/// autoDispose: 백그라운드 작업이 값을 바꾸므로 화면에 들어올 때마다 새로 읽는다.
+final rateAlertSettingsProvider =
+    FutureProvider.autoDispose.family<RateAlertSettings, String>((ref, currencyCode) {
   return ref.watch(rateAlertStoreProvider).read(currencyCode);
 });
