@@ -59,4 +59,14 @@ void main() {
 
     expect(await store.readAll(), isEmpty);
   });
+
+  test('깨진 통화 하나는 건너뛰고 나머지는 읽는다', () async {
+    SharedPreferences.setMockInitialValues({
+      RateAlertStore.key: '{"USD": {"daily": true, "targets": []}, "JPY": {"daily": "oops"}}',
+    });
+    store = RateAlertStore(await SharedPreferences.getInstance());
+
+    expect((await store.readAll()).keys, ['USD']);
+    expect((await store.read('USD')).daily, isTrue);
+  });
 }

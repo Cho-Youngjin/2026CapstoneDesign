@@ -8,7 +8,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Future<void> _pumpChecklist(WidgetTester tester) async {
+const _defaultItems = [
+  ChecklistItem(id: 10, category: 'POWER', title: '멀티어댑터', priority: 10),
+  ChecklistItem(id: 20, category: 'MONEY', title: '환전', priority: 80),
+];
+
+Future<void> _pumpChecklist(
+  WidgetTester tester, {
+  List<ChecklistItem> items = _defaultItems,
+  int? powerBankWhLimit = 100,
+}) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   final router = GoRouter(
@@ -28,19 +37,16 @@ Future<void> _pumpChecklist(WidgetTester tester) async {
   await tester.pumpWidget(ProviderScope(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
-      countryDetailProvider.overrideWith((ref, iso) async => const CountryDetail(
+      countryDetailProvider.overrideWith((ref, iso) async => CountryDetail(
             isoAlpha2: 'VN',
             nameKo: '베트남',
             plugTypes: 'A, C, G',
             voltageV: 220,
             currencyCode: 'VND',
             cardAcceptance: 'LOW',
-            powerBankWhLimit: 100,
+            powerBankWhLimit: powerBankWhLimit,
           )),
-      checklistProvider.overrideWith((ref, iso) async => const [
-            ChecklistItem(id: 10, category: 'POWER', title: '멀티어댑터', priority: 10),
-            ChecklistItem(id: 20, category: 'MONEY', title: '환전', priority: 80),
-          ]),
+      checklistProvider.overrideWith((ref, iso) async => items),
     ],
     child: MaterialApp.router(routerConfig: router),
   ));
@@ -85,5 +91,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('rate-alert VN'), findsOneWidget);
+  });
+
+  testWidgets('준비물이 하나도 없어도 환율 알림 행이 있다', (tester) async {
+    await _pumpChecklist(tester, items: const [], powerBankWhLimit: null);
+
+    expect(find.text('이 나라에 등록된 준비물이 아직 없습니다.'), findsOneWidget);
+    expect(find.byKey(const Key('rateAlertLink')), findsOneWidget);
+  });
+
+  testWidgets('환전 섹션이 없는 나라는 끝에 환전 섹션을 만들어 링크를 둔다', (tester) async {
+    await _pumpChecklist(tester, items: const [
+      ChecklistItem(id: 10, category: 'POWER', title: '멀티어댑터', priority: 10),
+    ]);
+
+    expect(find.text('환전'), findsOneWidget); // 섹션 라벨
+    expect(find.byKey(const Key('rateAlertLink')), findsOneWidget);
   });
 }

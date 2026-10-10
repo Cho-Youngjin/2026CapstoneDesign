@@ -22,16 +22,26 @@ class RateAlertStore {
     await _prefs.reload();
     final raw = _prefs.getString(key);
     if (raw == null) return {};
+    final Map<String, dynamic> json;
     try {
-      final json = jsonDecode(raw) as Map<String, dynamic>;
-      return {
-        for (final e in json.entries) e.key: RateAlertSettings.fromJson(e.value as Map<String, dynamic>),
-      };
+      json = jsonDecode(raw) as Map<String, dynamic>;
     } on FormatException {
       return {}; // 깨진 값은 없는 것으로 보고, 다음 저장 때 덮어쓴다.
     } on TypeError {
-      return {};
+      return {}; // 최상위가 Map이 아닌 경우.
     }
+    // 통화 하나만 깨져도 나머지는 살린다 — 아니면 다음 save가 정상 통화의 설정까지 지운다.
+    final result = <String, RateAlertSettings>{};
+    for (final e in json.entries) {
+      try {
+        result[e.key] = RateAlertSettings.fromJson(e.value as Map<String, dynamic>);
+      } on FormatException {
+        continue;
+      } on TypeError {
+        continue;
+      }
+    }
+    return result;
   }
 
   Future<RateAlertSettings> read(String currencyCode) async =>

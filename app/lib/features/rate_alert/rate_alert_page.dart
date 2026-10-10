@@ -189,7 +189,7 @@ class _RateAlertPageState extends ConsumerState<RateAlertPage> {
 
   Future<void> _addTarget(String code, int unit, ExchangeRate rate) async {
     final amount = double.tryParse(_amount.text.replaceAll(',', '').trim());
-    if (amount == null || amount <= 0) {
+    if (amount == null || !amount.isFinite || amount <= 0) {
       setState(() => _amountError = '금액을 확인해 주세요');
       return;
     }

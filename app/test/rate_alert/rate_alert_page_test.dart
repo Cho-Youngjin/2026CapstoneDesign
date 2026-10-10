@@ -135,6 +135,19 @@ void main() {
     expect(h.permission.requests, 0);
   });
 
+  testWidgets('무한대·NaN은 금액으로 받지 않는다', (tester) async {
+    final h = await _pump(tester);
+
+    await _addTarget(tester, 'Infinity');
+    expect(find.text('금액을 확인해 주세요'), findsOneWidget);
+    expect((await h.store.read('JPY')).targets, isEmpty);
+
+    await _addTarget(tester, 'NaN');
+    expect(find.text('금액을 확인해 주세요'), findsOneWidget);
+    expect((await h.store.read('JPY')).targets, isEmpty);
+    expect(h.permission.requests, 0);
+  });
+
   testWidgets('알림 권한을 거부하면 매일 알림 스위치가 꺼진 채로 남고 안내한다', (tester) async {
     final h = await _pump(tester, granted: false);
 

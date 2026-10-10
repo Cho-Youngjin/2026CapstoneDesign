@@ -11,17 +11,23 @@ import '../../wallet/domain/currency_info.dart';
 import '../data/rate_alert_store.dart';
 import '../domain/rate_alert_evaluator.dart';
 import '../notify/rate_notifier.dart';
+import 'rate_alert_scheduler.dart';
 
 /// 환율 알림 작업 한 번(설계 §6.3): 설정 읽기 → 켜진 통화마다 서버 조회 → 지갑 환율 캐시 갱신
 /// → 판단 → 알림 → 바뀐 설정 저장.
 ///
 /// 한 통화의 조회가 실패해도 다른 통화는 계속 본다. 실패한 통화는 설정을 건드리지 않으므로
 /// 다음 주기(3시간 뒤)에 다시 판단한다. 그래서 항상 true(성공)를 돌려준다.
+///
+/// 조회는 최대 20초 걸리므로 그 사이 사용자가 화면에서 설정을 바꿀 수 있다. 그래서 판단·저장은
+/// 시작 시점 설정이 아니라 조회 뒤에 저장소에서 다시 읽은 설정으로 한다. 모든 통화를 본 뒤에도
+/// 켜진 알림이 하나도 없으면(1회성 목표가 모두 도달한 경우 등) 주기 작업을 취소한다(설계 §6.3).
 Future<bool> handleRateAlertTask({
   required RateAlertStore store,
   required ExchangeRateApi api,
   required RateCache cache,
   required RateNotifier notifier,
+  required RateAlertScheduler scheduler,
   required DateTime Function() now,
 }) async {
   final all = await store.readAll();
@@ -39,8 +45,12 @@ Future<bool> handleRateAlertTask({
     // 지갑의 "몇 시간마다 원화 가치 갱신"은 이 캐시를 통해 이뤄진다(설계 §1-3, §6.3).
     await cache.write(code, RateSnapshot(rate: rate, fetchedAt: fetchedAt));
 
+    // 조회를 기다리는 동안 사용자가 화면에서 설정을 바꿨을 수 있다 — 최신 값으로 판단·저장한다.
+    final current = await store.read(code);
+    if (!current.isEnabled) continue;
+
     final outcome = evaluateRateAlerts(
-      settings: entry.value,
+      settings: current,
       rate: rate,
       currency: currencyInfoOf(code),
       now: fetchedAt,
@@ -52,6 +62,7 @@ Future<bool> handleRateAlertTask({
       await store.save(code, outcome.settings);
     }
   }
+  if (!await store.anyEnabled()) await scheduler.sync(enabled: false);
   return true;
 }
 
@@ -70,6 +81,7 @@ Future<bool> runRateAlertTask() async {
     api: ExchangeRateApi(dio),
     cache: RateCache(prefs),
     notifier: LocalRateNotifier(),
+    scheduler: const WorkmanagerRateAlertScheduler(),
     now: DateTime.now,
   );
 }

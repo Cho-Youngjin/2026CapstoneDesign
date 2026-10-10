@@ -114,9 +114,11 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
         padding: EdgeInsets.symmetric(vertical: 24),
         child: Text('이 나라에 등록된 준비물이 아직 없습니다.'),
       ));
-    } else if (!items.any((i) => i.category == _moneyCategory)) {
+    }
+    // 빈 목록 안내와 별개로, 환전 섹션이 없으면(빈 목록 포함) 끝에 만들어 환율 알림 진입 행을 둔다.
+    if (!items.any((i) => i.category == _moneyCategory)) {
+      if (widgets.isNotEmpty) widgets.add(const SizedBox(height: 14));
       widgets
-        ..add(const SizedBox(height: 14))
         ..add(const SectionLabel('환전'))
         ..add(const SizedBox(height: 4))
         ..add(_RateAlertLink(onTap: _openRateAlert));
