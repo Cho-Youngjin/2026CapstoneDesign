@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
+import 'core/background/app_callback_dispatcher.dart';
 import 'core/auth/auth_providers.dart';
 import 'core/prefs/shared_preferences_provider.dart';
 import 'core/maps/configure_google_maps.dart';
@@ -14,6 +15,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   configureGoogleMapsRendering();
+  await initializeBackgroundWork();
   registerFootstepBackgroundTask();
   final prefs = await SharedPreferences.getInstance();
   runApp(
