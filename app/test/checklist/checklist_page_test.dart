@@ -19,6 +19,10 @@ Future<void> _pumpChecklist(WidgetTester tester) async {
         path: '/checklist/wallet',
         builder: (_, state) => Scaffold(body: Text('wallet ${state.uri.queryParameters['iso']}')),
       ),
+      GoRoute(
+        path: '/checklist/rate-alert',
+        builder: (_, state) => Scaffold(body: Text('rate-alert ${state.uri.queryParameters['iso']}')),
+      ),
     ],
   );
   await tester.pumpWidget(ProviderScope(
@@ -67,5 +71,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('1 / 3'), findsOneWidget);
+  });
+
+  testWidgets('환전 섹션 끝에 환율 알림 행이 있고, 누르면 그 나라 환율 알림으로 간다', (tester) async {
+    await _pumpChecklist(tester);
+
+    expect(find.byKey(const Key('rateAlertLink')), findsOneWidget);
+    expect(find.text('환율 알림'), findsOneWidget);
+    expect(find.text('0 / 3'), findsOneWidget); // 체크 항목 수에는 들어가지 않는다
+
+    await tester.ensureVisible(find.byKey(const Key('rateAlertLink')));
+    await tester.tap(find.byKey(const Key('rateAlertLink')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('rate-alert VN'), findsOneWidget);
   });
 }

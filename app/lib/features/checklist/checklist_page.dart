@@ -84,12 +84,14 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
 
   /// 카테고리별로 묶어서 SectionLabel + 항목들을 순서대로 만든다.
   /// 서버가 priority 오름차순으로 이미 정렬해서 주므로, 처음 등장하는 순서 그대로
-  /// 섹션을 나눈다.
+  /// 섹션을 나눈다. 환전(`MONEY`) 섹션 끝에는 환율 알림 설정으로 가는 행을 붙이고(지갑·환율 알림 설계 §6.1),
+  /// 환전 섹션이 없는 나라면 목록 끝에 환전 섹션을 새로 만들어 그 행을 넣는다.
   List<Widget> _buildSections(List<ChecklistItem> items, Set<int> checkedIds) {
     final widgets = <Widget>[];
     String? currentCategory;
 
-    for (final item in items) {
+    for (var i = 0; i < items.length; i++) {
+      final item = items[i];
       if (item.category != currentCategory) {
         currentCategory = item.category;
         if (widgets.isNotEmpty) widgets.add(const SizedBox(height: 14));
@@ -102,6 +104,9 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
         description: item.description,
         onTap: () => _toggleChecked(item.id),
       ));
+      final lastOfMoney = item.category == _moneyCategory &&
+          (i == items.length - 1 || items[i + 1].category != _moneyCategory);
+      if (lastOfMoney) widgets.add(_RateAlertLink(onTap: _openRateAlert));
     }
 
     if (widgets.isEmpty) {
@@ -109,9 +114,19 @@ class _ChecklistPageState extends ConsumerState<ChecklistPage> {
         padding: EdgeInsets.symmetric(vertical: 24),
         child: Text('이 나라에 등록된 준비물이 아직 없습니다.'),
       ));
+    } else if (!items.any((i) => i.category == _moneyCategory)) {
+      widgets
+        ..add(const SizedBox(height: 14))
+        ..add(const SectionLabel('환전'))
+        ..add(const SizedBox(height: 4))
+        ..add(_RateAlertLink(onTap: _openRateAlert));
     }
     return widgets;
   }
+
+  static const _moneyCategory = 'MONEY';
+
+  void _openRateAlert() => context.push(AppRoutes.rateAlertOf(_isoAlpha2));
 
   /// 체크 상태를 기기 로컬에 저장하고, 저장이 끝나면 화면을 다시 그린다.
   void _toggleChecked(int templateId) {
@@ -458,6 +473,45 @@ class _CheckboxSquare extends StatelessWidget {
         borderRadius: BorderRadius.circular(5),
       ),
       child: const Icon(Icons.check, size: 14, color: Colors.white),
+    );
+  }
+}
+
+/// 환전 섹션 끝의 `환율 알림 ›` 행. 체크 항목이 아니라 설정 화면으로 가는 링크다.
+class _RateAlertLink extends StatelessWidget {
+  const _RateAlertLink({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      key: const Key('rateAlertLink'),
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 13),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: AppColors.dividerFaint)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.notifications_none, size: 20, color: AppColors.accent),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('환율 알림', style: AppTextStyles.body.copyWith(color: AppColors.accent)),
+                  const SizedBox(height: 2),
+                  Text('등락 알림·목표 환율 도달 알림 설정', style: AppTextStyles.caption),
+                ],
+              ),
+            ),
+            Text('›', style: AppTextStyles.cardTitle.copyWith(color: AppColors.textTertiary)),
+          ],
+        ),
+      ),
     );
   }
 }
