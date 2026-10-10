@@ -2,6 +2,7 @@ package com.travelfootsteps.auth;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -36,6 +37,11 @@ public class SecurityConfig {
                 // 경로별 접근 규칙. 위에서부터 순서대로 매칭되며, 먼저 매칭되는 규칙이 적용된다.
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/health").permitAll()   // 헬스체크는 로그인 없이 허용
+                        // 환율 조회는 로그인 없이 허용한다(지갑·환율 알림 설계 §4.5). 앱의 백그라운드 알림 작업
+                        // (WorkManager)은 화면 없이 도는 별도 실행 환경이라 로그인 토큰을 붙일 수 없다. 이 API는
+                        // 배치가 미리 채운 공공 환율 캐시를 DB에서 읽기만 하므로 외부 API 비용이 생기지 않는다.
+                        // HttpMethod.GET으로 조회만 열었고, 순서상 아래 "/api/**" 규칙보다 먼저 와야 먼저 매칭된다.
+                        .requestMatchers(HttpMethod.GET, "/api/exchange-rates/**").permitAll()
                         .requestMatchers("/api/**").authenticated()   // 그 외 /api/**는 로그인 필요
                         // Spring Security 6부터 AuthorizationFilter가 기본적으로 모든 디스패치 타입에
                         // 적용되는데, 여기에는 컨트롤러가 예외를 던졌을 때 스프링 부트가 /error로

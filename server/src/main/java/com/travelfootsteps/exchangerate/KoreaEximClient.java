@@ -41,11 +41,6 @@ public class KoreaEximClient {
         this.apiKey = apiKey;
     }
 
-    /** 오늘 날짜 기준 환율을 조회한다. 배치 스케줄러가 매일 호출하는 진입점이다. */
-    public List<KoreaEximApiItem> fetchTodayRates() {
-        return fetchRates(LocalDate.now());
-    }
-
     /**
      * 지정한 날짜의 환율을 조회한다. 전송 오류(non-2xx, 타임아웃, 연결 실패)와 JSON 파싱 오류
      * 모두 {@link ExternalApiException}으로 감싸서 재시도 정책의 대상이 되게 한다.

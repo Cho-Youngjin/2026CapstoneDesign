@@ -9,9 +9,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 // @RestController + @RequestMapping("/api/exchange-rates"): 이 클래스의 메서드들이 HTTP
-// 요청을 처리하고 반환값을 JSON으로 직렬화해 응답 바디에 담는다. SecurityConfig의
-// "/api/**".authenticated() 규칙에 걸리므로, 이 엔드포인트도 다른 /api/** 와 마찬가지로
-// Authorization 헤더의 Firebase ID 토큰이 있어야 접근할 수 있다.
+// 요청을 처리하고 반환값을 JSON으로 직렬화해 응답 바디에 담는다. 다른 /api/**와 달리 이 GET 조회는
+// SecurityConfig에서 permitAll로 열려 있어 토큰 없이도 호출된다 — 앱의 백그라운드 알림 작업에는
+// 로그인 토큰이 없기 때문이다(지갑·환율 알림 설계 §4.5). 토큰을 붙여 호출해도 똑같이 동작한다.
 // @RequiredArgsConstructor(Lombok): final 필드(repository)를 받는 생성자를 자동 생성한다.
 //
 // 이 컨트롤러는 배치가 미리 채워둔 캐시를 읽기만 한다 — 외부 API를 직접 호출하지 않으므로

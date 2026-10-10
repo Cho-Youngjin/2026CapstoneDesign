@@ -20,6 +20,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -75,8 +76,54 @@ class ExchangeRateControllerTest {
     }
 
     @Test
-    void 토큰_없이_요청하면_401() throws Exception {
-        mockMvc.perform(get("/api/exchange-rates/VND"))
+    void 이전값과_등락률_출처를_함께_반환한다() throws Exception {
+        ExchangeRate jpy = ExchangeRate.of("JPY", new BigDecimal("8.4"), LocalDate.of(2026, 10, 7), RateSource.EXIM);
+        jpy.apply(new BigDecimal("8.4746"), LocalDate.of(2026, 10, 8), RateSource.EXIM);
+        repository.save(jpy);
+
+        mockMvc.perform(get("/api/exchange-rates/JPY").header("Authorization", "Bearer valid-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.krwRate").value(8.4746))
+                .andExpect(jsonPath("$.baseDate").value("2026-10-08"))
+                .andExpect(jsonPath("$.previousKrwRate").value(8.4))
+                .andExpect(jsonPath("$.previousBaseDate").value("2026-10-07"))
+                .andExpect(jsonPath("$.changePercent").value(0.89))
+                .andExpect(jsonPath("$.source").value("EXIM"));
+    }
+
+    @Test
+    void 이전값이_없으면_등락_필드는_null이다() throws Exception {
+        repository.save(ExchangeRate.of("GBP", new BigDecimal("1790.12"), LocalDate.of(2026, 10, 8)));
+
+        mockMvc.perform(get("/api/exchange-rates/GBP").header("Authorization", "Bearer valid-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.previousKrwRate").value(nullValue()))
+                .andExpect(jsonPath("$.previousBaseDate").value(nullValue()))
+                .andExpect(jsonPath("$.changePercent").value(nullValue()));
+    }
+
+    @Test
+    void 참고환율은_출처가_ER_API로_나간다() throws Exception {
+        repository.save(ExchangeRate.of("TWD", new BigDecimal("41.970956"), LocalDate.of(2026, 10, 9), RateSource.ER_API));
+
+        mockMvc.perform(get("/api/exchange-rates/TWD").header("Authorization", "Bearer valid-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.krwRate").value(41.970956))
+                .andExpect(jsonPath("$.source").value("ER_API"));
+    }
+
+    @Test
+    void 토큰_없이도_환율을_조회할_수_있다() throws Exception {
+        repository.save(ExchangeRate.of("EUR", new BigDecimal("1500.04"), LocalDate.of(2026, 10, 8)));
+
+        mockMvc.perform(get("/api/exchange-rates/EUR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currencyCode").value("EUR"));
+    }
+
+    @Test
+    void 환율이_아닌_다른_API는_여전히_토큰이_필요하다() throws Exception {
+        mockMvc.perform(get("/api/countries/JP"))
                 .andExpect(status().isUnauthorized());
     }
 }
