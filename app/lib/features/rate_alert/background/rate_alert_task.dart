@@ -62,7 +62,12 @@ Future<bool> handleRateAlertTask({
       await store.save(code, outcome.settings);
     }
   }
-  if (!await store.anyEnabled()) await scheduler.sync(enabled: false);
+  // 켜진 알림이 하나도 없으면 주기 작업을 취소한다(설계 §6.3). 취소 직전에 화면이 알림을 켜고
+  // 작업을 등록했을 수 있으므로, 취소한 뒤 한 번 더 확인해 켜진 게 있으면 다시 등록한다.
+  if (!await store.anyEnabled()) {
+    await scheduler.sync(enabled: false);
+    if (await store.anyEnabled()) await scheduler.sync(enabled: true);
+  }
   return true;
 }
 

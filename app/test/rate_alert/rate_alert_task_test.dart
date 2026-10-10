@@ -38,10 +38,18 @@ class _FakeNotifier implements RateNotifier {
 }
 
 class _FakeScheduler implements RateAlertScheduler {
+  _FakeScheduler({this.onSync});
+
   final calls = <bool>[];
 
+  /// sync가 기록된 뒤 불린다 — 취소 직전·직후에 화면이 설정을 바꾸는 상황을 흉내 낸다.
+  final Future<void> Function(bool enabled)? onSync;
+
   @override
-  Future<void> sync({required bool enabled}) async => calls.add(enabled);
+  Future<void> sync({required bool enabled}) async {
+    calls.add(enabled);
+    await onSync?.call(enabled);
+  }
 }
 
 final _jpyRate = ExchangeRate(
@@ -181,6 +189,20 @@ void main() {
 
     expect(notifier.shown, hasLength(1));
     expect(scheduler.calls, [false]);
+  });
+
+  test('취소하는 사이 화면이 알림을 켜면 작업을 다시 등록한다', () async {
+    await store.save('JPY', RateAlertSettings(targets: [target]));
+    final api = _FakeApi({'JPY': _jpyRate});
+    // 취소 순간 화면이 다른 통화의 매일 알림을 켠 상황.
+    scheduler = _FakeScheduler(onSync: (enabled) async {
+      if (!enabled) await store.save('USD', const RateAlertSettings(daily: true));
+    });
+
+    await handleRateAlertTask(
+        store: store, api: api, cache: cache, notifier: notifier, scheduler: scheduler, now: () => now);
+
+    expect(scheduler.calls, [false, true]);
   });
 
   test('켜진 알림이 남아 있으면 작업을 그대로 둔다', () async {

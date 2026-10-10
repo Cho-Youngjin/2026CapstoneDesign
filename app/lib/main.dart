@@ -9,6 +9,8 @@ import 'core/auth/auth_providers.dart';
 import 'core/prefs/shared_preferences_provider.dart';
 import 'core/maps/configure_google_maps.dart';
 import 'features/footsteps/background/footstep_workmanager.dart';
+import 'features/rate_alert/background/rate_alert_scheduler.dart';
+import 'features/rate_alert/data/rate_alert_store.dart';
 import 'router.dart';
 
 Future<void> main() async {
@@ -18,6 +20,8 @@ Future<void> main() async {
   await initializeBackgroundWork();
   registerFootstepBackgroundTask();
   final prefs = await SharedPreferences.getInstance();
+  // 환율 알림 작업을 저장된 설정에 맞춘다 — 백그라운드 취소와 화면 변경이 겹쳐 어긋났더라도 앱을 켜면 복구된다.
+  await const WorkmanagerRateAlertScheduler().sync(enabled: await RateAlertStore(prefs).anyEnabled());
   runApp(
     ProviderScope(
       overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
