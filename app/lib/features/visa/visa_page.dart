@@ -10,7 +10,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
 import 'data/trip_api.dart';
-import 'data/trip_providers.dart';
+import 'data/trip_list_providers.dart';
 
 final _displayDate = DateFormat('yyyy-MM-dd');
 
@@ -44,11 +44,11 @@ String tripErrorMessage(Object error) {
   return '여행계획을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.';
 }
 
-/// 비자 탭의 기본 화면 — 여행 계획(목적지/일정) 입력 폼.
+/// 새 여행계획 입력 폼(`/visa/new`, 여행 목록의 [+ 새 여행계획]에서 들어온다).
 /// 와이어프레임: "해외여행 발걸음 - 와이어프레임" Plan B, 여행 계획 화면.
 ///
-/// 제출하면 `POST /api/trips`로 비자 판정을 받고, 만들어진 여행을 활성 여행으로
-/// 저장한 뒤 결과 화면으로 이동한다.
+/// 제출하면 `POST /api/trips`로 비자 판정을 받고, 목록을 새로 고친 뒤 이 폼을 만들어진
+/// 여행의 상세 화면으로 바꾼다 — 뒤로 가기는 폼이 아니라 목록으로 돌아간다.
 class VisaPage extends ConsumerStatefulWidget {
   const VisaPage({super.key});
 
@@ -146,8 +146,8 @@ class _VisaPageState extends ConsumerState<VisaPage> {
             returnDate: _returnDate!,
             passportExpiry: _passportExpiry!,
           );
-      await ref.read(activeTripIdProvider.notifier).set(trip.id);
-      if (mounted) context.push(AppRoutes.visaResult);
+      ref.invalidate(tripListProvider);
+      if (mounted) context.pushReplacement(AppRoutes.tripOf(trip.id));
     } catch (e) {
       if (mounted) setState(() => _error = tripErrorMessage(e));
     } finally {
@@ -168,7 +168,19 @@ class _VisaPageState extends ConsumerState<VisaPage> {
               bottom: BorderSide(color: AppColors.borderLight),
             ),
           ),
-          child: Text('여행 계획', style: AppTextStyles.screenTitle),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back, color: AppColors.textBody),
+                onPressed: () =>
+                    context.canPop() ? context.pop() : context.go(AppRoutes.visa),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+              const SizedBox(width: 12),
+              Text('새 여행계획', style: AppTextStyles.screenTitle),
+            ],
+          ),
         ),
         Expanded(
           child: SingleChildScrollView(
