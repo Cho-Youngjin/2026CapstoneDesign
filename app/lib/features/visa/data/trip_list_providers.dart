@@ -119,6 +119,9 @@ TripSummary? resolveSelectedTrip(List<TripSummary> trips, int? selectedId, DateT
 }
 
 /// 여행 상세(판정·준비 일정). 화면을 떠나면 버리고, 다시 들어오면 서버에서 새로 읽는다.
+///
+/// `retry`를 끈다: 404나 서버 오류는 바로 보여주고, 재시도는 사용자가 [다시 시도]로 한다.
 final tripProvider = FutureProvider.autoDispose.family<Trip, int>(
   (ref, id) => ref.watch(tripApiProvider).getTrip(id),
+  retry: (_, _) => null,
 );
