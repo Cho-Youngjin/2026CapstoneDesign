@@ -4,7 +4,7 @@ import 'package:app/features/wallet/domain/expense_category.dart';
 
 ExpenseRow expense({
   int id = 1,
-  String iso = 'JP',
+  int tripId = 1,
   String currency = 'JPY',
   ExpenseCategory category = ExpenseCategory.food,
   required int amount,
@@ -14,7 +14,7 @@ ExpenseRow expense({
 }) {
   return ExpenseRow(
     id: id,
-    isoAlpha2: iso,
+    tripId: tripId,
     currencyCode: currency,
     category: category.code,
     amountMinor: amount,
@@ -26,7 +26,7 @@ ExpenseRow expense({
 
 ExchangeRow exchange({
   int id = 1,
-  String iso = 'JP',
+  int tripId = 1,
   String currency = 'JPY',
   required int amount,
   int? krwPaid,
@@ -35,7 +35,7 @@ ExchangeRow exchange({
 }) {
   return ExchangeRow(
     id: id,
-    isoAlpha2: iso,
+    tripId: tripId,
     currencyCode: currency,
     amountMinor: amount,
     krwPaid: krwPaid,

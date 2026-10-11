@@ -29,7 +29,8 @@ class CalendarDateConverter extends TypeConverter<DateTime, DateTime> {
 @DataClassName('ExpenseRow')
 class Expenses extends Table {
   IntColumn get id => integer().autoIncrement()();
-  TextColumn get isoAlpha2 => text()();
+  /// 이 기록이 속한 여행(서버 trip id). 같은 나라를 두 번 가도 가계부가 섞이지 않게 여행으로 묶는다.
+  IntColumn get tripId => integer()();
   TextColumn get currencyCode => text()();
 
   /// `ExpenseCategory.code` (FOOD, LODGING, TRANSPORT, SIGHTSEEING, OTHER)
@@ -47,7 +48,8 @@ class Expenses extends Table {
 @DataClassName('ExchangeRow')
 class Exchanges extends Table {
   IntColumn get id => integer().autoIncrement()();
-  TextColumn get isoAlpha2 => text()();
+  /// 이 기록이 속한 여행(서버 trip id). 같은 나라를 두 번 가도 가계부가 섞이지 않게 여행으로 묶는다.
+  IntColumn get tripId => integer()();
   TextColumn get currencyCode => text()();
   IntColumn get amountMinor => integer()();
   IntColumn get krwPaid => integer().nullable()();
@@ -65,10 +67,24 @@ class WalletDatabase extends _$WalletDatabase {
   WalletDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) => m.createAll(),
+        // 1→2: 기록 묶음 기준이 나라(isoAlpha2)에서 여행(tripId)으로 바뀌었다. 1단계 기록은 테스트
+        // 데이터뿐이라 옮기지 않고 두 테이블을 다시 만든다(여행계획 중심 설계 §4.2).
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            await m.deleteTable('expenses');
+            await m.deleteTable('exchanges');
+            await m.createAll();
+          }
+        },
+      );
 
   Future<int> addExpense({
-    required String isoAlpha2,
+    required int tripId,
     required String currencyCode,
     required String category,
     required int amountMinor,
@@ -77,7 +93,7 @@ class WalletDatabase extends _$WalletDatabase {
     required DateTime spentOn,
   }) {
     return into(expenses).insert(ExpensesCompanion.insert(
-      isoAlpha2: isoAlpha2,
+      tripId: tripId,
       currencyCode: currencyCode,
       category: category,
       amountMinor: amountMinor,
@@ -96,7 +112,7 @@ class WalletDatabase extends _$WalletDatabase {
   }
 
   Future<int> addExchange({
-    required String isoAlpha2,
+    required int tripId,
     required String currencyCode,
     required int amountMinor,
     int? krwPaid,
@@ -104,7 +120,7 @@ class WalletDatabase extends _$WalletDatabase {
     required DateTime exchangedOn,
   }) {
     return into(exchanges).insert(ExchangesCompanion.insert(
-      isoAlpha2: isoAlpha2,
+      tripId: tripId,
       currencyCode: currencyCode,
       amountMinor: amountMinor,
       krwPaid: Value(krwPaid),
@@ -121,27 +137,27 @@ class WalletDatabase extends _$WalletDatabase {
     await (delete(exchanges)..where((x) => x.id.equals(id))).go();
   }
 
-  /// 한 나라의 지출. 최근 날짜 먼저, 같은 날은 나중에 넣은 것 먼저.
-  Stream<List<ExpenseRow>> watchExpenses(String isoAlpha2) {
+  /// 한 여행의 지출. 최근 날짜 먼저, 같은 날은 나중에 넣은 것 먼저.
+  Stream<List<ExpenseRow>> watchExpenses(int tripId) {
     return (select(expenses)
-          ..where((e) => e.isoAlpha2.equals(isoAlpha2))
+          ..where((e) => e.tripId.equals(tripId))
           ..orderBy([(e) => OrderingTerm.desc(e.spentOn), (e) => OrderingTerm.desc(e.id)]))
         .watch();
   }
 
-  /// 한 나라의 환전. 정렬 규칙은 [watchExpenses]와 같다.
-  Stream<List<ExchangeRow>> watchExchanges(String isoAlpha2) {
+  /// 한 여행의 환전. 정렬 규칙은 [watchExpenses]와 같다.
+  Stream<List<ExchangeRow>> watchExchanges(int tripId) {
     return (select(exchanges)
-          ..where((x) => x.isoAlpha2.equals(isoAlpha2))
+          ..where((x) => x.tripId.equals(tripId))
           ..orderBy([(x) => OrderingTerm.desc(x.exchangedOn), (x) => OrderingTerm.desc(x.id)]))
         .watch();
   }
 
-  /// 이 나라의 지갑 기록(지출·환전)을 모두 지운다. 다른 나라 기록은 그대로 둔다.
-  Future<void> clearWallet(String isoAlpha2) {
+  /// 이 여행의 지갑 기록(지출·환전)을 모두 지운다. 다른 여행 기록은 그대로 둔다.
+  Future<void> clearWallet(int tripId) {
     return transaction(() async {
-      await (delete(expenses)..where((e) => e.isoAlpha2.equals(isoAlpha2))).go();
-      await (delete(exchanges)..where((x) => x.isoAlpha2.equals(isoAlpha2))).go();
+      await (delete(expenses)..where((e) => e.tripId.equals(tripId))).go();
+      await (delete(exchanges)..where((x) => x.tripId.equals(tripId))).go();
     });
   }
 }
@@ -159,14 +175,14 @@ final walletDatabaseProvider = Provider<WalletDatabase>((ref) {
   return db;
 });
 
-/// 나라(isoAlpha2)별 지출 목록. DB가 바뀌면 자동으로 다시 내보낸다.
+/// 여행별 지출 목록. DB가 바뀌면 자동으로 다시 내보낸다.
 final walletExpensesProvider =
-    StreamProvider.family<List<ExpenseRow>, String>((ref, isoAlpha2) {
-  return ref.watch(walletDatabaseProvider).watchExpenses(isoAlpha2);
+    StreamProvider.family<List<ExpenseRow>, int>((ref, tripId) {
+  return ref.watch(walletDatabaseProvider).watchExpenses(tripId);
 });
 
-/// 나라(isoAlpha2)별 환전 목록.
+/// 여행별 환전 목록.
 final walletExchangesProvider =
-    StreamProvider.family<List<ExchangeRow>, String>((ref, isoAlpha2) {
-  return ref.watch(walletDatabaseProvider).watchExchanges(isoAlpha2);
+    StreamProvider.family<List<ExchangeRow>, int>((ref, tripId) {
+  return ref.watch(walletDatabaseProvider).watchExchanges(tripId);
 });

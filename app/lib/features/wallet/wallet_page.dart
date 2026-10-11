@@ -19,11 +19,13 @@ import 'widgets/rate_banner.dart';
 import 'widgets/sub_page_header.dart';
 import 'widgets/wallet_entry_list.dart';
 
-/// 나라별 지갑(여행 가계부) 화면 — 지갑·환율 알림 설계 §5.2.
-/// 준비물 탭의 `지갑` 카드에서 `/checklist/wallet?iso=JP`로 들어온다. 기록은 기기에만 저장한다.
+/// 여행별 지갑(여행 가계부) 화면 — 지갑·환율 알림 설계 §5.2, 여행계획 중심 설계 §3.4.
+/// 준비물 탭 `지갑` 카드나 여행 상세의 [지갑]에서 `/checklist/wallet?trip=3&iso=JP`로 들어온다.
+/// 기록은 여행(tripId)별로 기기에만 저장하고, 통화는 나라(isoAlpha2)로 정한다.
 class WalletPage extends ConsumerStatefulWidget {
-  const WalletPage({super.key, required this.isoAlpha2});
+  const WalletPage({super.key, required this.tripId, required this.isoAlpha2});
 
+  final int tripId;
   final String isoAlpha2;
 
   @override
@@ -54,10 +56,10 @@ class _WalletPageState extends ConsumerState<WalletPage> {
   }
 
   Widget _wallet(CountryDetail detail, CurrencyInfo currency) {
-    final iso = widget.isoAlpha2;
+    final tripId = widget.tripId;
     final rate = ref.watch(walletRateProvider(currency.code)).value;
-    final expenses = ref.watch(walletExpensesProvider(iso)).value ?? const <ExpenseRow>[];
-    final exchanges = ref.watch(walletExchangesProvider(iso)).value ?? const <ExchangeRow>[];
+    final expenses = ref.watch(walletExpensesProvider(tripId)).value ?? const <ExpenseRow>[];
+    final exchanges = ref.watch(walletExchangesProvider(tripId)).value ?? const <ExchangeRow>[];
     final summary = WalletSummary.of(expenses: expenses, exchanges: exchanges);
     final krwPerUnit = rate?.rate.krwRate;
 
@@ -132,7 +134,7 @@ class _WalletPageState extends ConsumerState<WalletPage> {
     if (input == null || !mounted) return;
     final rateNow = ref.read(walletRateProvider(currency.code)).value;
     await _db.addExpense(
-      isoAlpha2: widget.isoAlpha2,
+      tripId: widget.tripId,
       currencyCode: currency.code,
       category: input.category.code,
       amountMinor: input.amountMinor,
@@ -158,7 +160,7 @@ class _WalletPageState extends ConsumerState<WalletPage> {
     final input = await showExchangeFormSheet(context, currency: currency);
     if (input == null || !mounted) return;
     await _db.addExchange(
-      isoAlpha2: widget.isoAlpha2,
+      tripId: widget.tripId,
       currencyCode: currency.code,
       amountMinor: input.amountMinor,
       krwPaid: input.krwPaid,
@@ -193,7 +195,7 @@ class _WalletPageState extends ConsumerState<WalletPage> {
         !mounted) {
       return;
     }
-    await _db.clearWallet(widget.isoAlpha2);
+    await _db.clearWallet(widget.tripId);
   }
 
   Future<bool> _confirm(String title, String message) async {

@@ -11,6 +11,7 @@ import 'features/group/location_share_page.dart';
 import 'features/login/login_page.dart';
 import 'features/nearby/nearby_page.dart';
 import 'features/translate/translate_page.dart';
+import 'features/visa/trip_list_page.dart';
 import 'features/visa/visa_page.dart';
 import 'features/visa/visa_result_page.dart';
 import 'features/rate_alert/rate_alert_page.dart';
@@ -27,7 +28,7 @@ class AppRoutes {
 
   static const tabs = [visa, checklist, footsteps, group, translate, nearby];
 
-  static const tabLabels = ['비자', '준비물', '발걸음', '그룹', '번역', '주변'];
+  static const tabLabels = ['여행', '준비물', '발걸음', '그룹', '번역', '주변'];
 
   static const tabIcons = [
     Icons.assignment_outlined,
@@ -41,15 +42,22 @@ class AppRoutes {
   /// 탭 하위 상세 화면(뒤로가기 헤더는 있지만 하단 탭바는 유지되는 화면).
   /// 실제 국가/그룹 id 라우팅은 각 Plan(C/D)에서 실 데이터 연동 시 교체한다 —
   /// 지금은 와이어프레임 UI만 보여주는 단계라 경로를 고정값으로 둔다.
-  static const visaResult = '/visa/result';
+  /// 새 여행계획 입력 폼.
+  static const visaNew = '/visa/new';
+
+  /// 여행 상세(판정·준비 일정). `tripOf(3)` → `/visa/trip/3`.
+  static const tripDetail = '/visa/trip/:id';
+
+  static String tripOf(int id) => '/visa/trip/$id';
+
   static const footstepsDetail = '/footsteps/detail';
   static const groupChat = '/group/chat';
   static const groupLocation = '/group/location';
 
-  /// 나라별 지갑. 준비물 탭 아래 화면이라 경로를 /checklist로 시작해 탭바의 준비물 탭이 켜진 채로 둔다.
+  /// 여행별 지갑. 준비물 탭 아래 화면이라 경로를 /checklist로 시작해 탭바의 준비물 탭이 켜진 채로 둔다.
   static const wallet = '/checklist/wallet';
 
-  static String walletOf(String isoAlpha2) => '$wallet?iso=$isoAlpha2';
+  static String walletOf(int tripId, String isoAlpha2) => '$wallet?trip=$tripId&iso=$isoAlpha2';
 
   /// 환율 알림 설정. 준비물 탭 환전 섹션에서 들어오며, 지갑처럼 준비물 탭이 켜진 채로 둔다.
   static const rateAlert = '/checklist/rate-alert';
@@ -77,13 +85,20 @@ GoRouter createRouter({required bool isLoggedIn, VoidCallback? onSignIn}) {
           child: child,
         ),
         routes: [
-          GoRoute(path: AppRoutes.visa, builder: (_, _) => const VisaPage()),
-          GoRoute(path: AppRoutes.visaResult, builder: (_, _) => const VisaResultPage()),
+          GoRoute(path: AppRoutes.visa, builder: (_, _) => const TripListPage()),
+          GoRoute(path: AppRoutes.visaNew, builder: (_, _) => const VisaPage()),
+          GoRoute(
+            path: AppRoutes.tripDetail,
+            builder: (_, state) =>
+                VisaResultPage(tripId: int.parse(state.pathParameters['id']!)),
+          ),
           GoRoute(path: AppRoutes.checklist, builder: (_, _) => const ChecklistPage()),
           GoRoute(
             path: AppRoutes.wallet,
-            builder: (_, state) =>
-                WalletPage(isoAlpha2: state.uri.queryParameters['iso'] ?? 'VN'),
+            builder: (_, state) => WalletPage(
+              tripId: int.tryParse(state.uri.queryParameters['trip'] ?? '') ?? 0,
+              isoAlpha2: state.uri.queryParameters['iso'] ?? 'VN',
+            ),
           ),
           GoRoute(
             path: AppRoutes.rateAlert,

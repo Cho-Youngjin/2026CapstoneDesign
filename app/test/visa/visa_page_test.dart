@@ -1,7 +1,6 @@
 import 'package:app/core/network/country_api.dart';
 import 'package:app/features/visa/data/trip_api.dart';
 import 'package:app/core/prefs/shared_preferences_provider.dart';
-import 'package:app/features/visa/data/trip_providers.dart';
 import 'package:app/features/visa/visa_page.dart';
 import 'package:app/router.dart';
 import 'package:dio/dio.dart';
@@ -20,8 +19,8 @@ const _vietnam = Country(
   tier: 'A',
 );
 
-/// 비자 탭 + 결과 화면 자리만 있는 최소 라우터로 VisaPage를 띄운다.
-Future<ProviderContainer> _pumpVisaPage(
+/// 새 여행 폼 + 여행 상세 자리만 있는 최소 라우터로 VisaPage를 띄운다.
+Future<void> _pumpVisaPage(
   WidgetTester tester, {
   required FakeTripApi api,
 }) async {
@@ -29,15 +28,15 @@ Future<ProviderContainer> _pumpVisaPage(
   final prefs = await SharedPreferences.getInstance();
 
   final router = GoRouter(
-    initialLocation: AppRoutes.visa,
+    initialLocation: AppRoutes.visaNew,
     routes: [
       GoRoute(
-        path: AppRoutes.visa,
+        path: AppRoutes.visaNew,
         builder: (_, _) => const Scaffold(body: VisaPage()),
       ),
       GoRoute(
-        path: AppRoutes.visaResult,
-        builder: (_, _) => const Scaffold(body: Text('결과 화면')),
+        path: AppRoutes.tripDetail,
+        builder: (_, state) => Scaffold(body: Text('결과 ${state.pathParameters['id']}')),
       ),
     ],
   );
@@ -52,8 +51,6 @@ Future<ProviderContainer> _pumpVisaPage(
   );
   await tester.pumpWidget(scope);
   await tester.pumpAndSettle();
-
-  return ProviderScope.containerOf(tester.element(find.byType(VisaPage)));
 }
 
 /// 날짜 입력칸을 눌러 달력을 열고, 기본 선택된 날짜 그대로 확인을 누른다.
@@ -176,9 +173,9 @@ void main() {
       expect(find.text('VN · Tier A'), findsOneWidget);
     });
 
-    testWidgets('모두 입력하고 제출하면 여행을 만들고 결과 화면으로 이동한다', (tester) async {
+    testWidgets('모두 입력하고 제출하면 여행을 만들고 그 여행의 상세로 이동한다', (tester) async {
       final api = FakeTripApi(tripToReturn: sampleTrip(id: 42));
-      final container = await _pumpVisaPage(tester, api: api);
+      await _pumpVisaPage(tester, api: api);
 
       await _fillForm(tester);
       expect(find.text('체류 0일'), findsOneWidget);
@@ -194,8 +191,7 @@ void main() {
       expect(call['departDate'], today);
       expect(call['returnDate'], today);
 
-      expect(container.read(activeTripIdProvider), 42);
-      expect(find.text('결과 화면'), findsOneWidget);
+      expect(find.text('결과 42'), findsOneWidget);
     });
 
     testWidgets('여권 만료일을 고르지 않고 확인하면 오늘이 선택된다', (tester) async {
@@ -214,7 +210,7 @@ void main() {
 
     testWidgets('서버가 거절하면 오류 문구를 보여주고 화면에 남는다', (tester) async {
       final api = FakeTripApi(createTripStatusCode: 400);
-      final container = await _pumpVisaPage(tester, api: api);
+      await _pumpVisaPage(tester, api: api);
 
       await _fillForm(tester);
       await tester.tap(find.byKey(const Key('submitTripButton')));
@@ -222,8 +218,7 @@ void main() {
 
       expect(find.byKey(const Key('tripFormError')), findsOneWidget);
       expect(find.text('입력값을 다시 확인해 주세요.'), findsOneWidget);
-      expect(find.text('결과 화면'), findsNothing);
-      expect(container.read(activeTripIdProvider), isNull);
+      expect(find.textContaining('결과 '), findsNothing);
       expect(_submitButton(tester).onPressed, isNotNull, reason: '다시 시도할 수 있어야 한다');
     });
   });
