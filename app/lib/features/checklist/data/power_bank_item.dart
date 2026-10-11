@@ -1,7 +1,7 @@
 import '../../../core/network/checklist_api.dart';
 
-/// 보조배터리 행의 예약 id. 서버 준비물 템플릿 id(양수)와 겹치지 않게 음수를 쓴다.
-/// 체크 상태는 다른 준비물처럼 ChecklistCheckedStore에 이 id로 저장된다.
+/// 보조배터리 행의 예약 id. 서버 준비물 id(양수)와 겹치지 않게 음수를 쓴다.
+/// 체크 상태는 서버가 아니라 PowerBankCheckStore에 여행별로 저장된다.
 const int powerBankChecklistId = -1;
 
 /// 국가 정보의 보조배터리 기내 반입 한도(Wh)를 체크리스트 행으로 만들어 끼워 넣는다(설계 §5.1).
