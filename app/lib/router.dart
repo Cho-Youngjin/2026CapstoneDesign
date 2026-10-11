@@ -9,6 +9,8 @@ import 'features/group/chat_room_page.dart';
 import 'features/group/group_page.dart';
 import 'features/group/location_share_page.dart';
 import 'features/login/login_page.dart';
+import 'features/login/password_reset_page.dart';
+import 'features/login/sign_up_page.dart';
 import 'features/nearby/nearby_page.dart';
 import 'features/translate/translate_page.dart';
 import 'features/visa/trip_list_page.dart';
@@ -19,6 +21,10 @@ import 'features/wallet/wallet_page.dart';
 
 class AppRoutes {
   static const login = '/login';
+
+  /// 로그아웃 상태에서도 들어갈 수 있는 화면은 전부 /login으로 시작한다(redirect 규칙 참고).
+  static const signUp = '/login/signup';
+  static const passwordReset = '/login/reset';
   static const visa = '/visa';
   static const checklist = '/checklist';
   static const footsteps = '/footsteps';
@@ -65,20 +71,19 @@ class AppRoutes {
   static String rateAlertOf(String isoAlpha2) => '$rateAlert?iso=$isoAlpha2';
 }
 
-GoRouter createRouter({required bool isLoggedIn, VoidCallback? onSignIn}) {
+GoRouter createRouter({required bool isLoggedIn}) {
   return GoRouter(
     initialLocation: isLoggedIn ? AppRoutes.visa : AppRoutes.login,
     redirect: (context, state) {
-      final goingToLogin = state.matchedLocation == AppRoutes.login;
-      if (!isLoggedIn && !goingToLogin) return AppRoutes.login;
-      if (isLoggedIn && goingToLogin) return AppRoutes.visa;
+      final onAuthScreen = state.matchedLocation.startsWith(AppRoutes.login);
+      if (!isLoggedIn && !onAuthScreen) return AppRoutes.login;
+      if (isLoggedIn && onAuthScreen) return AppRoutes.visa;
       return null;
     },
     routes: [
-      GoRoute(
-        path: AppRoutes.login,
-        builder: (context, state) => LoginPage(onSignIn: onSignIn),
-      ),
+      GoRoute(path: AppRoutes.login, builder: (_, _) => const LoginPage()),
+      GoRoute(path: AppRoutes.signUp, builder: (_, _) => const SignUpPage()),
+      GoRoute(path: AppRoutes.passwordReset, builder: (_, _) => const PasswordResetPage()),
       ShellRoute(
         builder: (context, state, child) => _TabScaffold(
           location: state.matchedLocation,

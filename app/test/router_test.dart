@@ -70,6 +70,16 @@ void main() {
       expect(find.text('Google로 계속하기'), findsOneWidget);
     });
 
+    testWidgets('로그인하지 않아도 회원가입 화면에는 들어갈 수 있다', (tester) async {
+      await pumpApp(tester, isLoggedIn: false);
+
+      await tester.ensureVisible(find.byKey(const Key('signUpLink')));
+      await tester.tap(find.byKey(const Key('signUpLink')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('signUpButton')), findsOneWidget);
+    });
+
     testWidgets('로그인했으면 첫 탭(여행)이 보인다', (tester) async {
       await pumpApp(tester, isLoggedIn: true);
 
