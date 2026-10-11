@@ -36,6 +36,30 @@ class DevAuthRepository implements AuthRepository {
   }
 
   @override
+  AppUser? get currentUser => _current;
+
+  @override
+  Future<AppUser> signInWithEmail({required String email, required String password}) async {
+    _current = AppUser(uid: 'dev-user', displayName: '개발용 테스터', email: email);
+    _controller.add(_current);
+    return _current!;
+  }
+
+  @override
+  Future<AppUser> signUpWithEmail({
+    required String email,
+    required String password,
+    required String nickname,
+  }) async {
+    _current = AppUser(uid: 'dev-user', displayName: nickname, email: email);
+    _controller.add(_current);
+    return _current!;
+  }
+
+  @override
+  Future<void> sendPasswordReset(String email) async {}
+
+  @override
   Future<void> signOut() async {
     _current = null;
     _controller.add(null);

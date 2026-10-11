@@ -1,4 +1,5 @@
 import 'package:app/core/auth/app_user.dart';
+import 'package:app/core/auth/auth_exception.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_auth_repository.dart';
@@ -47,6 +48,26 @@ void main() {
 
       expect(await future, isNull);
       expect(await repo.currentIdToken(), isNull);
+    });
+
+    test('이메일로 가입하면 닉네임을 가진 사용자로 로그인되고 currentUser에도 보인다', () async {
+      final user = await repo.signUpWithEmail(
+          email: 'new@example.com', password: 'secret1', nickname: '새여행자');
+
+      expect(user.displayName, '새여행자');
+      expect(user.email, 'new@example.com');
+      expect(repo.currentUser?.displayName, '새여행자');
+      expect(repo.signUpCalls.single.nickname, '새여행자');
+    });
+
+    test('nextError를 지정하면 다음 호출 하나만 그 오류를 던진다', () async {
+      repo.nextError = const AuthException(AuthErrorCode.invalidCredential);
+
+      await expectLater(
+        repo.signInWithEmail(email: 'a@b.com', password: 'x'),
+        throwsA(isA<AuthException>()),
+      );
+      expect(await repo.signInWithEmail(email: 'a@b.com', password: 'x'), isA<AppUser>());
     });
   });
 }

@@ -125,3 +125,11 @@ String taskDateLabel(TripTask task, {required DateTime departDate}) {
   final day = due.day.toString().padLeft(2, '0');
   return 'D-$daysBefore · $month/$day';
 }
+
+/// 여행 목록 카드의 짧은 판정 배지. 목록 요약에는 허용 일수가 없어 판정 종류만 말한다.
+({String label, BadgeTone tone}) verdictChipOf(VisaVerdict verdict) => switch (verdict) {
+      VisaVerdict.visaFreeOk => (label: '무비자', tone: BadgeTone.info),
+      VisaVerdict.visaFreeExceeded => (label: '무비자 초과', tone: BadgeTone.warn),
+      VisaVerdict.visaRequired => (label: '비자 필요', tone: BadgeTone.warn),
+      VisaVerdict.unverified => (label: '확인 필요', tone: BadgeTone.neutral),
+    };

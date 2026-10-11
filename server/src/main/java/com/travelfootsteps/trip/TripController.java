@@ -18,7 +18,10 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 // @RestController: 이 클래스의 각 메서드가 반환하는 객체(record)를 Jackson이 JSON으로 직렬화해
 // HTTP 응답 본문에 그대로 실어 보낸다는 뜻이다(뷰 템플릿을 렌더링하지 않는다).
@@ -49,6 +52,22 @@ public class TripController {
     // 자체가 실패한다) — 필드 선언과 동시에 직접 new로 생성해서 초기화한다.
     private final VisaJudgementService visaJudgementService = new VisaJudgementService();
     private final ScheduleGenerator scheduleGenerator = new ScheduleGenerator();
+
+    // GET /api/trips — 로그인한 사용자의 여행 목록(출발일 최신순). Authentication은 FirebaseAuthFilter가
+    // 컨트롤러보다 먼저 실행되며 SecurityContext에 넣어 둔 인증 정보이고, getName()이 Firebase uid다.
+    // 여행마다 국가를 하나씩 조회하면(N+1 쿼리) 목록이 길수록 느려지므로, 필요한 국가 id를 모아
+    // findAllById로 한 번에 가져온 뒤 Map으로 붙인다.
+    @GetMapping
+    public List<TripSummaryResponse> list(Authentication authentication) {
+        List<Trip> trips = tripRepository.findByFirebaseUidOrderByDepartDateDesc(authentication.getName());
+        Map<Long, Country> countries = countryRepository
+                .findAllById(trips.stream().map(Trip::getCountryId).distinct().toList())
+                .stream()
+                .collect(Collectors.toMap(Country::getId, Function.identity()));
+        return trips.stream()
+                .map(trip -> TripSummaryResponse.of(trip, countries.get(trip.getCountryId())))
+                .toList();
+    }
 
     // @Transactional: 여행 한 건 저장 + 준비물 여러 건 저장 + 체크리스트 스냅샷 복사를 하나의
     // DB 트랜잭션으로 묶는다. 이 중 하나라도 실패하면(예: DB 커넥션 문제) 방금 저장한 trip과
@@ -159,6 +178,18 @@ public class TripController {
         item.applyChecked(request.checked());
         tripChecklistItemRepository.save(item);
         return TripChecklistItemResponse.from(item);
+    }
+
+    // DELETE /api/trips/{id} — 여행을 지운다. @ResponseStatus(NO_CONTENT): 반환 본문이 없을 때
+    // 기본값인 200 대신 204 No Content로 응답하라는 뜻이다.
+    // trip_task·trip_checklist는 JPA 연관관계로 묶여 있지 않고 trip_id 숫자만 들고 있지만, DB의
+    // 외래 키에 ON DELETE CASCADE가 걸려 있어(V4, V8 마이그레이션) trip 행 하나만 지우면 DB가 함께 지운다.
+    // 남의 여행이면 findOwnedTripOrThrow가 404를 던진다 — 존재 여부를 감추는 규칙은 조회와 같다.
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable Long id, Authentication authentication) {
+        Trip trip = findOwnedTripOrThrow(id, authentication.getName());
+        tripRepository.delete(trip);
     }
 
     // 그 나라 전용 + 공통(country_id IS NULL) checklist_template 행을 전부 이 여행의
