@@ -1,3 +1,4 @@
+import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/core/prefs/shared_preferences_provider.dart';
 import 'package:app/features/visa/data/trip_api.dart';
 import 'package:app/features/visa/data/trip_deletion.dart';
@@ -13,7 +14,7 @@ import 'fake_trip_api.dart';
 Future<({ProviderContainer container, WalletDatabase db, SharedPreferences prefs})> _setUp(
     FakeTripApi api) async {
   SharedPreferences.setMockInitialValues({
-    'selected_trip_id': 7,
+    'selected_trip_id.uid-a': 7,
     'checklist_powerbank_7': true,
     'checklist_powerbank_8': true,
   });
@@ -22,6 +23,7 @@ Future<({ProviderContainer container, WalletDatabase db, SharedPreferences prefs
   addTearDown(db.close);
   final container = ProviderContainer(overrides: [
     sharedPreferencesProvider.overrideWithValue(prefs),
+    currentUidProvider.overrideWithValue('uid-a'),
     tripApiProvider.overrideWithValue(api),
     walletDatabaseProvider.overrideWithValue(db),
   ]);

@@ -1,3 +1,4 @@
+import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/core/prefs/shared_preferences_provider.dart';
 import 'package:app/features/visa/data/trip_api.dart';
 import 'package:app/features/visa/data/trip_list_providers.dart';
@@ -10,12 +11,41 @@ import 'fake_trip_api.dart';
 Future<ProviderContainer> _container({
   Map<String, Object> stored = const {},
   TripApi? api,
+  String? uid = 'uid-a',
 }) async {
   SharedPreferences.setMockInitialValues(stored);
   final prefs = await SharedPreferences.getInstance();
   final container = ProviderContainer(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
+      currentUidProvider.overrideWithValue(uid),
+      if (api != null) tripApiProvider.overrideWithValue(api),
+    ],
+  );
+  addTearDown(container.dispose);
+  return container;
+}
+
+/// 계정 전환을 흉내 내려고 uid를 바꿀 수 있게 만든 테스트용 notifier.
+class _UidNotifier extends Notifier<String?> {
+  @override
+  String? build() => 'uid-a';
+
+  void switchTo(String? uid) => state = uid;
+}
+
+final _uidForTest = NotifierProvider<_UidNotifier, String?>(_UidNotifier.new);
+
+Future<ProviderContainer> _switchableContainer({
+  Map<String, Object> stored = const {},
+  TripApi? api,
+}) async {
+  SharedPreferences.setMockInitialValues(stored);
+  final prefs = await SharedPreferences.getInstance();
+  final container = ProviderContainer(
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      currentUidProvider.overrideWith((ref) => ref.watch(_uidForTest)),
       if (api != null) tripApiProvider.overrideWithValue(api),
     ],
   );
@@ -70,8 +100,51 @@ void main() {
 
     test('캐시가 없거나 깨졌으면 null', () async {
       expect((await _container()).read(tripListCacheProvider).read(), isNull);
-      final broken = await _container(stored: {'trips.cache.v1': 'not json'});
+      final broken = await _container(stored: {'trips.cache.v1.uid-a': 'not json'});
       expect(broken.read(tripListCacheProvider).read(), isNull);
+    });
+
+    test('다른 계정(uid)이 쓴 캐시는 읽지 않는다', () async {
+      final a = await _container();
+      await a.read(tripListCacheProvider).write([pastOld]);
+      final prefs = a.read(sharedPreferencesProvider);
+
+      final b = ProviderContainer(overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        currentUidProvider.overrideWithValue('uid-b'),
+      ]);
+      addTearDown(b.dispose);
+
+      expect(b.read(tripListCacheProvider).read(), isNull);
+      expect(a.read(tripListCacheProvider).read()!.single.id, 1);
+    });
+
+    test('uid가 없으면(로그아웃) 읽기는 null이고 쓰기는 아무것도 저장하지 않는다', () async {
+      final container = await _container(uid: null);
+      final cache = container.read(tripListCacheProvider);
+
+      await cache.write([pastOld]);
+
+      expect(cache.read(), isNull);
+      expect(container.read(sharedPreferencesProvider).getKeys(), isEmpty);
+    });
+
+    test('remove는 그 여행만 캐시에서 뺀다', () async {
+      final container = await _container();
+      final cache = container.read(tripListCacheProvider);
+      await cache.write([pastOld, later]);
+
+      await cache.remove(1);
+
+      expect(cache.read()!.map((t) => t.id), [4]);
+    });
+
+    test('remove는 캐시가 없으면 아무것도 만들지 않는다', () async {
+      final container = await _container();
+
+      await container.read(tripListCacheProvider).remove(1);
+
+      expect(container.read(sharedPreferencesProvider).getKeys(), isEmpty);
     });
   });
 
@@ -101,22 +174,61 @@ void main() {
 
       await expectLater(container.read(tripListProvider.future), throwsA(anything));
     });
+
+    test('계정이 바뀌면 이전 계정의 캐시를 오프라인 목록으로 보여주지 않는다', () async {
+      final container = await _switchableContainer(api: FakeTripApi(listTripsStatusCode: 503));
+      await container.read(tripListCacheProvider).write([pastRecent]);
+      expect((await container.read(tripListProvider.future)).offline, isTrue);
+
+      container.read(_uidForTest.notifier).switchTo('uid-b');
+
+      await expectLater(container.read(tripListProvider.future), throwsA(anything));
+    });
   });
 
   group('selectedTripIdProvider', () {
     test('저장된 값으로 시작하고 set/clear가 저장값도 바꾼다', () async {
-      final container = await _container(stored: {'selected_trip_id': 5});
+      final container = await _container(stored: {'selected_trip_id.uid-a': 5});
       final prefs = container.read(sharedPreferencesProvider);
 
       expect(container.read(selectedTripIdProvider), 5);
 
       await container.read(selectedTripIdProvider.notifier).set(8);
       expect(container.read(selectedTripIdProvider), 8);
-      expect(prefs.getInt('selected_trip_id'), 8);
+      expect(prefs.getInt('selected_trip_id.uid-a'), 8);
 
       await container.read(selectedTripIdProvider.notifier).clear();
       expect(container.read(selectedTripIdProvider), isNull);
-      expect(prefs.getInt('selected_trip_id'), isNull);
+      expect(prefs.getInt('selected_trip_id.uid-a'), isNull);
+    });
+
+    test('선택은 계정(uid)별로 따로 저장되고 계정이 바뀌면 그 계정의 값으로 바뀐다', () async {
+      final container = await _switchableContainer(stored: {'selected_trip_id.uid-a': 5});
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(container.read(selectedTripIdProvider), 5);
+
+      container.read(_uidForTest.notifier).switchTo('uid-b');
+      expect(container.read(selectedTripIdProvider), isNull);
+
+      await container.read(selectedTripIdProvider.notifier).set(9);
+      expect(prefs.getInt('selected_trip_id.uid-b'), 9);
+      expect(prefs.getInt('selected_trip_id.uid-a'), 5);
+
+      container.read(_uidForTest.notifier).switchTo('uid-a');
+      expect(container.read(selectedTripIdProvider), 5);
+    });
+
+    test('uid가 없으면 선택은 null이고 set/clear는 저장소를 건드리지 않는다', () async {
+      final container = await _container(stored: {'selected_trip_id.uid-a': 5}, uid: null);
+      final prefs = container.read(sharedPreferencesProvider);
+
+      expect(container.read(selectedTripIdProvider), isNull);
+
+      await container.read(selectedTripIdProvider.notifier).set(8);
+      await container.read(selectedTripIdProvider.notifier).clear();
+
+      expect(container.read(selectedTripIdProvider), isNull);
+      expect(prefs.getKeys(), {'selected_trip_id.uid-a'});
     });
   });
 

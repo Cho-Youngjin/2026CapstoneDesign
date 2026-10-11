@@ -31,13 +31,17 @@ class VisaResultPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // 없는 여행(삭제됐거나 다른 계정)이 선택된 여행이었다면 선택을 지운다 — 준비물 탭이 다음에
-    // 기본 여행 규칙으로 다시 고른다.
+    // 없는 여행(삭제됐거나 다른 계정)이면 선택을 지우고 목록에서도 뺀다 — 낡은 카드가 남아
+    // 준비물 탭이 그 여행을 다시 고르지 않게 한다. 준비물 탭은 다음에 기본 여행 규칙으로 고른다.
     ref.listen(tripProvider(tripId), (_, next) {
       final error = next.error;
-      if (error != null && _isNotFound(error) && ref.read(selectedTripIdProvider) == tripId) {
+      if (error == null || !_isNotFound(error)) return;
+      if (ref.read(selectedTripIdProvider) == tripId) {
         ref.read(selectedTripIdProvider.notifier).clear();
       }
+      ref.read(tripListCacheProvider).remove(tripId).whenComplete(() {
+        ref.invalidate(tripListProvider);
+      });
     });
     final tripAsync = ref.watch(tripProvider(tripId));
     final countryName = tripAsync.asData?.value.countryNameKo;

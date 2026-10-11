@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/core/network/country_detail_api.dart';
 import 'package:app/core/prefs/shared_preferences_provider.dart';
 import 'package:app/features/checklist/checklist_page.dart';
@@ -37,14 +40,16 @@ Future<({FakeTripApi api, SharedPreferences prefs})> _pumpChecklist(
   int? getChecklistStatusCode,
   int? checkItemStatusCode,
   int? powerBankWhLimit = 100,
+  FakeTripApi? fakeApi,
 }) async {
   SharedPreferences.setMockInitialValues(stored);
   final prefs = await SharedPreferences.getInstance();
-  final api = FakeTripApi(
-    checklist: items,
-    getChecklistStatusCode: getChecklistStatusCode,
-    checkItemStatusCode: checkItemStatusCode,
-  );
+  final api = fakeApi ??
+      FakeTripApi(
+        checklist: items,
+        getChecklistStatusCode: getChecklistStatusCode,
+        checkItemStatusCode: checkItemStatusCode,
+      );
   final router = GoRouter(
     initialLocation: '/checklist',
     routes: [
@@ -63,6 +68,7 @@ Future<({FakeTripApi api, SharedPreferences prefs})> _pumpChecklist(
   await tester.pumpWidget(ProviderScope(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
+      currentUidProvider.overrideWithValue('uid-a'),
       tripApiProvider.overrideWithValue(api),
       tripListProvider.overrideWith(
           (ref) async => TripListState(trips: trips ?? [_upcomingVn, _pastJp], offline: offline)),
@@ -80,6 +86,20 @@ Future<({FakeTripApi api, SharedPreferences prefs})> _pumpChecklist(
   ));
   await tester.pumpAndSettle();
   return (api: api, prefs: prefs);
+}
+
+/// 첫 checkItem 호출을 [release]할 때까지 붙잡아 두는 가짜 API. 저장이 진행 중인 상황을 만든다.
+class _SlowCheckTripApi extends FakeTripApi {
+  _SlowCheckTripApi({required super.checklist});
+
+  final release = Completer<void>();
+
+  @override
+  Future<TripChecklistItem> checkItem(int tripId, int itemId, {required bool checked}) async {
+    final result = super.checkItem(tripId, itemId, checked: checked);
+    await release.future;
+    return result;
+  }
 }
 
 void main() {
@@ -104,7 +124,7 @@ void main() {
   });
 
   testWidgets('저장된 선택 여행이 있으면 그 여행을 보여준다', (tester) async {
-    final r = await _pumpChecklist(tester, stored: {'selected_trip_id': 2});
+    final r = await _pumpChecklist(tester, stored: {'selected_trip_id.uid-a': 2});
 
     expect(find.text('준비물 · 일본'), findsOneWidget);
     expect(r.api.getChecklistCalls, [2]);
@@ -122,7 +142,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('준비물 · 일본'), findsOneWidget);
-    expect(r.prefs.getInt('selected_trip_id'), 2);
+    expect(r.prefs.getInt('selected_trip_id.uid-a'), 2);
     expect(r.api.getChecklistCalls, [1, 2]);
   });
 
@@ -139,6 +159,28 @@ void main() {
 
     expect(find.text('2 / 3'), findsOneWidget);
     expect(r.api.checkItemCalls, [(tripId: 1, itemId: 20, checked: true)]);
+  });
+
+  testWidgets('같은 항목은 저장이 끝나기 전에 다시 눌러도 요청을 또 보내지 않는다', (tester) async {
+    final api = _SlowCheckTripApi(checklist: _defaultItems);
+    await _pumpChecklist(tester, fakeApi: api);
+
+    await tester.tap(find.text('환전').last);
+    await tester.pump();
+    await tester.tap(find.text('환전').last);
+    await tester.pump();
+
+    expect(api.checkItemCalls, [(tripId: 1, itemId: 20, checked: true)]);
+    expect(find.text('1 / 3'), findsOneWidget);
+
+    api.release.complete();
+    await tester.pumpAndSettle();
+
+    // 저장이 끝나면 같은 항목을 다시 누를 수 있다.
+    await tester.tap(find.text('환전').last);
+    await tester.pumpAndSettle();
+    expect(api.checkItemCalls, hasLength(2));
+    expect(api.checkItemCalls.last, (tripId: 1, itemId: 20, checked: false));
   });
 
   testWidgets('체크 저장이 실패하면 되돌리고 안내한다', (tester) async {
@@ -203,10 +245,14 @@ void main() {
   });
 
   testWidgets('체크리스트를 불러오지 못하면 다시 시도할 수 있다', (tester) async {
-    await _pumpChecklist(tester, getChecklistStatusCode: 503);
+    final r = await _pumpChecklist(tester, getChecklistStatusCode: 503);
 
     expect(find.text('준비물 목록을 불러오지 못했습니다.'), findsOneWidget);
     expect(find.byKey(const Key('checklistRetry')), findsOneWidget);
+
+    // 자동 재시도가 꺼져 있어야 한다: 시간이 지나도 조회는 한 번뿐이다.
+    await tester.pump(const Duration(seconds: 60));
+    expect(r.api.getChecklistCalls, [1]);
   });
 
   testWidgets('캐시된 목록을 보여주는 중이면 오프라인 안내를 띄운다', (tester) async {

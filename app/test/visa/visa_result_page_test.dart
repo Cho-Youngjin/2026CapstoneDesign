@@ -1,6 +1,10 @@
+import 'dart:convert';
+
+import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/core/prefs/shared_preferences_provider.dart';
 import 'package:app/features/visa/data/trip_api.dart';
 import 'package:app/features/visa/data/trip_deletion.dart';
+import 'package:app/features/visa/data/trip_list_providers.dart';
 import 'package:app/features/visa/models/trip.dart';
 import 'package:app/features/visa/visa_result_page.dart';
 import 'package:flutter/material.dart';
@@ -35,10 +39,15 @@ Future<({FakeTripApi api, SharedPreferences prefs, _FakeTripDeleter deleter})> p
   int? getTripStatusCode,
   Map<String, Object> stored = const {},
   bool deleteFails = false,
+  bool watchTripList = false,
 }) async {
   SharedPreferences.setMockInitialValues(stored);
   final prefs = await SharedPreferences.getInstance();
-  final api = FakeTripApi(tripToReturn: trip, getTripStatusCode: getTripStatusCode);
+  final api = FakeTripApi(
+    tripToReturn: trip,
+    getTripStatusCode: getTripStatusCode,
+    trips: [sampleSummary(id: 8)],
+  );
   final deleter = _FakeTripDeleter(fails: deleteFails);
   final id = (trip ?? sampleTrip()).id;
 
@@ -64,10 +73,15 @@ Future<({FakeTripApi api, SharedPreferences prefs, _FakeTripDeleter deleter})> p
     ProviderScope(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
+        currentUidProvider.overrideWithValue('uid-a'),
         tripApiProvider.overrideWithValue(api),
         tripDeleterProvider.overrideWithValue(deleter),
       ],
-      child: MaterialApp.router(routerConfig: router),
+      // 목록 provider를 누군가 보고 있어야 invalidate가 다시 조회로 이어진다(여행 목록 탭 역할).
+      child: Consumer(builder: (context, ref, child) {
+        if (watchTripList) ref.watch(tripListProvider);
+        return child!;
+      }, child: MaterialApp.router(routerConfig: router)),
     ),
   );
   await tester.pumpAndSettle();
@@ -85,10 +99,10 @@ TripTask task({
 
 void main() {
   testWidgets('없는 여행이면 안내하고 선택된 여행이었다면 선택을 지운다', (tester) async {
-    final r = await pumpResultPage(tester, getTripStatusCode: 404, stored: {'selected_trip_id': 7});
+    final r = await pumpResultPage(tester, getTripStatusCode: 404, stored: {'selected_trip_id.uid-a': 7});
 
     expect(find.textContaining('여행을 찾을 수 없습니다'), findsOneWidget);
-    expect(r.prefs.getInt('selected_trip_id'), isNull);
+    expect(r.prefs.getInt('selected_trip_id.uid-a'), isNull);
 
     await tester.tap(find.text('목록으로'));
     await tester.pumpAndSettle();
@@ -104,7 +118,29 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('준비물 탭'), findsOneWidget);
-    expect(r.prefs.getInt('selected_trip_id'), 7);
+    expect(r.prefs.getInt('selected_trip_id.uid-a'), 7);
+  });
+
+  testWidgets('404면 그 여행을 캐시된 목록에서도 뺀다', (tester) async {
+    final cached = jsonEncode([
+      sampleSummary(id: 7).toJson(),
+      sampleSummary(id: 8).toJson(),
+    ]);
+    final r = await pumpResultPage(
+      tester,
+      getTripStatusCode: 404,
+      stored: {'trips.cache.v1.uid-a': cached},
+    );
+
+    final remaining = (jsonDecode(r.prefs.getString('trips.cache.v1.uid-a')!) as List)
+        .map((e) => (e as Map<String, dynamic>)['id']);
+    expect(remaining, [8]);
+  });
+
+  testWidgets('404면 여행 목록을 다시 불러온다', (tester) async {
+    final r = await pumpResultPage(tester, getTripStatusCode: 404, watchTripList: true);
+
+    expect(r.api.listTripsCalls, 2);
   });
 
   testWidgets('[지갑]은 이 여행의 지갑으로 간다', (tester) async {

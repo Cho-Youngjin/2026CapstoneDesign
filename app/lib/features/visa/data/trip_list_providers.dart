@@ -3,23 +3,32 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/auth/auth_providers.dart';
 import '../../../core/prefs/shared_preferences_provider.dart';
 import '../models/trip.dart';
 import '../models/trip_summary.dart';
 import 'trip_api.dart';
 
-const _cacheKey = 'trips.cache.v1';
-const _selectedTripIdKey = 'selected_trip_id';
+const _cacheKeyPrefix = 'trips.cache.v1';
+const _selectedTripIdKeyPrefix = 'selected_trip_id';
 
 /// 마지막으로 서버에서 받은 여행 목록. 해외에서 데이터가 끊겨도 준비물 탭 상단과 지갑까지는
 /// 들어갈 수 있게 하려는 용도다(여행계획 중심 설계 §4.2). 깨진 값이면 없는 것으로 본다.
+///
+/// 계정이 바뀌면 이전 계정의 목록이 보이면 안 되므로 키에 uid를 붙인다.
+/// uid가 없으면(로그아웃) 읽기는 null이고 쓰기·삭제는 아무것도 하지 않는다.
 class TripListCache {
-  TripListCache(this._prefs);
+  TripListCache(this._prefs, this._uid);
 
   final SharedPreferences _prefs;
+  final String? _uid;
+
+  String? get _key => _uid == null ? null : '$_cacheKeyPrefix.$_uid';
 
   List<TripSummary>? read() {
-    final raw = _prefs.getString(_cacheKey);
+    final key = _key;
+    if (key == null) return null;
+    final raw = _prefs.getString(key);
     if (raw == null) return null;
     try {
       return (jsonDecode(raw) as List)
@@ -31,12 +40,24 @@ class TripListCache {
   }
 
   Future<void> write(List<TripSummary> trips) async {
-    await _prefs.setString(_cacheKey, jsonEncode([for (final t in trips) t.toJson()]));
+    final key = _key;
+    if (key == null) return;
+    await _prefs.setString(key, jsonEncode([for (final t in trips) t.toJson()]));
+  }
+
+  /// 서버에서 사라진 여행(상세 404)을 캐시에서도 뺀다. 캐시가 없으면 할 일이 없다.
+  Future<void> remove(int tripId) async {
+    final cached = read();
+    if (cached == null) return;
+    await write([for (final t in cached) if (t.id != tripId) t]);
   }
 }
 
 final tripListCacheProvider = Provider<TripListCache>(
-  (ref) => TripListCache(ref.watch(sharedPreferencesProvider)),
+  (ref) => TripListCache(
+    ref.watch(sharedPreferencesProvider),
+    ref.watch(currentUidProvider),
+  ),
 );
 
 class TripListState {
@@ -55,6 +76,7 @@ class TripListState {
 /// 오프라인 폴백과 오류 표시가 한참 뒤에야 나온다. 재시도는 사용자가 새로고침할 때 한다.
 final tripListProvider = FutureProvider<TripListState>(
   (ref) async {
+    // 캐시 provider가 uid를 watch하므로 계정이 바뀌면 이 목록도 새로 만들어진다.
     final cache = ref.watch(tripListCacheProvider);
     try {
       final trips = await ref.watch(tripApiProvider).listTrips();
@@ -69,21 +91,35 @@ final tripListProvider = FutureProvider<TripListState>(
   retry: (_, _) => null,
 );
 
-/// 준비물 탭이 보여줄 여행의 id. 앱을 재시작해도 유지된다.
+/// 준비물 탭이 보여줄 여행의 id. 앱을 재시작해도 유지되며, 계정(uid)별로 따로 저장한다.
+/// uid가 없으면(로그아웃) 선택은 null이고 저장소는 건드리지 않는다.
 class SelectedTripIdNotifier extends Notifier<int?> {
   SharedPreferences get _prefs => ref.read(sharedPreferencesProvider);
 
+  String? get _key {
+    final uid = ref.read(currentUidProvider);
+    return uid == null ? null : '$_selectedTripIdKeyPrefix.$uid';
+  }
+
   @override
-  int? build() => ref.watch(sharedPreferencesProvider).getInt(_selectedTripIdKey);
+  int? build() {
+    final uid = ref.watch(currentUidProvider);
+    if (uid == null) return null;
+    return ref.watch(sharedPreferencesProvider).getInt('$_selectedTripIdKeyPrefix.$uid');
+  }
 
   Future<void> set(int tripId) async {
+    final key = _key;
+    if (key == null) return;
     state = tripId;
-    await _prefs.setInt(_selectedTripIdKey, tripId);
+    await _prefs.setInt(key, tripId);
   }
 
   Future<void> clear() async {
+    final key = _key;
+    if (key == null) return;
     state = null;
-    await _prefs.remove(_selectedTripIdKey);
+    await _prefs.remove(key);
   }
 }
 

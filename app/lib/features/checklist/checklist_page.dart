@@ -98,6 +98,10 @@ class _TripChecklistBodyState extends ConsumerState<_TripChecklistBody> {
   /// 서버 저장을 기다리지 않고 화면에 먼저 반영한 체크 상태. 저장이 실패하면 지운다(되돌림).
   final Map<int, bool> _optimistic = {};
 
+  /// 서버 저장이 진행 중인 항목. 같은 항목을 연달아 누르면 true/false 요청이 겹쳐
+  /// 서버에 오래된 값이 남을 수 있어서, 저장이 끝날 때까지 그 항목의 탭은 무시한다.
+  final Set<int> _saving = {};
+
   TripSummary get _trip => widget.trip;
 
   @override
@@ -218,6 +222,7 @@ class _TripChecklistBodyState extends ConsumerState<_TripChecklistBody> {
       if (mounted) ref.invalidate(powerBankCheckedProvider(_trip.id));
       return;
     }
+    if (!_saving.add(item.id)) return;
     setState(() => _optimistic[item.id] = next);
     try {
       await ref.read(tripApiProvider).checkItem(_trip.id, item.id, checked: next);
@@ -227,6 +232,8 @@ class _TripChecklistBodyState extends ConsumerState<_TripChecklistBody> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('저장하지 못했습니다. 다시 시도해 주세요.')),
       );
+    } finally {
+      _saving.remove(item.id);
     }
   }
 }
