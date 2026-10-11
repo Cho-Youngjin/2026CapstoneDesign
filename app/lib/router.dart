@@ -168,10 +168,13 @@ class _WireframeTabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 안드로이드는 앱을 시스템 내비게이션 바(뒤로가기·홈 버튼 줄) 아래까지 그리므로, 그 높이만큼
+    // 바닥 여백을 더해 탭이 가려지지 않게 한다. 흰 배경은 여백까지 채운다.
+    final systemInset = MediaQuery.paddingOf(context).bottom;
     return Container(
       key: const Key('wireframeTabBar'),
-      height: 62,
-      padding: const EdgeInsets.only(bottom: 6),
+      height: 62 + systemInset,
+      padding: EdgeInsets.only(bottom: 6 + systemInset),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(top: BorderSide(color: AppColors.borderLight)),

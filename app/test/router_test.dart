@@ -89,6 +89,20 @@ void main() {
       expect(find.text('여행'), findsWidgets);
     });
 
+    testWidgets('하단 탭바는 시스템 내비게이션 바 높이만큼 올라가 가려지지 않는다', (tester) async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.padding = const FakeViewPadding(bottom: 48);
+      tester.view.viewPadding = const FakeViewPadding(bottom: 48);
+      addTearDown(tester.view.reset);
+
+      await pumpApp(tester, isLoggedIn: true);
+
+      final bar = tester.getRect(find.byKey(const Key('wireframeTabBar')));
+      expect(bar.height, 62 + 48);
+      final label = tester.getRect(find.text('준비물'));
+      expect(label.bottom, lessThanOrEqualTo(bar.bottom - 48));
+    });
+
     testWidgets('탭을 누르면 해당 화면으로 이동한다', (tester) async {
       await pumpApp(tester, isLoggedIn: true);
 
