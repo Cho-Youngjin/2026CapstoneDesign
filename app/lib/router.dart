@@ -13,6 +13,7 @@ import 'features/nearby/nearby_page.dart';
 import 'features/translate/translate_page.dart';
 import 'features/visa/visa_page.dart';
 import 'features/visa/visa_result_page.dart';
+import 'features/rate_alert/rate_alert_page.dart';
 import 'features/wallet/wallet_page.dart';
 
 class AppRoutes {
@@ -49,6 +50,11 @@ class AppRoutes {
   static const wallet = '/checklist/wallet';
 
   static String walletOf(String isoAlpha2) => '$wallet?iso=$isoAlpha2';
+
+  /// 환율 알림 설정. 준비물 탭 환전 섹션에서 들어오며, 지갑처럼 준비물 탭이 켜진 채로 둔다.
+  static const rateAlert = '/checklist/rate-alert';
+
+  static String rateAlertOf(String isoAlpha2) => '$rateAlert?iso=$isoAlpha2';
 }
 
 GoRouter createRouter({required bool isLoggedIn, VoidCallback? onSignIn}) {
@@ -78,6 +84,11 @@ GoRouter createRouter({required bool isLoggedIn, VoidCallback? onSignIn}) {
             path: AppRoutes.wallet,
             builder: (_, state) =>
                 WalletPage(isoAlpha2: state.uri.queryParameters['iso'] ?? 'VN'),
+          ),
+          GoRoute(
+            path: AppRoutes.rateAlert,
+            builder: (_, state) =>
+                RateAlertPage(isoAlpha2: state.uri.queryParameters['iso'] ?? 'VN'),
           ),
           GoRoute(path: AppRoutes.footsteps, builder: (_, _) => const FootstepsPage()),
           GoRoute(

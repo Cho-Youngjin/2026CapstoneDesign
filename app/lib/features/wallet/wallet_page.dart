@@ -1,7 +1,6 @@
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../core/network/country_detail_api.dart';
 import '../../core/theme/app_colors.dart';
@@ -17,6 +16,7 @@ import 'widgets/balance_card.dart';
 import 'widgets/exchange_form_sheet.dart';
 import 'widgets/expense_form_sheet.dart';
 import 'widgets/rate_banner.dart';
+import 'widgets/sub_page_header.dart';
 import 'widgets/wallet_entry_list.dart';
 
 /// 나라별 지갑(여행 가계부) 화면 — 지갑·환율 알림 설계 §5.2.
@@ -221,26 +221,11 @@ class _WalletHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 54,
-      padding: const EdgeInsets.symmetric(horizontal: 18),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.borderLight)),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: AppColors.textBody),
-            onPressed: () => context.pop(),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(title, style: AppTextStyles.screenTitle, overflow: TextOverflow.ellipsis),
-          ),
-          if (onClear != null)
-            PopupMenuButton<String>(
+    return SubPageHeader(
+      title: title,
+      trailing: onClear == null
+          ? null
+          : PopupMenuButton<String>(
               key: const Key('walletMenu'),
               icon: const Icon(Icons.more_vert, color: AppColors.textBody),
               onSelected: (_) => onClear!(),
@@ -248,8 +233,6 @@ class _WalletHeader extends StatelessWidget {
                 PopupMenuItem(value: 'clear', child: Text('지갑 비우기')),
               ],
             ),
-        ],
-      ),
     );
   }
 }
