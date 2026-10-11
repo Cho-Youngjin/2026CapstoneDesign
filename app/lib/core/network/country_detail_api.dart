@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../prefs/shared_preferences_provider.dart';
 import 'api_client.dart';
 
 /// 서버 country 테이블의 card_acceptance 값을 화면에 보여줄 한글 3단계로 바꾼다.
@@ -89,6 +92,22 @@ class CountryDetail {
         cardAcceptance: json['cardAcceptance'] as String? ?? '',
         powerBankWhLimit: json['powerBankWhLimit'] as int?,
       );
+
+  /// 기기 캐시에 저장할 때 쓴다. [CountryDetail.fromJson]으로 그대로 되읽힌다.
+  Map<String, dynamic> toJson() => {
+        'isoAlpha2': isoAlpha2,
+        'isoAlpha3': isoAlpha3,
+        'nameKo': nameKo,
+        'nameEn': nameEn,
+        'continent': continent,
+        'tier': tier,
+        'plugTypes': plugTypes,
+        'voltageV': voltageV,
+        'frequencyHz': frequencyHz,
+        'currencyCode': currencyCode,
+        'cardAcceptance': cardAcceptance,
+        'powerBankWhLimit': powerBankWhLimit,
+      };
 }
 
 /// 서버 국가 상세 조회(`GET /api/countries/{iso2}`)를 소비한다.
@@ -109,8 +128,24 @@ final countryDetailApiProvider = Provider<CountryDetailApi>((ref) {
 });
 
 /// iso2 코드 하나를 받아서 그 나라의 상세 정보(+결제 등급)를 가져오는 provider.
-final countryDetailProvider =
-    FutureProvider.family<CountryDetail, String>((ref, isoAlpha2) async {
-  final api = ref.watch(countryDetailApiProvider);
-  return api.fetchDetail(isoAlpha2);
-});
+///
+/// 받은 정보는 기기에 저장해 두고, 서버 조회가 실패하면(해외에서 데이터가 끊긴 경우 등) 저장해 둔
+/// 것을 쓴다 — 준비물 탭의 지갑 카드와 지갑 화면이 통화 정보를 여기서 얻기 때문에, 이게 없으면
+/// 오프라인에서 지갑에 들어갈 수 없다(여행계획 중심 설계 §4.2). 저장된 것도 없으면 오류를 그대로
+/// 내고, 자동 재시도는 끈다(오류 안내가 수십 초 늦어지지 않게).
+final countryDetailProvider = FutureProvider.family<CountryDetail, String>(
+  (ref, isoAlpha2) async {
+    final prefs = ref.watch(sharedPreferencesProvider);
+    final key = 'country_detail.v1.$isoAlpha2';
+    try {
+      final detail = await ref.watch(countryDetailApiProvider).fetchDetail(isoAlpha2);
+      await prefs.setString(key, jsonEncode(detail.toJson()));
+      return detail;
+    } catch (_) {
+      final raw = prefs.getString(key);
+      if (raw == null) rethrow;
+      return CountryDetail.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    }
+  },
+  retry: (_, _) => null,
+);
