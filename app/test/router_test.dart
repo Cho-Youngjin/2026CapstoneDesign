@@ -70,6 +70,16 @@ void main() {
       expect(find.text('Google로 계속하기'), findsOneWidget);
     });
 
+    testWidgets('로그인하지 않아도 회원가입 화면에는 들어갈 수 있다', (tester) async {
+      await pumpApp(tester, isLoggedIn: false);
+
+      await tester.ensureVisible(find.byKey(const Key('signUpLink')));
+      await tester.tap(find.byKey(const Key('signUpLink')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('signUpButton')), findsOneWidget);
+    });
+
     testWidgets('로그인했으면 첫 탭(여행)이 보인다', (tester) async {
       await pumpApp(tester, isLoggedIn: true);
 
@@ -77,6 +87,20 @@ void main() {
       expect(find.byKey(const Key('wireframeTabBar')), findsOneWidget);
       // 탭바 라벨에 '여행'이 있다 (화면 본문은 각 기능 브랜치에서 실 콘텐츠로 교체된다).
       expect(find.text('여행'), findsWidgets);
+    });
+
+    testWidgets('하단 탭바는 시스템 내비게이션 바 높이만큼 올라가 가려지지 않는다', (tester) async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.padding = const FakeViewPadding(bottom: 48);
+      tester.view.viewPadding = const FakeViewPadding(bottom: 48);
+      addTearDown(tester.view.reset);
+
+      await pumpApp(tester, isLoggedIn: true);
+
+      final bar = tester.getRect(find.byKey(const Key('wireframeTabBar')));
+      expect(bar.height, 62 + 48);
+      final label = tester.getRect(find.text('준비물'));
+      expect(label.bottom, lessThanOrEqualTo(bar.bottom - 48));
     });
 
     testWidgets('탭을 누르면 해당 화면으로 이동한다', (tester) async {
