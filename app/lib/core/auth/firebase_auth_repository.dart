@@ -52,9 +52,19 @@ class FirebaseAuthRepository implements AuthRepository {
       _guard(() async {
         final result =
             await _auth.createUserWithEmailAndPassword(email: email, password: password);
-        final user = result.user!;
-        await user.updateDisplayName(nickname);
-        await user.reload();
+        final user = result.user;
+        if (user == null) throw const AuthException(AuthErrorCode.unknown);
+        try {
+          await user.updateDisplayName(nickname);
+          await user.reload();
+        } on fb.FirebaseAuthException catch (e) {
+          // 닉네임 저장이 실패하면 닉네임 없는 계정이 남아 같은 이메일로 재가입이 막히므로 계정을 지운다.
+          await _discardHalfCreatedAccount(user);
+          throw AuthException(mapFirebaseAuthCode(e.code));
+        } catch (_) {
+          await _discardHalfCreatedAccount(user);
+          throw const AuthException(AuthErrorCode.unknown);
+        }
         return _requireUser(_auth.currentUser);
       });
 
@@ -77,6 +87,18 @@ class FirebaseAuthRepository implements AuthRepository {
       return await action();
     } on fb.FirebaseAuthException catch (e) {
       throw AuthException(mapFirebaseAuthCode(e.code));
+    }
+  }
+
+  /// 가입 직후 만든 계정을 best-effort로 지운다. 삭제가 안 되면 최소한 로그아웃해 반쯤 만든 계정으로 앱이 머물지 않게 한다.
+  /// 여기서 실패해도 원래 오류를 가리지 않도록 예외는 삼킨다.
+  Future<void> _discardHalfCreatedAccount(fb.User user) async {
+    try {
+      await user.delete();
+    } catch (_) {
+      try {
+        await _auth.signOut();
+      } catch (_) {}
     }
   }
 
