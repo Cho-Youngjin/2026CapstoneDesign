@@ -1,3 +1,5 @@
+import 'package:app/core/auth/app_user.dart';
+import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/features/visa/data/trip_list_providers.dart';
 import 'package:app/features/visa/models/trip_summary.dart';
 import 'package:app/features/visa/trip_list_page.dart';
@@ -6,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../auth/fake_auth_repository.dart';
 import 'fake_trip_api.dart';
 
 final _today = DateUtils.dateOnly(DateTime.now());
@@ -29,6 +32,8 @@ Future<void> _pumpList(
   );
   await tester.pumpWidget(ProviderScope(
     overrides: [
+      authRepositoryProvider.overrideWithValue(
+          FakeAuthRepository()..signIn(const AppUser(uid: 'uid-abcdef', displayName: '여행자'))),
       tripListProvider.overrideWith((ref) async {
         if (fails) throw Exception('offline');
         return TripListState(trips: trips, offline: offline);
@@ -100,5 +105,15 @@ void main() {
 
     expect(find.text('여행 목록을 불러오지 못했습니다.'), findsOneWidget);
     expect(find.text('다시 시도'), findsOneWidget);
+  });
+
+  testWidgets('헤더의 계정 아이콘을 누르면 계정 시트가 열린다', (tester) async {
+    await _pumpList(tester, trips: [sampleSummary()]);
+
+    await tester.tap(find.byKey(const Key('accountButton')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('여행자'), findsOneWidget);
+    expect(find.byKey(const Key('signOutButton')), findsOneWidget);
   });
 }

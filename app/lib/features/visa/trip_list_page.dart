@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
 import '../../router.dart';
+import '../account/account_sheet.dart';
 import 'data/trip_list_providers.dart';
 import 'models/trip_summary.dart';
 import 'visa_result_display.dart';
@@ -32,13 +33,24 @@ class TripListPage extends ConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('여행 계획', style: AppTextStyles.screenTitle),
-              GestureDetector(
-                key: const Key('createTripButton'),
-                onTap: openNew,
-                child: Text(
-                  '+ 새 여행계획',
-                  style: AppTextStyles.caption.copyWith(color: AppColors.accent),
-                ),
+              Row(
+                children: [
+                  GestureDetector(
+                    key: const Key('createTripButton'),
+                    onTap: openNew,
+                    child: Text(
+                      '+ 새 여행계획',
+                      style: AppTextStyles.caption.copyWith(color: AppColors.accent),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    key: const Key('accountButton'),
+                    icon: const Icon(Icons.person_outline, color: AppColors.textBody),
+                    tooltip: '계정',
+                    onPressed: () => showAccountSheet(context),
+                  ),
+                ],
               ),
             ],
           ),
