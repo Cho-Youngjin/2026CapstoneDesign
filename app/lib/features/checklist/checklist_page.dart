@@ -120,7 +120,7 @@ class _TripChecklistBodyState extends ConsumerState<_TripChecklistBody> {
           detailAsync.when(
             data: (detail) => _CountryInfoRow(
               detail: detail,
-              onOpenWallet: () => context.push(AppRoutes.walletOf(iso)),
+              onOpenWallet: () => context.push(AppRoutes.walletOf(_trip.id, iso)),
             ),
             loading: () => const _InfoLoading(),
             error: (e, _) => _InfoError('국가 정보를 불러오지 못했습니다: $e'),

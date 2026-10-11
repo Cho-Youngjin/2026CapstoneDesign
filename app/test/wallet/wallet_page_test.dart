@@ -26,10 +26,10 @@ Future<void> _pumpWallet(
             cardAcceptance: 'MEDIUM',
           )),
       walletRateProvider.overrideWith((ref, code) => Stream<RateSnapshot?>.value(rate)),
-      walletExpensesProvider.overrideWith((ref, iso) => Stream.value(expenses)),
-      walletExchangesProvider.overrideWith((ref, iso) => Stream.value(exchanges)),
+      walletExpensesProvider.overrideWith((ref, tripId) => Stream.value(expenses)),
+      walletExchangesProvider.overrideWith((ref, tripId) => Stream.value(exchanges)),
     ],
-    child: const MaterialApp(home: Scaffold(body: WalletPage(isoAlpha2: 'JP'))),
+    child: const MaterialApp(home: Scaffold(body: WalletPage(tripId: 1, isoAlpha2: 'JP'))),
   ));
   await tester.pumpAndSettle();
 }

@@ -22,15 +22,13 @@ class $ExpensesTable extends Expenses
       'PRIMARY KEY AUTOINCREMENT',
     ),
   );
-  static const VerificationMeta _isoAlpha2Meta = const VerificationMeta(
-    'isoAlpha2',
-  );
+  static const VerificationMeta _tripIdMeta = const VerificationMeta('tripId');
   @override
-  late final GeneratedColumn<String> isoAlpha2 = GeneratedColumn<String>(
-    'iso_alpha2',
+  late final GeneratedColumn<int> tripId = GeneratedColumn<int>(
+    'trip_id',
     aliasedName,
     false,
-    type: DriftSqlType.string,
+    type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
   static const VerificationMeta _currencyCodeMeta = const VerificationMeta(
@@ -100,7 +98,7 @@ class $ExpensesTable extends Expenses
   @override
   List<GeneratedColumn> get $columns => [
     id,
-    isoAlpha2,
+    tripId,
     currencyCode,
     category,
     amountMinor,
@@ -123,13 +121,13 @@ class $ExpensesTable extends Expenses
     if (data.containsKey('id')) {
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
     }
-    if (data.containsKey('iso_alpha2')) {
+    if (data.containsKey('trip_id')) {
       context.handle(
-        _isoAlpha2Meta,
-        isoAlpha2.isAcceptableOrUnknown(data['iso_alpha2']!, _isoAlpha2Meta),
+        _tripIdMeta,
+        tripId.isAcceptableOrUnknown(data['trip_id']!, _tripIdMeta),
       );
     } else if (isInserting) {
-      context.missing(_isoAlpha2Meta);
+      context.missing(_tripIdMeta);
     }
     if (data.containsKey('currency_code')) {
       context.handle(
@@ -189,9 +187,9 @@ class $ExpensesTable extends Expenses
         DriftSqlType.int,
         data['${effectivePrefix}id'],
       )!,
-      isoAlpha2: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}iso_alpha2'],
+      tripId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}trip_id'],
       )!,
       currencyCode: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -233,7 +231,9 @@ class $ExpensesTable extends Expenses
 
 class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
   final int id;
-  final String isoAlpha2;
+
+  /// 이 기록이 속한 여행(서버 trip id). 같은 나라를 두 번 가도 가계부가 섞이지 않게 여행으로 묶는다.
+  final int tripId;
   final String currencyCode;
 
   /// `ExpenseCategory.code` (FOOD, LODGING, TRANSPORT, SIGHTSEEING, OTHER)
@@ -247,7 +247,7 @@ class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
   final DateTime spentOn;
   const ExpenseRow({
     required this.id,
-    required this.isoAlpha2,
+    required this.tripId,
     required this.currencyCode,
     required this.category,
     required this.amountMinor,
@@ -259,7 +259,7 @@ class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
-    map['iso_alpha2'] = Variable<String>(isoAlpha2);
+    map['trip_id'] = Variable<int>(tripId);
     map['currency_code'] = Variable<String>(currencyCode);
     map['category'] = Variable<String>(category);
     map['amount_minor'] = Variable<int>(amountMinor);
@@ -278,7 +278,7 @@ class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
   ExpensesCompanion toCompanion(bool nullToAbsent) {
     return ExpensesCompanion(
       id: Value(id),
-      isoAlpha2: Value(isoAlpha2),
+      tripId: Value(tripId),
       currencyCode: Value(currencyCode),
       category: Value(category),
       amountMinor: Value(amountMinor),
@@ -297,7 +297,7 @@ class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return ExpenseRow(
       id: serializer.fromJson<int>(json['id']),
-      isoAlpha2: serializer.fromJson<String>(json['isoAlpha2']),
+      tripId: serializer.fromJson<int>(json['tripId']),
       currencyCode: serializer.fromJson<String>(json['currencyCode']),
       category: serializer.fromJson<String>(json['category']),
       amountMinor: serializer.fromJson<int>(json['amountMinor']),
@@ -313,7 +313,7 @@ class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
-      'isoAlpha2': serializer.toJson<String>(isoAlpha2),
+      'tripId': serializer.toJson<int>(tripId),
       'currencyCode': serializer.toJson<String>(currencyCode),
       'category': serializer.toJson<String>(category),
       'amountMinor': serializer.toJson<int>(amountMinor),
@@ -325,7 +325,7 @@ class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
 
   ExpenseRow copyWith({
     int? id,
-    String? isoAlpha2,
+    int? tripId,
     String? currencyCode,
     String? category,
     int? amountMinor,
@@ -334,7 +334,7 @@ class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
     DateTime? spentOn,
   }) => ExpenseRow(
     id: id ?? this.id,
-    isoAlpha2: isoAlpha2 ?? this.isoAlpha2,
+    tripId: tripId ?? this.tripId,
     currencyCode: currencyCode ?? this.currencyCode,
     category: category ?? this.category,
     amountMinor: amountMinor ?? this.amountMinor,
@@ -347,7 +347,7 @@ class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
   ExpenseRow copyWithCompanion(ExpensesCompanion data) {
     return ExpenseRow(
       id: data.id.present ? data.id.value : this.id,
-      isoAlpha2: data.isoAlpha2.present ? data.isoAlpha2.value : this.isoAlpha2,
+      tripId: data.tripId.present ? data.tripId.value : this.tripId,
       currencyCode: data.currencyCode.present
           ? data.currencyCode.value
           : this.currencyCode,
@@ -367,7 +367,7 @@ class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
   String toString() {
     return (StringBuffer('ExpenseRow(')
           ..write('id: $id, ')
-          ..write('isoAlpha2: $isoAlpha2, ')
+          ..write('tripId: $tripId, ')
           ..write('currencyCode: $currencyCode, ')
           ..write('category: $category, ')
           ..write('amountMinor: $amountMinor, ')
@@ -381,7 +381,7 @@ class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
   @override
   int get hashCode => Object.hash(
     id,
-    isoAlpha2,
+    tripId,
     currencyCode,
     category,
     amountMinor,
@@ -394,7 +394,7 @@ class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
       identical(this, other) ||
       (other is ExpenseRow &&
           other.id == this.id &&
-          other.isoAlpha2 == this.isoAlpha2 &&
+          other.tripId == this.tripId &&
           other.currencyCode == this.currencyCode &&
           other.category == this.category &&
           other.amountMinor == this.amountMinor &&
@@ -405,7 +405,7 @@ class ExpenseRow extends DataClass implements Insertable<ExpenseRow> {
 
 class ExpensesCompanion extends UpdateCompanion<ExpenseRow> {
   final Value<int> id;
-  final Value<String> isoAlpha2;
+  final Value<int> tripId;
   final Value<String> currencyCode;
   final Value<String> category;
   final Value<int> amountMinor;
@@ -414,7 +414,7 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseRow> {
   final Value<DateTime> spentOn;
   const ExpensesCompanion({
     this.id = const Value.absent(),
-    this.isoAlpha2 = const Value.absent(),
+    this.tripId = const Value.absent(),
     this.currencyCode = const Value.absent(),
     this.category = const Value.absent(),
     this.amountMinor = const Value.absent(),
@@ -424,21 +424,21 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseRow> {
   });
   ExpensesCompanion.insert({
     this.id = const Value.absent(),
-    required String isoAlpha2,
+    required int tripId,
     required String currencyCode,
     required String category,
     required int amountMinor,
     this.krwPerUnitAtEntry = const Value.absent(),
     this.memo = const Value.absent(),
     required DateTime spentOn,
-  }) : isoAlpha2 = Value(isoAlpha2),
+  }) : tripId = Value(tripId),
        currencyCode = Value(currencyCode),
        category = Value(category),
        amountMinor = Value(amountMinor),
        spentOn = Value(spentOn);
   static Insertable<ExpenseRow> custom({
     Expression<int>? id,
-    Expression<String>? isoAlpha2,
+    Expression<int>? tripId,
     Expression<String>? currencyCode,
     Expression<String>? category,
     Expression<int>? amountMinor,
@@ -448,7 +448,7 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseRow> {
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
-      if (isoAlpha2 != null) 'iso_alpha2': isoAlpha2,
+      if (tripId != null) 'trip_id': tripId,
       if (currencyCode != null) 'currency_code': currencyCode,
       if (category != null) 'category': category,
       if (amountMinor != null) 'amount_minor': amountMinor,
@@ -460,7 +460,7 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseRow> {
 
   ExpensesCompanion copyWith({
     Value<int>? id,
-    Value<String>? isoAlpha2,
+    Value<int>? tripId,
     Value<String>? currencyCode,
     Value<String>? category,
     Value<int>? amountMinor,
@@ -470,7 +470,7 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseRow> {
   }) {
     return ExpensesCompanion(
       id: id ?? this.id,
-      isoAlpha2: isoAlpha2 ?? this.isoAlpha2,
+      tripId: tripId ?? this.tripId,
       currencyCode: currencyCode ?? this.currencyCode,
       category: category ?? this.category,
       amountMinor: amountMinor ?? this.amountMinor,
@@ -486,8 +486,8 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseRow> {
     if (id.present) {
       map['id'] = Variable<int>(id.value);
     }
-    if (isoAlpha2.present) {
-      map['iso_alpha2'] = Variable<String>(isoAlpha2.value);
+    if (tripId.present) {
+      map['trip_id'] = Variable<int>(tripId.value);
     }
     if (currencyCode.present) {
       map['currency_code'] = Variable<String>(currencyCode.value);
@@ -516,7 +516,7 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseRow> {
   String toString() {
     return (StringBuffer('ExpensesCompanion(')
           ..write('id: $id, ')
-          ..write('isoAlpha2: $isoAlpha2, ')
+          ..write('tripId: $tripId, ')
           ..write('currencyCode: $currencyCode, ')
           ..write('category: $category, ')
           ..write('amountMinor: $amountMinor, ')
@@ -547,15 +547,13 @@ class $ExchangesTable extends Exchanges
       'PRIMARY KEY AUTOINCREMENT',
     ),
   );
-  static const VerificationMeta _isoAlpha2Meta = const VerificationMeta(
-    'isoAlpha2',
-  );
+  static const VerificationMeta _tripIdMeta = const VerificationMeta('tripId');
   @override
-  late final GeneratedColumn<String> isoAlpha2 = GeneratedColumn<String>(
-    'iso_alpha2',
+  late final GeneratedColumn<int> tripId = GeneratedColumn<int>(
+    'trip_id',
     aliasedName,
     false,
-    type: DriftSqlType.string,
+    type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
   static const VerificationMeta _currencyCodeMeta = const VerificationMeta(
@@ -613,7 +611,7 @@ class $ExchangesTable extends Exchanges
   @override
   List<GeneratedColumn> get $columns => [
     id,
-    isoAlpha2,
+    tripId,
     currencyCode,
     amountMinor,
     krwPaid,
@@ -635,13 +633,13 @@ class $ExchangesTable extends Exchanges
     if (data.containsKey('id')) {
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
     }
-    if (data.containsKey('iso_alpha2')) {
+    if (data.containsKey('trip_id')) {
       context.handle(
-        _isoAlpha2Meta,
-        isoAlpha2.isAcceptableOrUnknown(data['iso_alpha2']!, _isoAlpha2Meta),
+        _tripIdMeta,
+        tripId.isAcceptableOrUnknown(data['trip_id']!, _tripIdMeta),
       );
     } else if (isInserting) {
-      context.missing(_isoAlpha2Meta);
+      context.missing(_tripIdMeta);
     }
     if (data.containsKey('currency_code')) {
       context.handle(
@@ -690,9 +688,9 @@ class $ExchangesTable extends Exchanges
         DriftSqlType.int,
         data['${effectivePrefix}id'],
       )!,
-      isoAlpha2: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}iso_alpha2'],
+      tripId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}trip_id'],
       )!,
       currencyCode: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -730,7 +728,9 @@ class $ExchangesTable extends Exchanges
 
 class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
   final int id;
-  final String isoAlpha2;
+
+  /// 이 기록이 속한 여행(서버 trip id). 같은 나라를 두 번 가도 가계부가 섞이지 않게 여행으로 묶는다.
+  final int tripId;
   final String currencyCode;
   final int amountMinor;
   final int? krwPaid;
@@ -738,7 +738,7 @@ class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
   final DateTime exchangedOn;
   const ExchangeRow({
     required this.id,
-    required this.isoAlpha2,
+    required this.tripId,
     required this.currencyCode,
     required this.amountMinor,
     this.krwPaid,
@@ -749,7 +749,7 @@ class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
-    map['iso_alpha2'] = Variable<String>(isoAlpha2);
+    map['trip_id'] = Variable<int>(tripId);
     map['currency_code'] = Variable<String>(currencyCode);
     map['amount_minor'] = Variable<int>(amountMinor);
     if (!nullToAbsent || krwPaid != null) {
@@ -767,7 +767,7 @@ class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
   ExchangesCompanion toCompanion(bool nullToAbsent) {
     return ExchangesCompanion(
       id: Value(id),
-      isoAlpha2: Value(isoAlpha2),
+      tripId: Value(tripId),
       currencyCode: Value(currencyCode),
       amountMinor: Value(amountMinor),
       krwPaid: krwPaid == null && nullToAbsent
@@ -785,7 +785,7 @@ class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return ExchangeRow(
       id: serializer.fromJson<int>(json['id']),
-      isoAlpha2: serializer.fromJson<String>(json['isoAlpha2']),
+      tripId: serializer.fromJson<int>(json['tripId']),
       currencyCode: serializer.fromJson<String>(json['currencyCode']),
       amountMinor: serializer.fromJson<int>(json['amountMinor']),
       krwPaid: serializer.fromJson<int?>(json['krwPaid']),
@@ -798,7 +798,7 @@ class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
-      'isoAlpha2': serializer.toJson<String>(isoAlpha2),
+      'tripId': serializer.toJson<int>(tripId),
       'currencyCode': serializer.toJson<String>(currencyCode),
       'amountMinor': serializer.toJson<int>(amountMinor),
       'krwPaid': serializer.toJson<int?>(krwPaid),
@@ -809,7 +809,7 @@ class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
 
   ExchangeRow copyWith({
     int? id,
-    String? isoAlpha2,
+    int? tripId,
     String? currencyCode,
     int? amountMinor,
     Value<int?> krwPaid = const Value.absent(),
@@ -817,7 +817,7 @@ class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
     DateTime? exchangedOn,
   }) => ExchangeRow(
     id: id ?? this.id,
-    isoAlpha2: isoAlpha2 ?? this.isoAlpha2,
+    tripId: tripId ?? this.tripId,
     currencyCode: currencyCode ?? this.currencyCode,
     amountMinor: amountMinor ?? this.amountMinor,
     krwPaid: krwPaid.present ? krwPaid.value : this.krwPaid,
@@ -827,7 +827,7 @@ class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
   ExchangeRow copyWithCompanion(ExchangesCompanion data) {
     return ExchangeRow(
       id: data.id.present ? data.id.value : this.id,
-      isoAlpha2: data.isoAlpha2.present ? data.isoAlpha2.value : this.isoAlpha2,
+      tripId: data.tripId.present ? data.tripId.value : this.tripId,
       currencyCode: data.currencyCode.present
           ? data.currencyCode.value
           : this.currencyCode,
@@ -846,7 +846,7 @@ class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
   String toString() {
     return (StringBuffer('ExchangeRow(')
           ..write('id: $id, ')
-          ..write('isoAlpha2: $isoAlpha2, ')
+          ..write('tripId: $tripId, ')
           ..write('currencyCode: $currencyCode, ')
           ..write('amountMinor: $amountMinor, ')
           ..write('krwPaid: $krwPaid, ')
@@ -859,7 +859,7 @@ class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
   @override
   int get hashCode => Object.hash(
     id,
-    isoAlpha2,
+    tripId,
     currencyCode,
     amountMinor,
     krwPaid,
@@ -871,7 +871,7 @@ class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
       identical(this, other) ||
       (other is ExchangeRow &&
           other.id == this.id &&
-          other.isoAlpha2 == this.isoAlpha2 &&
+          other.tripId == this.tripId &&
           other.currencyCode == this.currencyCode &&
           other.amountMinor == this.amountMinor &&
           other.krwPaid == this.krwPaid &&
@@ -881,7 +881,7 @@ class ExchangeRow extends DataClass implements Insertable<ExchangeRow> {
 
 class ExchangesCompanion extends UpdateCompanion<ExchangeRow> {
   final Value<int> id;
-  final Value<String> isoAlpha2;
+  final Value<int> tripId;
   final Value<String> currencyCode;
   final Value<int> amountMinor;
   final Value<int?> krwPaid;
@@ -889,7 +889,7 @@ class ExchangesCompanion extends UpdateCompanion<ExchangeRow> {
   final Value<DateTime> exchangedOn;
   const ExchangesCompanion({
     this.id = const Value.absent(),
-    this.isoAlpha2 = const Value.absent(),
+    this.tripId = const Value.absent(),
     this.currencyCode = const Value.absent(),
     this.amountMinor = const Value.absent(),
     this.krwPaid = const Value.absent(),
@@ -898,19 +898,19 @@ class ExchangesCompanion extends UpdateCompanion<ExchangeRow> {
   });
   ExchangesCompanion.insert({
     this.id = const Value.absent(),
-    required String isoAlpha2,
+    required int tripId,
     required String currencyCode,
     required int amountMinor,
     this.krwPaid = const Value.absent(),
     this.memo = const Value.absent(),
     required DateTime exchangedOn,
-  }) : isoAlpha2 = Value(isoAlpha2),
+  }) : tripId = Value(tripId),
        currencyCode = Value(currencyCode),
        amountMinor = Value(amountMinor),
        exchangedOn = Value(exchangedOn);
   static Insertable<ExchangeRow> custom({
     Expression<int>? id,
-    Expression<String>? isoAlpha2,
+    Expression<int>? tripId,
     Expression<String>? currencyCode,
     Expression<int>? amountMinor,
     Expression<int>? krwPaid,
@@ -919,7 +919,7 @@ class ExchangesCompanion extends UpdateCompanion<ExchangeRow> {
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
-      if (isoAlpha2 != null) 'iso_alpha2': isoAlpha2,
+      if (tripId != null) 'trip_id': tripId,
       if (currencyCode != null) 'currency_code': currencyCode,
       if (amountMinor != null) 'amount_minor': amountMinor,
       if (krwPaid != null) 'krw_paid': krwPaid,
@@ -930,7 +930,7 @@ class ExchangesCompanion extends UpdateCompanion<ExchangeRow> {
 
   ExchangesCompanion copyWith({
     Value<int>? id,
-    Value<String>? isoAlpha2,
+    Value<int>? tripId,
     Value<String>? currencyCode,
     Value<int>? amountMinor,
     Value<int?>? krwPaid,
@@ -939,7 +939,7 @@ class ExchangesCompanion extends UpdateCompanion<ExchangeRow> {
   }) {
     return ExchangesCompanion(
       id: id ?? this.id,
-      isoAlpha2: isoAlpha2 ?? this.isoAlpha2,
+      tripId: tripId ?? this.tripId,
       currencyCode: currencyCode ?? this.currencyCode,
       amountMinor: amountMinor ?? this.amountMinor,
       krwPaid: krwPaid ?? this.krwPaid,
@@ -954,8 +954,8 @@ class ExchangesCompanion extends UpdateCompanion<ExchangeRow> {
     if (id.present) {
       map['id'] = Variable<int>(id.value);
     }
-    if (isoAlpha2.present) {
-      map['iso_alpha2'] = Variable<String>(isoAlpha2.value);
+    if (tripId.present) {
+      map['trip_id'] = Variable<int>(tripId.value);
     }
     if (currencyCode.present) {
       map['currency_code'] = Variable<String>(currencyCode.value);
@@ -981,7 +981,7 @@ class ExchangesCompanion extends UpdateCompanion<ExchangeRow> {
   String toString() {
     return (StringBuffer('ExchangesCompanion(')
           ..write('id: $id, ')
-          ..write('isoAlpha2: $isoAlpha2, ')
+          ..write('tripId: $tripId, ')
           ..write('currencyCode: $currencyCode, ')
           ..write('amountMinor: $amountMinor, ')
           ..write('krwPaid: $krwPaid, ')
@@ -1006,7 +1006,7 @@ abstract class _$WalletDatabase extends GeneratedDatabase {
 
 typedef $$ExpensesTableCreateCompanionBuilder = ExpensesCompanion Function({
   Value<int> id,
-  required String isoAlpha2,
+  required int tripId,
   required String currencyCode,
   required String category,
   required int amountMinor,
@@ -1016,7 +1016,7 @@ typedef $$ExpensesTableCreateCompanionBuilder = ExpensesCompanion Function({
 });
 typedef $$ExpensesTableUpdateCompanionBuilder = ExpensesCompanion Function({
   Value<int> id,
-  Value<String> isoAlpha2,
+  Value<int> tripId,
   Value<String> currencyCode,
   Value<String> category,
   Value<int> amountMinor,
@@ -1039,8 +1039,8 @@ class $$ExpensesTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get isoAlpha2 => $composableBuilder(
-    column: $table.isoAlpha2,
+  ColumnFilters<int> get tripId => $composableBuilder(
+    column: $table.tripId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1090,8 +1090,8 @@ class $$ExpensesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get isoAlpha2 => $composableBuilder(
-    column: $table.isoAlpha2,
+  ColumnOrderings<int> get tripId => $composableBuilder(
+    column: $table.tripId,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -1138,8 +1138,8 @@ class $$ExpensesTableAnnotationComposer
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
-  GeneratedColumn<String> get isoAlpha2 =>
-      $composableBuilder(column: $table.isoAlpha2, builder: (column) => column);
+  GeneratedColumn<int> get tripId =>
+      $composableBuilder(column: $table.tripId, builder: (column) => column);
 
   GeneratedColumn<String> get currencyCode => $composableBuilder(
     column: $table.currencyCode,
@@ -1198,7 +1198,7 @@ class $$ExpensesTableTableManager
           updateCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
-                Value<String> isoAlpha2 = const Value.absent(),
+                Value<int> tripId = const Value.absent(),
                 Value<String> currencyCode = const Value.absent(),
                 Value<String> category = const Value.absent(),
                 Value<int> amountMinor = const Value.absent(),
@@ -1207,7 +1207,7 @@ class $$ExpensesTableTableManager
                 Value<DateTime> spentOn = const Value.absent(),
               }) => ExpensesCompanion(
                 id: id,
-                isoAlpha2: isoAlpha2,
+                tripId: tripId,
                 currencyCode: currencyCode,
                 category: category,
                 amountMinor: amountMinor,
@@ -1218,7 +1218,7 @@ class $$ExpensesTableTableManager
           createCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
-                required String isoAlpha2,
+                required int tripId,
                 required String currencyCode,
                 required String category,
                 required int amountMinor,
@@ -1227,7 +1227,7 @@ class $$ExpensesTableTableManager
                 required DateTime spentOn,
               }) => ExpensesCompanion.insert(
                 id: id,
-                isoAlpha2: isoAlpha2,
+                tripId: tripId,
                 currencyCode: currencyCode,
                 category: category,
                 amountMinor: amountMinor,
@@ -1271,7 +1271,7 @@ typedef $$ExpensesTableProcessedTableManager =
     >;
 typedef $$ExchangesTableCreateCompanionBuilder = ExchangesCompanion Function({
   Value<int> id,
-  required String isoAlpha2,
+  required int tripId,
   required String currencyCode,
   required int amountMinor,
   Value<int?> krwPaid,
@@ -1280,7 +1280,7 @@ typedef $$ExchangesTableCreateCompanionBuilder = ExchangesCompanion Function({
 });
 typedef $$ExchangesTableUpdateCompanionBuilder = ExchangesCompanion Function({
   Value<int> id,
-  Value<String> isoAlpha2,
+  Value<int> tripId,
   Value<String> currencyCode,
   Value<int> amountMinor,
   Value<int?> krwPaid,
@@ -1302,8 +1302,8 @@ class $$ExchangesTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get isoAlpha2 => $composableBuilder(
-    column: $table.isoAlpha2,
+  ColumnFilters<int> get tripId => $composableBuilder(
+    column: $table.tripId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1348,8 +1348,8 @@ class $$ExchangesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get isoAlpha2 => $composableBuilder(
-    column: $table.isoAlpha2,
+  ColumnOrderings<int> get tripId => $composableBuilder(
+    column: $table.tripId,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -1391,8 +1391,8 @@ class $$ExchangesTableAnnotationComposer
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
-  GeneratedColumn<String> get isoAlpha2 =>
-      $composableBuilder(column: $table.isoAlpha2, builder: (column) => column);
+  GeneratedColumn<int> get tripId =>
+      $composableBuilder(column: $table.tripId, builder: (column) => column);
 
   GeneratedColumn<String> get currencyCode => $composableBuilder(
     column: $table.currencyCode,
@@ -1449,7 +1449,7 @@ class $$ExchangesTableTableManager
           updateCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
-                Value<String> isoAlpha2 = const Value.absent(),
+                Value<int> tripId = const Value.absent(),
                 Value<String> currencyCode = const Value.absent(),
                 Value<int> amountMinor = const Value.absent(),
                 Value<int?> krwPaid = const Value.absent(),
@@ -1457,7 +1457,7 @@ class $$ExchangesTableTableManager
                 Value<DateTime> exchangedOn = const Value.absent(),
               }) => ExchangesCompanion(
                 id: id,
-                isoAlpha2: isoAlpha2,
+                tripId: tripId,
                 currencyCode: currencyCode,
                 amountMinor: amountMinor,
                 krwPaid: krwPaid,
@@ -1467,7 +1467,7 @@ class $$ExchangesTableTableManager
           createCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
-                required String isoAlpha2,
+                required int tripId,
                 required String currencyCode,
                 required int amountMinor,
                 Value<int?> krwPaid = const Value.absent(),
@@ -1475,7 +1475,7 @@ class $$ExchangesTableTableManager
                 required DateTime exchangedOn,
               }) => ExchangesCompanion.insert(
                 id: id,
-                isoAlpha2: isoAlpha2,
+                tripId: tripId,
                 currencyCode: currencyCode,
                 amountMinor: amountMinor,
                 krwPaid: krwPaid,

@@ -17,13 +17,13 @@ void main() {
     expect(converter.fromSql(DateTime.utc(2026, 10, 9)), DateTime(2026, 10, 9));
   });
 
-  test('지출을 저장하면 그 나라 목록에 그대로 나온다', () async {
+  test('지출을 저장하면 그 여행 목록에 그대로 나온다', () async {
     await db.addExpense(
-      isoAlpha2: 'JP', currencyCode: 'JPY', category: 'FOOD', amountMinor: 1200,
+      tripId: 1, currencyCode: 'JPY', category: 'FOOD', amountMinor: 1200,
       krwPerUnitAtEntry: 8.4746, memo: '라멘', spentOn: DateTime(2026, 10, 9),
     );
 
-    final rows = await db.watchExpenses('JP').first;
+    final rows = await db.watchExpenses(1).first;
 
     expect(rows, hasLength(1));
     expect(rows.single.amountMinor, 1200);
@@ -33,60 +33,64 @@ void main() {
     expect(rows.single.spentOn, DateTime(2026, 10, 9));
   });
 
-  test('나라별로 나뉘고, 최근 날짜·나중 기록이 먼저 온다', () async {
-    await db.addExpense(isoAlpha2: 'JP', currencyCode: 'JPY', category: 'FOOD',
+  test('여행별로 나뉘고, 최근 날짜·나중 기록이 먼저 온다', () async {
+    await db.addExpense(tripId: 1, currencyCode: 'JPY', category: 'FOOD',
         amountMinor: 100, spentOn: DateTime(2026, 10, 8));
-    await db.addExpense(isoAlpha2: 'JP', currencyCode: 'JPY', category: 'FOOD',
+    await db.addExpense(tripId: 1, currencyCode: 'JPY', category: 'FOOD',
         amountMinor: 200, spentOn: DateTime(2026, 10, 9));
-    await db.addExpense(isoAlpha2: 'JP', currencyCode: 'JPY', category: 'FOOD',
+    await db.addExpense(tripId: 1, currencyCode: 'JPY', category: 'FOOD',
         amountMinor: 300, spentOn: DateTime(2026, 10, 9));
-    await db.addExpense(isoAlpha2: 'VN', currencyCode: 'VND', category: 'FOOD',
+    await db.addExpense(tripId: 2, currencyCode: 'VND', category: 'FOOD',
         amountMinor: 50000, spentOn: DateTime(2026, 10, 9));
 
-    final rows = await db.watchExpenses('JP').first;
+    final rows = await db.watchExpenses(1).first;
 
     expect(rows.map((r) => r.amountMinor).toList(), [300, 200, 100]);
   });
 
   test('지출을 수정하고 삭제할 수 있다', () async {
-    final id = await db.addExpense(isoAlpha2: 'JP', currencyCode: 'JPY', category: 'FOOD',
+    final id = await db.addExpense(tripId: 1, currencyCode: 'JPY', category: 'FOOD',
         amountMinor: 1200, spentOn: DateTime(2026, 10, 9));
-    final row = (await db.watchExpenses('JP').first).single;
+    final row = (await db.watchExpenses(1).first).single;
 
     await db.updateExpense(row.copyWith(amountMinor: 1500, category: 'TRANSPORT'));
-    final updated = (await db.watchExpenses('JP').first).single;
+    final updated = (await db.watchExpenses(1).first).single;
     expect(updated.amountMinor, 1500);
     expect(updated.category, 'TRANSPORT');
 
     await db.deleteExpense(id);
-    expect(await db.watchExpenses('JP').first, isEmpty);
+    expect(await db.watchExpenses(1).first, isEmpty);
   });
 
   test('환전을 저장·수정·삭제할 수 있다', () async {
-    final id = await db.addExchange(isoAlpha2: 'JP', currencyCode: 'JPY', amountMinor: 50000,
+    final id = await db.addExchange(tripId: 1, currencyCode: 'JPY', amountMinor: 50000,
         krwPaid: 420000, memo: '공항 환전', exchangedOn: DateTime(2026, 10, 9));
-    final row = (await db.watchExchanges('JP').first).single;
+    final row = (await db.watchExchanges(1).first).single;
     expect(row.krwPaid, 420000);
 
     await db.updateExchange(row.copyWith(amountMinor: 60000));
-    expect((await db.watchExchanges('JP').first).single.amountMinor, 60000);
+    expect((await db.watchExchanges(1).first).single.amountMinor, 60000);
 
     await db.deleteExchange(id);
-    expect(await db.watchExchanges('JP').first, isEmpty);
+    expect(await db.watchExchanges(1).first, isEmpty);
   });
 
-  test('지갑 비우기는 그 나라의 지출·환전만 지운다', () async {
-    await db.addExpense(isoAlpha2: 'JP', currencyCode: 'JPY', category: 'FOOD',
+  test('지갑 비우기는 그 여행의 지출·환전만 지운다', () async {
+    await db.addExpense(tripId: 1, currencyCode: 'JPY', category: 'FOOD',
         amountMinor: 1200, spentOn: DateTime(2026, 10, 9));
-    await db.addExchange(isoAlpha2: 'JP', currencyCode: 'JPY', amountMinor: 50000,
+    await db.addExchange(tripId: 1, currencyCode: 'JPY', amountMinor: 50000,
         exchangedOn: DateTime(2026, 10, 9));
-    await db.addExpense(isoAlpha2: 'VN', currencyCode: 'VND', category: 'FOOD',
+    await db.addExpense(tripId: 2, currencyCode: 'VND', category: 'FOOD',
         amountMinor: 50000, spentOn: DateTime(2026, 10, 9));
 
-    await db.clearWallet('JP');
+    await db.clearWallet(1);
 
-    expect(await db.watchExpenses('JP').first, isEmpty);
-    expect(await db.watchExchanges('JP').first, isEmpty);
-    expect(await db.watchExpenses('VN').first, hasLength(1));
+    expect(await db.watchExpenses(1).first, isEmpty);
+    expect(await db.watchExchanges(1).first, isEmpty);
+    expect(await db.watchExpenses(2).first, hasLength(1));
+  });
+
+  test('스키마 버전은 2다(기록 묶음 기준이 여행으로 바뀜)', () {
+    expect(db.schemaVersion, 2);
   });
 }

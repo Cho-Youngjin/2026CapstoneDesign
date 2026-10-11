@@ -48,10 +48,10 @@ class AppRoutes {
   static const groupChat = '/group/chat';
   static const groupLocation = '/group/location';
 
-  /// 나라별 지갑. 준비물 탭 아래 화면이라 경로를 /checklist로 시작해 탭바의 준비물 탭이 켜진 채로 둔다.
+  /// 여행별 지갑. 준비물 탭 아래 화면이라 경로를 /checklist로 시작해 탭바의 준비물 탭이 켜진 채로 둔다.
   static const wallet = '/checklist/wallet';
 
-  static String walletOf(String isoAlpha2) => '$wallet?iso=$isoAlpha2';
+  static String walletOf(int tripId, String isoAlpha2) => '$wallet?trip=$tripId&iso=$isoAlpha2';
 
   /// 환율 알림 설정. 준비물 탭 환전 섹션에서 들어오며, 지갑처럼 준비물 탭이 켜진 채로 둔다.
   static const rateAlert = '/checklist/rate-alert';
@@ -85,8 +85,10 @@ GoRouter createRouter({required bool isLoggedIn, VoidCallback? onSignIn}) {
           GoRoute(path: AppRoutes.checklist, builder: (_, _) => const ChecklistPage()),
           GoRoute(
             path: AppRoutes.wallet,
-            builder: (_, state) =>
-                WalletPage(isoAlpha2: state.uri.queryParameters['iso'] ?? 'VN'),
+            builder: (_, state) => WalletPage(
+              tripId: int.tryParse(state.uri.queryParameters['trip'] ?? '') ?? 0,
+              isoAlpha2: state.uri.queryParameters['iso'] ?? 'VN',
+            ),
           ),
           GoRoute(
             path: AppRoutes.rateAlert,

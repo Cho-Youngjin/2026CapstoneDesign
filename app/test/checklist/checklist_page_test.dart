@@ -51,7 +51,7 @@ Future<({FakeTripApi api, SharedPreferences prefs})> _pumpChecklist(
       GoRoute(path: '/checklist', builder: (_, _) => const Scaffold(body: ChecklistPage())),
       GoRoute(
         path: '/checklist/wallet',
-        builder: (_, state) => Scaffold(body: Text('wallet ${state.uri.queryParameters['iso']}')),
+        builder: (_, state) => Scaffold(body: Text('wallet ${state.uri.queryParameters['trip']} ${state.uri.queryParameters['iso']}')),
       ),
       GoRoute(
         path: '/checklist/rate-alert',
@@ -172,7 +172,7 @@ void main() {
     await tester.tap(find.byKey(const Key('walletCard')));
     await tester.pumpAndSettle();
 
-    expect(find.text('wallet VN'), findsOneWidget);
+    expect(find.text('wallet 1 VN'), findsOneWidget);
   });
 
   testWidgets('환전 섹션 끝의 환율 알림 행은 선택된 여행 나라의 환율 알림으로 간다', (tester) async {
