@@ -22,8 +22,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Hibernate의 ddl-auto: validate가 컬럼 이름·타입 불일치를 잡아 주고, 여기서는 복합 키,
  * 커스텀 쿼리, DB 제약(UNIQUE·CHECK)이 의도대로 동작하는지를 본다.
  *
- * 특히 초대 코드 UNIQUE 위반이 DataIntegrityViolationException으로 올라오는지는 중요하다 —
- * RoomService가 이 예외를 잡아 코드를 다시 뽑는다(Plan D Task 1).
+ * 초대 코드 UNIQUE 제약은 마지막 방어선이다 — RoomService는 저장 전에 existsByInviteCode로
+ * 겹치는 코드를 걸러내고, 확인과 저장 사이에 다른 요청이 끼어드는 드문 경우만 이 제약이 막는다
+ * (이유는 RoomService.newInviteCode 주석 참고).
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)

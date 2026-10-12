@@ -12,6 +12,9 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
     /** 초대 코드는 대문자로 저장되므로, 호출부가 입력을 대문자로 바꿔서 넘겨야 한다. */
     Optional<ChatRoom> findByInviteCode(String inviteCode);
 
+    /** 새 초대 코드가 이미 쓰이고 있는지 — RoomService가 저장 전에 확인한다. */
+    boolean existsByInviteCode(String inviteCode);
+
     /**
      * 내가 멤버인 방 목록. Task 1에서는 만든 순서 최신순이고, 메시지가 생기는 Task 2에서
      * "최근 메시지순"으로 바꾼다. created_at이 같은 경우를 대비해 id를 보조 정렬로 둔다.
