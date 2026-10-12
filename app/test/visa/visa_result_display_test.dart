@@ -178,4 +178,11 @@ void main() {
       );
     });
   });
+
+  test('목록용 판정 배지는 판정 종류만 짧게 말한다', () {
+    expect(verdictChipOf(VisaVerdict.visaFreeOk), (label: '무비자', tone: BadgeTone.info));
+    expect(verdictChipOf(VisaVerdict.visaFreeExceeded), (label: '무비자 초과', tone: BadgeTone.warn));
+    expect(verdictChipOf(VisaVerdict.visaRequired), (label: '비자 필요', tone: BadgeTone.warn));
+    expect(verdictChipOf(VisaVerdict.unverified), (label: '확인 필요', tone: BadgeTone.neutral));
+  });
 }

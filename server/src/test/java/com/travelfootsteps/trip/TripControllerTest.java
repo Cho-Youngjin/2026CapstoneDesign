@@ -31,6 +31,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -65,6 +66,7 @@ class TripControllerTest {
             StubTokenVerifier stub = new StubTokenVerifier();
             stub.register("token-a", "uid-a");
             stub.register("token-b", "uid-b");
+            stub.register("token-c", "uid-c");
             return stub;
         }
     }
@@ -397,5 +399,49 @@ class TripControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"checked\": true}"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void 여행_목록은_내_여행만_출발일_최신순으로_돌려준다() throws Exception {
+        givenVietnamVisaFree45Days();
+        Long older = createTrip("token-c", "VN",
+                LocalDate.of(2026, 12, 1), LocalDate.of(2026, 12, 5), LocalDate.of(2030, 1, 1));
+        Long newer = createTrip("token-c", "VN",
+                LocalDate.of(2027, 2, 1), LocalDate.of(2027, 2, 5), LocalDate.of(2030, 1, 1));
+        createTrip("token-a", "VN",
+                LocalDate.of(2027, 3, 1), LocalDate.of(2027, 3, 5), LocalDate.of(2030, 1, 1));
+
+        mockMvc.perform(get("/api/trips").header("Authorization", "Bearer token-c"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].id").value(newer.intValue()))
+                .andExpect(jsonPath("$[0].countryIso2").value("VN"))
+                .andExpect(jsonPath("$[0].countryNameKo").value("베트남"))
+                .andExpect(jsonPath("$[0].departDate").value("2027-02-01"))
+                .andExpect(jsonPath("$[0].returnDate").value("2027-02-05"))
+                .andExpect(jsonPath("$[0].verdict").value("VISA_FREE_OK"))
+                .andExpect(jsonPath("$[1].id").value(older.intValue()));
+    }
+
+    @Test
+    void 여행_삭제는_소유자만_할_수_있고_일정과_체크리스트도_함께_지운다() throws Exception {
+        givenVietnamVisaFree45Days();
+        Long tripId = createTrip("token-a", "VN",
+                LocalDate.of(2026, 12, 20), LocalDate.of(2027, 1, 9), LocalDate.of(2027, 3, 15));
+
+        mockMvc.perform(delete("/api/trips/" + tripId).header("Authorization", "Bearer token-b"))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(delete("/api/trips/" + tripId).header("Authorization", "Bearer token-a"))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/trips/" + tripId).header("Authorization", "Bearer token-a"))
+                .andExpect(status().isNotFound());
+        Integer tasks = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM trip_task WHERE trip_id = ?", Integer.class, tripId);
+        Integer items = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM trip_checklist WHERE trip_id = ?", Integer.class, tripId);
+        assertThat(tasks).isZero();
+        assertThat(items).isZero();
     }
 }

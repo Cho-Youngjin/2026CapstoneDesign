@@ -1,4 +1,5 @@
 import 'package:app/router.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,54 +9,110 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
 import 'data/trip_api.dart';
-import 'data/trip_providers.dart';
+import 'data/trip_deletion.dart';
+import 'data/trip_list_providers.dart';
 import 'models/trip.dart';
 import 'visa_page.dart' show tripErrorMessage;
 import 'visa_result_display.dart';
 
 final _shortDate = DateFormat('M/d');
 
-/// 비자 판정 결과 화면(비자 탭에서 push되는 상세 화면).
+bool _isNotFound(Object error) =>
+    error is DioException && error.response?.statusCode == 404;
+
+/// 여행 상세(`/visa/trip/:id`) — 판정·근거·준비 일정과 [준비물 체크리스트]·[지갑]·[여행 삭제].
 ///
 /// 레이아웃은 와이어프레임("해외여행 발걸음 - 와이어프레임" Plan B)을 따르고,
-/// 내용은 전부 [activeTripProvider]가 가져온 서버 판정 결과에서 나온다.
+/// 내용은 전부 [tripProvider]가 가져온 서버 판정 결과에서 나온다.
 class VisaResultPage extends ConsumerWidget {
-  const VisaResultPage({super.key});
+  const VisaResultPage({super.key, required this.tripId});
+
+  final int tripId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tripAsync = ref.watch(activeTripProvider);
-    final countryName = tripAsync.asData?.value?.countryNameKo;
+    // 없는 여행(삭제됐거나 다른 계정)이면 선택을 지우고 목록에서도 뺀다 — 낡은 카드가 남아
+    // 준비물 탭이 그 여행을 다시 고르지 않게 한다. 준비물 탭은 다음에 기본 여행 규칙으로 고른다.
+    ref.listen(tripProvider(tripId), (_, next) {
+      final error = next.error;
+      if (error == null || !_isNotFound(error)) return;
+      if (ref.read(selectedTripIdProvider) == tripId) {
+        ref.read(selectedTripIdProvider.notifier).clear();
+      }
+      ref.read(tripListCacheProvider).remove(tripId).whenComplete(() {
+        ref.invalidate(tripListProvider);
+      });
+    });
+    final tripAsync = ref.watch(tripProvider(tripId));
+    final countryName = tripAsync.asData?.value.countryNameKo;
 
     return Column(
       children: [
-        _Header(title: countryName == null ? '판정 결과' : '$countryName 판정 결과'),
+        _Header(
+          title: countryName == null ? '판정 결과' : '$countryName 판정 결과',
+          onDelete: tripAsync.hasValue ? () => _confirmDelete(context, ref) : null,
+        ),
         Expanded(
           child: tripAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => _CenteredNotice(
-              message: tripErrorMessage(e),
-              actionLabel: '다시 시도',
-              onAction: () => ref.invalidate(activeTripProvider),
-            ),
-            data: (trip) => trip == null
-                ? const _CenteredNotice(
-                    message: '아직 저장한 여행 계획이 없습니다.\n비자 탭에서 일정을 입력해 주세요.',
+            error: (e, _) => _isNotFound(e)
+                ? _CenteredNotice(
+                    message: '여행을 찾을 수 없습니다.\n삭제됐거나 다른 계정의 여행입니다.',
+                    actionLabel: '목록으로',
+                    onAction: () => context.go(AppRoutes.visa),
                   )
-                // 여행이 바뀌면 아래 화면의 로컬 상태(일정 완료 표시)를 새로 시작해야
-                // 하므로 id를 key로 준다.
-                : _ResultBody(key: ValueKey(trip.id), trip: trip),
+                : _CenteredNotice(
+                    message: tripErrorMessage(e),
+                    actionLabel: '다시 시도',
+                    onAction: () => ref.invalidate(tripProvider(tripId)),
+                  ),
+            // 다시 판정하면 아래 화면의 로컬 상태(일정 완료 표시)를 새로 시작해야 하므로 id를 key로 준다.
+            data: (trip) => _ResultBody(key: ValueKey(trip.id), trip: trip),
           ),
         ),
       ],
     );
   }
+
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('여행을 삭제할까요?'),
+        content: const Text('준비 일정·체크리스트와 이 여행의 지갑 기록이 모두 지워집니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            key: const Key('confirmDeleteTrip'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(tripDeleterProvider).delete(tripId);
+      if (context.mounted) context.go(AppRoutes.visa);
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('여행을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.')),
+      );
+    }
+  }
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.title});
+  const _Header({required this.title, this.onDelete});
 
   final String title;
+
+  /// 있으면 오른쪽에 메뉴(여행 삭제)를 보여준다. 여행을 불러오기 전에는 null.
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -69,7 +126,7 @@ class _Header extends StatelessWidget {
         children: [
           IconButton(
             icon: const Icon(Icons.arrow_back, color: AppColors.textBody),
-            onPressed: () => context.pop(),
+            onPressed: () => context.canPop() ? context.pop() : context.go(AppRoutes.visa),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
           ),
@@ -81,6 +138,19 @@ class _Header extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          if (onDelete != null)
+            PopupMenuButton<String>(
+              key: const Key('tripMenu'),
+              icon: const Icon(Icons.more_vert, color: AppColors.textBody),
+              onSelected: (_) => onDelete!(),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  key: Key('deleteTripMenuItem'),
+                  value: 'delete',
+                  child: Text('여행 삭제'),
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -152,11 +222,18 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
     try {
       final refreshed = await ref.read(tripApiProvider).refreshTrip(_trip.id);
       if (mounted) setState(() => _trip = refreshed);
+      ref.invalidate(tripListProvider);
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(tripErrorMessage(e))));
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
+  }
+
+  /// 이 여행을 준비물 탭의 선택된 여행으로 정하고 탭을 옮긴다.
+  Future<void> _openChecklist() async {
+    await ref.read(selectedTripIdProvider.notifier).set(_trip.id);
+    if (mounted) context.go(AppRoutes.checklist);
   }
 
   @override
@@ -216,9 +293,25 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
                 onTap: () => _markDone(tasks[i]),
               ),
           const SizedBox(height: 24),
-          PillOutlineButton(
-            label: '준비물 체크리스트 보기',
-            onPressed: () => context.push(AppRoutes.checklist),
+          Row(
+            children: [
+              Expanded(
+                child: PillOutlineButton(
+                  key: const Key('openChecklistButton'),
+                  label: '준비물 체크리스트',
+                  onPressed: _openChecklist,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: PillOutlineButton(
+                  key: const Key('openWalletButton'),
+                  label: '지갑',
+                  onPressed: () =>
+                      context.push(AppRoutes.walletOf(_trip.id, _trip.countryIso2)),
+                ),
+              ),
+            ],
           ),
         ],
       ),

@@ -46,10 +46,7 @@ class _DevRoot extends ConsumerWidget {
         home: Scaffold(body: Center(child: Text('인증 오류: $e'))),
       ),
       data: (user) => TravelFootstepsApp(
-        router: createRouter(
-          isLoggedIn: user != null,
-          onSignIn: () => ref.read(authRepositoryProvider).signInWithGoogle(),
-        ),
+        router: createRouter(isLoggedIn: user != null),
       ),
     );
   }

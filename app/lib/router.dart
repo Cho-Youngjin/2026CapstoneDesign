@@ -9,13 +9,22 @@ import 'features/group/chat_room_page.dart';
 import 'features/group/group_page.dart';
 import 'features/group/location_share_page.dart';
 import 'features/login/login_page.dart';
+import 'features/login/password_reset_page.dart';
+import 'features/login/sign_up_page.dart';
 import 'features/nearby/nearby_page.dart';
 import 'features/translate/translate_page.dart';
+import 'features/visa/trip_list_page.dart';
 import 'features/visa/visa_page.dart';
 import 'features/visa/visa_result_page.dart';
+import 'features/rate_alert/rate_alert_page.dart';
+import 'features/wallet/wallet_page.dart';
 
 class AppRoutes {
   static const login = '/login';
+
+  /// 로그아웃 상태에서도 들어갈 수 있는 화면은 전부 /login으로 시작한다(redirect 규칙 참고).
+  static const signUp = '/login/signup';
+  static const passwordReset = '/login/reset';
   static const visa = '/visa';
   static const checklist = '/checklist';
   static const footsteps = '/footsteps';
@@ -25,7 +34,7 @@ class AppRoutes {
 
   static const tabs = [visa, checklist, footsteps, group, translate, nearby];
 
-  static const tabLabels = ['비자', '준비물', '발걸음', '그룹', '번역', '주변'];
+  static const tabLabels = ['여행', '준비물', '발걸음', '그룹', '번역', '주변'];
 
   static const tabIcons = [
     Icons.assignment_outlined,
@@ -39,35 +48,68 @@ class AppRoutes {
   /// 탭 하위 상세 화면(뒤로가기 헤더는 있지만 하단 탭바는 유지되는 화면).
   /// 실제 국가/그룹 id 라우팅은 각 Plan(C/D)에서 실 데이터 연동 시 교체한다 —
   /// 지금은 와이어프레임 UI만 보여주는 단계라 경로를 고정값으로 둔다.
-  static const visaResult = '/visa/result';
+  /// 새 여행계획 입력 폼.
+  static const visaNew = '/visa/new';
+
+  /// 여행 상세(판정·준비 일정). `tripOf(3)` → `/visa/trip/3`.
+  static const tripDetail = '/visa/trip/:id';
+
+  static String tripOf(int id) => '/visa/trip/$id';
+
   static const footstepsDetail = '/footsteps/detail';
   static const groupChat = '/group/chat';
   static const groupLocation = '/group/location';
+
+  /// 여행별 지갑. 준비물 탭 아래 화면이라 경로를 /checklist로 시작해 탭바의 준비물 탭이 켜진 채로 둔다.
+  static const wallet = '/checklist/wallet';
+
+  static String walletOf(int tripId, String isoAlpha2) => '$wallet?trip=$tripId&iso=$isoAlpha2';
+
+  /// 환율 알림 설정. 준비물 탭 환전 섹션에서 들어오며, 지갑처럼 준비물 탭이 켜진 채로 둔다.
+  static const rateAlert = '/checklist/rate-alert';
+
+  static String rateAlertOf(String isoAlpha2) => '$rateAlert?iso=$isoAlpha2';
 }
 
-GoRouter createRouter({required bool isLoggedIn, VoidCallback? onSignIn}) {
+GoRouter createRouter({required bool isLoggedIn}) {
   return GoRouter(
     initialLocation: isLoggedIn ? AppRoutes.visa : AppRoutes.login,
     redirect: (context, state) {
-      final goingToLogin = state.matchedLocation == AppRoutes.login;
-      if (!isLoggedIn && !goingToLogin) return AppRoutes.login;
-      if (isLoggedIn && goingToLogin) return AppRoutes.visa;
+      final onAuthScreen = state.matchedLocation.startsWith(AppRoutes.login);
+      if (!isLoggedIn && !onAuthScreen) return AppRoutes.login;
+      if (isLoggedIn && onAuthScreen) return AppRoutes.visa;
       return null;
     },
     routes: [
-      GoRoute(
-        path: AppRoutes.login,
-        builder: (context, state) => LoginPage(onSignIn: onSignIn),
-      ),
+      GoRoute(path: AppRoutes.login, builder: (_, _) => const LoginPage()),
+      GoRoute(path: AppRoutes.signUp, builder: (_, _) => const SignUpPage()),
+      GoRoute(path: AppRoutes.passwordReset, builder: (_, _) => const PasswordResetPage()),
       ShellRoute(
         builder: (context, state, child) => _TabScaffold(
           location: state.matchedLocation,
           child: child,
         ),
         routes: [
-          GoRoute(path: AppRoutes.visa, builder: (_, _) => const VisaPage()),
-          GoRoute(path: AppRoutes.visaResult, builder: (_, _) => const VisaResultPage()),
+          GoRoute(path: AppRoutes.visa, builder: (_, _) => const TripListPage()),
+          GoRoute(path: AppRoutes.visaNew, builder: (_, _) => const VisaPage()),
+          GoRoute(
+            path: AppRoutes.tripDetail,
+            builder: (_, state) =>
+                VisaResultPage(tripId: int.parse(state.pathParameters['id']!)),
+          ),
           GoRoute(path: AppRoutes.checklist, builder: (_, _) => const ChecklistPage()),
+          GoRoute(
+            path: AppRoutes.wallet,
+            builder: (_, state) => WalletPage(
+              tripId: int.tryParse(state.uri.queryParameters['trip'] ?? '') ?? 0,
+              isoAlpha2: state.uri.queryParameters['iso'] ?? 'VN',
+            ),
+          ),
+          GoRoute(
+            path: AppRoutes.rateAlert,
+            builder: (_, state) =>
+                RateAlertPage(isoAlpha2: state.uri.queryParameters['iso'] ?? 'VN'),
+          ),
           GoRoute(path: AppRoutes.footsteps, builder: (_, _) => const FootstepsPage()),
           GoRoute(
             path: AppRoutes.footstepsDetail,
@@ -126,10 +168,13 @@ class _WireframeTabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 안드로이드는 앱을 시스템 내비게이션 바(뒤로가기·홈 버튼 줄) 아래까지 그리므로, 그 높이만큼
+    // 바닥 여백을 더해 탭이 가려지지 않게 한다. 흰 배경은 여백까지 채운다.
+    final systemInset = MediaQuery.paddingOf(context).bottom;
     return Container(
       key: const Key('wireframeTabBar'),
-      height: 62,
-      padding: const EdgeInsets.only(bottom: 6),
+      height: 62 + systemInset,
+      padding: EdgeInsets.only(bottom: 6 + systemInset),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(top: BorderSide(color: AppColors.borderLight)),

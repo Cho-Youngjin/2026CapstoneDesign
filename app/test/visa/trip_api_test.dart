@@ -123,4 +123,58 @@ void main() {
       throwsA(isA<DioException>()),
     );
   });
+
+  test('listTrips가 GET /api/trips 목록을 파싱한다', () async {
+    final adapter = StubHttpClientAdapter(
+      path: '/api/trips',
+      statusCode: 200,
+      body: '[{"id":3,"countryIso2":"JP","countryNameKo":"일본",'
+          '"departDate":"2026-11-03","returnDate":"2026-11-08","verdict":"VISA_REQUIRED"}]',
+    );
+
+    final trips = await _apiReturning(adapter).listTrips();
+
+    expect(adapter.lastRequest!.method, 'GET');
+    expect(trips.single.id, 3);
+    expect(trips.single.verdict, VisaVerdict.visaRequired);
+  });
+
+  test('deleteTrip이 DELETE /api/trips/{id}를 보낸다', () async {
+    final adapter = StubHttpClientAdapter(path: '/api/trips/3', statusCode: 204, body: '');
+
+    await _apiReturning(adapter).deleteTrip(3);
+
+    expect(adapter.lastRequest!.method, 'DELETE');
+    expect(adapter.lastRequest!.path, '/api/trips/3');
+  });
+
+  test('getChecklist가 여행 체크리스트를 체크 여부와 함께 파싱한다', () async {
+    final adapter = StubHttpClientAdapter(
+      path: '/api/trips/3/checklist',
+      statusCode: 200,
+      body: '[{"id":11,"category":"DOCUMENT","title":"여권","description":null,'
+          '"priority":1,"checked":true}]',
+    );
+
+    final items = await _apiReturning(adapter).getChecklist(3);
+
+    expect(items.single.id, 11);
+    expect(items.single.categoryLabelKo, '서류');
+    expect(items.single.checked, isTrue);
+  });
+
+  test('checkItem이 checked 값을 POST하고 바뀐 항목을 돌려준다', () async {
+    final adapter = StubHttpClientAdapter(
+      path: '/api/trips/3/checklist/11/check',
+      statusCode: 200,
+      body: '{"id":11,"category":"DOCUMENT","title":"여권","description":null,'
+          '"priority":1,"checked":false}',
+    );
+
+    final item = await _apiReturning(adapter).checkItem(3, 11, checked: false);
+
+    expect(adapter.lastRequest!.method, 'POST');
+    expect(adapter.lastRequest!.data, {'checked': false});
+    expect(item.checked, isFalse);
+  });
 }
