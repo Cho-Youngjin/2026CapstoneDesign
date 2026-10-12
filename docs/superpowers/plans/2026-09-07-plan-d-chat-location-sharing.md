@@ -40,7 +40,7 @@
 - **브랜치 전략**: 문서는 `docs/plan-d-server-chat`, 구현은 Task 단위 `feature/server-chat-*`, `feature/app-chat-*`. 대상 브랜치는 `master`(팀 합의로 `develop` 없이 운영), PR 2인 승인, Squash 머지.
 - **커밋 메시지**: `feat(server): …`, `feat(app): …`, `docs(plans): …` — 저장소 관례.
 - **패키지**: 서버 `com.travelfootsteps.chat`(신규), 앱 `app/lib/features/group/`.
-- **마이그레이션 번호**: 현재 V9까지 사용 중. 이 계획서는 **V10~V12**를 쓴다. 착수 시점에 다른 사람이 V10을 먼저 쓰면 번호를 밀어서 맞춘다.
+- **마이그레이션 번호**: 이 계획서는 **V11~V13**을 쓴다(원래 V10~V12였으나 환율 작업의 `V10__exchange_rate_previous.sql`이 먼저 들어가 한 칸씩 밀었다). 착수 시점에 다른 사람이 같은 번호를 먼저 쓰면 다시 밀어서 맞춘다.
 - **인증**: 모든 `/api/**`는 기존 `FirebaseAuthFilter`가 처리하고, 컨트롤러는 `authentication.getName()`으로 uid를 얻는다(TripController와 같은 방식). STOMP는 기존 `StompAuthChannelInterceptor`가 CONNECT에서 고정한 Principal을 쓴다. **클라이언트가 보낸 uid는 절대 믿지 않는다.**
 - **권한 실패는 404**: 내가 멤버가 아닌 방은 "없는 방"과 똑같이 404로 답한다(TripController의 소유자 검사와 같은 원칙 — 방의 존재 여부를 흘리지 않는다).
 - **실시간 위치는 저장하지 않는다.** 기존 `LocationRelayController`처럼 메모리 릴레이만 한다.
@@ -63,7 +63,7 @@
 
 ## 데이터 모델
 
-`V10__chat.sql` (Task 1~2), `V11__chat_dm.sql` (Task 5), `V12__chat_image.sql` (Task 6)에 나눠 만든다. 최종 형태는 아래와 같다.
+`V11__chat.sql` (Task 1~2), `V12__chat_dm.sql` (Task 5), `V13__chat_image.sql` (Task 6)에 나눠 만든다. 최종 형태는 아래와 같다.
 
 ```
 app_user
@@ -180,7 +180,7 @@ server/src/main/java/com/travelfootsteps/
 ├── location/
 │   ├── WebSocketConfig.java          (Modify) 인터셉터 등록 추가            Task 2
 │   └── LocationRelayController.java  (Modify) SEND 멤버십 검사             Task 2
-└── resources/db/migration/V10__chat.sql, V11__chat_dm.sql, V12__chat_image.sql
+└── resources/db/migration/V11__chat.sql, V12__chat_dm.sql, V13__chat_image.sql
 
 server/src/test/java/com/travelfootsteps/chat/
 ├── RoomControllerTest.java, MessageControllerTest.java   (Testcontainers 통합)
@@ -206,7 +206,7 @@ docs/api-spec.md  (Modify) "9. 채팅" 섹션 추가 — Task 1, 2, 5~7에서 �
 ### Task 1: [서버] 프로필 + 그룹 생성·참여·목록
 
 **브랜치:** `feature/server-chat-group`
-**Files:** `V10__chat.sql`(app_user, chat_room, chat_room_member, chat_message 전부 — Task 2가 같은 마이그레이션을 쓴다), `AppUser*`, `ProfileController`, `ChatRoom*`, `ChatRoomMember*`, `RoomType`, `InviteCodeGenerator`, `RoomService`, `RoomController`, `ChatExceptionHandler`, `RoomNotFoundException`, 테스트 2개
+**Files:** `V11__chat.sql`(app_user, chat_room, chat_room_member, chat_message 전부 — Task 2가 같은 마이그레이션을 쓴다), `AppUser*`, `ProfileController`, `ChatRoom*`, `ChatRoomMember*`, `RoomType`, `InviteCodeGenerator`, `RoomService`, `RoomController`, `ChatExceptionHandler`, `RoomNotFoundException`, 테스트 2개
 
 **Interfaces:**
 - Produces: `RoomService.requireMember(Long roomId, String uid)` — 멤버가 아니면 `RoomNotFoundException`(→ 404). **Task 2의 인터셉터·메시지 API, Task 5~7이 전부 이것을 쓴다.**
@@ -221,7 +221,7 @@ docs/api-spec.md  (Modify) "9. 채팅" 섹션 추가 — Task 1, 2, 5~7에서 �
   - 이름이 비었거나 50자를 넘으면 400
   - `PUT /api/me/profile` 후 `RoomDetail.members[].displayName`에 반영된다 / 프로필을 안 올린 멤버는 `displayName: null`(앱이 "알 수 없음"으로 표시)
 - [ ] **Step 2: 테스트 실패 확인** — `cd server && ./gradlew test --tests '*Room*' --tests '*InviteCode*'`
-- [ ] **Step 3: `V10__chat.sql` 작성** — 위 "데이터 모델"의 네 테이블(Task 5·6 컬럼 `dm_key`, `image_path`는 각 Task의 마이그레이션에서 추가). 테이블마다 기존 마이그레이션처럼 **왜 이런 구조인지 주석**을 남긴다(특히 읽음을 멤버 행에 두는 이유).
+- [ ] **Step 3: `V11__chat.sql` 작성** — 위 "데이터 모델"의 네 테이블(Task 5·6 컬럼 `dm_key`, `image_path`는 각 Task의 마이그레이션에서 추가). 테이블마다 기존 마이그레이션처럼 **왜 이런 구조인지 주석**을 남긴다(특히 읽음을 멤버 행에 두는 이유).
 - [ ] **Step 4: 엔티티·리포지토리** — `Trip`과 같은 스타일(`@NoArgsConstructor(access = PROTECTED)`, 정적 팩토리 `create(...)`, setter 없음). `ChatRoomMember`는 `@IdClass`로 복합 키.
 - [ ] **Step 5: `InviteCodeGenerator`, `RoomService`, `RoomController`, `ProfileController`** — 생성은 `@Transactional`로 방+멤버를 함께 저장한다. 코드 충돌 재시도는 `DataIntegrityViolationException`을 잡아 최대 5회.
 - [ ] **Step 6: 테스트 통과 + 전체 회귀** — `./gradlew test`
@@ -312,7 +312,7 @@ if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
 ### Task 5: [서버+앱] 1:1 DM
 
 **브랜치:** `feature/server-chat-dm`, `feature/app-chat-dm`
-**Files:** 서버 `V11__chat_dm.sql`(`dm_key` 컬럼 + UNIQUE), `RoomService.findOrCreateDm`, `RoomController` · 앱 `ChatApi.openDm`, 그룹 상세의 멤버 목록에 "메시지 보내기"
+**Files:** 서버 `V12__chat_dm.sql`(`dm_key` 컬럼 + UNIQUE), `RoomService.findOrCreateDm`, `RoomController` · 앱 `ChatApi.openDm`, 그룹 상세의 멤버 목록에 "메시지 보내기"
 
 - [ ] **Step 1: 서버 테스트** — 같은 그룹 멤버에게 DM → 방 생성, 두 사람만 멤버 / **같은 요청을 다시 하면 같은 방 id**(양쪽 어느 쪽이 요청해도) / 같은 그룹이 아니면 404 / 자기 자신에게는 400 / DM 방은 `inviteCode`가 없고 코드로 참여할 수 없다
 - [ ] **Step 2: 서버 구현** — `dm_key = min(uid)|max(uid)`. 동시에 두 요청이 와서 UNIQUE 위반이 나면 기존 방을 다시 조회해 돌려준다.
@@ -324,7 +324,7 @@ if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
 ### Task 6: [서버+앱] 사진 전송 *(자르는 순서 2번째)*
 
 **브랜치:** `feature/server-chat-image`, `feature/app-chat-image`
-**Files:** 서버 `V12__chat_image.sql`(`image_path`), `ChatImageStorage`(인터페이스) + `LocalDiskChatImageStorage`, `MessageController` 두 엔드포인트, `application.yml` · 앱 `ChatApi.sendImage`, 첨부 버튼, 이미지 말풍선
+**Files:** 서버 `V13__chat_image.sql`(`image_path`), `ChatImageStorage`(인터페이스) + `LocalDiskChatImageStorage`, `MessageController` 두 엔드포인트, `application.yml` · 앱 `ChatApi.sendImage`, 첨부 버튼, 이미지 말풍선
 
 **서버 저장 규칙:**
 - 설정 `chat.image-dir`(기본 `./data/chat-images`, 배포 시 VM 경로). 파일명은 **서버가 만든 UUID**만 쓴다 — 사용자가 보낸 파일명은 경로 조작(`../`) 위험이 있어 저장에 쓰지 않는다.

@@ -391,11 +391,103 @@ SUBSCRIBE /topic/group/{roomId}/location
 
 ---
 
+## 10. 채팅 (Plan D)
+
+> **설계 핵심: 보내기는 REST, 받기는 STOMP.** 메시지 전송은 REST로 하고(응답으로 저장 성공과 메시지 id를 확실히 받는다), 실시간 수신은 9절과 같은 `/ws` 연결의 STOMP 구독으로 한다. 이 절은 Plan D Task 단위로 채워진다 — 현재 **Task 1(그룹·프로필)**까지 반영.
+>
+> **권한 원칙**: 내가 멤버가 아닌 방에 대한 요청은 전부 **404**다(방이 없을 때와 구분하지 않음 — 방의 존재 여부를 흘리지 않는다).
+
+### `PUT /api/me/profile`
+내 프로필(채팅 화면에 표시할 이름·사진)을 올린다. 처음이면 만들고 있으면 덮어쓴다. 앱이 로그인할 때마다 Firebase 계정의 현재 값을 올린다.
+
+**요청**
+```json
+{ "displayName": "성주", "photoUrl": "https://..." }
+```
+| 필드 | 검증 |
+|---|---|
+| `displayName` | 선택, 100자 이하 |
+| `photoUrl` | 선택, 500자 이하 |
+
+**응답 204** (바디 없음). 프로필을 한 번도 올리지 않은 사용자는 멤버 목록에서 `displayName`, `photoUrl`이 `null`로 나온다.
+
+### `POST /api/rooms`
+그룹 방을 만든다. 만든 사람이 첫 멤버가 되고, 6자리 초대 코드가 발급된다.
+
+**요청**
+```json
+{ "name": "도쿄 여행" }
+```
+| 필드 | 검증 |
+|---|---|
+| `name` | 필수, 앞뒤 공백을 자른 뒤 1~50자 (공백만 있으면 400) |
+
+**응답 201** — 아래 "RoomDetail" 참고.
+**400** — 이름이 비었거나 50자 초과.
+
+### `POST /api/rooms/join`
+초대 코드로 방에 참여한다. **이미 멤버면 오류가 아니라 200**으로 그 방을 그대로 돌려준다(멤버 중복 없음).
+
+**요청**
+```json
+{ "inviteCode": "ABC234" }
+```
+코드는 대소문자를 구분하지 않고 앞뒤 공백도 무시한다(`" abc234"` → `ABC234`).
+
+**응답 200** — RoomDetail.
+**404** — 없는 초대 코드.
+
+### `GET /api/rooms`
+내가 멤버인 방 목록. 현재는 **만든 순서 최신순**(메시지 기능 추가 후 "최근 메시지순"으로 바뀜).
+
+**응답 200**
+```json
+[
+  {
+    "id": 12,
+    "type": "GROUP",
+    "name": "도쿄 여행",
+    "inviteCode": "ABC234",
+    "memberCount": 3,
+    "lastMessagePreview": null,
+    "lastMessageAt": null,
+    "unreadCount": 0,
+    "dmPeer": null
+  }
+]
+```
+| 필드 | 비고 |
+|---|---|
+| `lastMessagePreview`, `lastMessageAt` | 메시지 기능(Task 2) 전까지 `null` |
+| `unreadCount` | 읽음 표시(Task 7) 전까지 항상 `0` |
+| `dmPeer` | DM(Task 5) 전까지 항상 `null`. DM 방이면 상대방 `{uid, displayName, photoUrl}` |
+
+### `GET /api/rooms/{id}`
+방 상세. 멤버는 **참여한 순서**(만든 사람이 맨 앞).
+
+**응답 200 (RoomDetail 공통 형태 — 만들기·참여·상세 동일)**
+```json
+{
+  "id": 12,
+  "type": "GROUP",
+  "name": "도쿄 여행",
+  "inviteCode": "ABC234",
+  "members": [
+    { "uid": "firebase-uid-a", "displayName": "성주", "photoUrl": "https://...", "lastReadMessageId": null },
+    { "uid": "firebase-uid-b", "displayName": null, "photoUrl": null, "lastReadMessageId": null }
+  ]
+}
+```
+**404** — 없는 방, 또는 내가 멤버가 아닌 방.
+
+---
+
 ## 부록: 국가 코드/enum 참고
 
 - `PlaceCategory`: `TOURIST`, `RESTAURANT`, `PHARMACY`, `ATM`
 - `source`(체크인): `AUTO`, `MANUAL`, `IMPORT`
 - `VisaVerdict`: `VISA_FREE_OK`, `VISA_FREE_EXCEEDED`, `VISA_REQUIRED`, `UNVERIFIED`
+- `RoomType`(채팅방): `GROUP`, `DM`
 - 여행경보 `level`: 1~4 (실제 등급), 0 (파싱 실패/UNKNOWN)
 
 ## 미구현 / 알려진 제약
@@ -403,4 +495,4 @@ SUBSCRIBE /topic/group/{roomId}/location
 - 배포된 서버 URL 없음(로컬 개발 전용, 배포는 별도 작업 필요).
 - 한국수출입은행 API 키(`KOREA_EXIM_API_KEY`) 미발급 — 환율 필드명 실 API 미검증(TODO 주석 있음).
 - 환전 알림(FCM) 기능 없음 — 이번 범위 밖.
-- 그룹 위치공유 참여자 검증(Firestore) 없음 — 9절 참고.
+- 그룹 위치공유 참여자 검증 없음 — 9절 참고. 채팅방 멤버 테이블(10절)이 생겼으므로 Plan D Task 2에서 멤버만 구독·전송하도록 막을 예정.
