@@ -15,7 +15,7 @@ import lombok.NoArgsConstructor;
 import java.time.OffsetDateTime;
 
 /**
- * 채팅방. GROUP과 DM이 같은 테이블을 쓴다 (V10__chat.sql 주석 참고).
+ * 채팅방. GROUP과 DM이 같은 테이블을 쓴다 (V11__chat.sql 주석 참고).
  *
  * <p>멤버는 이 엔티티의 컬렉션으로 들고 있지 않고 {@link ChatRoomMember}를 따로 조회한다 —
  * 프로젝트의 다른 엔티티(Trip ↔ TripTask)처럼 JPA 연관관계 없이 id로만 잇는 방식을 따른다.

@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V10__chat.sql 스키마와 채팅 엔티티·리포지토리가 실제 PostgreSQL에서 맞물리는지 확인한다.
+ * V11__chat.sql 스키마와 채팅 엔티티·리포지토리가 실제 PostgreSQL에서 맞물리는지 확인한다.
  * Hibernate의 ddl-auto: validate가 컬럼 이름·타입 불일치를 잡아 주고, 여기서는 복합 키,
  * 커스텀 쿼리, DB 제약(UNIQUE·CHECK)이 의도대로 동작하는지를 본다.
  *

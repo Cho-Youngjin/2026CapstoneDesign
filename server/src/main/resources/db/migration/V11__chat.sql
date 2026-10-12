@@ -1,6 +1,7 @@
 -- 그룹 채팅 (Plan D, 2026-10-08 개정 — Firestore 대신 PostgreSQL에 채팅을 둔다).
 -- Task 1(그룹·프로필)과 Task 2(메시지)가 함께 쓰는 기본 테이블 네 개를 만든다.
--- DM 중복 방지용 dm_key는 V11, 사진 경로 image_path는 V12에서 각 Task가 추가한다.
+-- DM 중복 방지용 dm_key는 V12, 사진 경로 image_path는 V13에서 각 Task가 추가한다.
+-- (원래 V10으로 만들었으나 환율 작업의 V10__exchange_rate_previous.sql이 먼저 master에 들어가 V11로 옮겼다.)
 --
 -- 다른 테이블(trip 등)과 마찬가지로 사용자 테이블에 FK를 걸지 않고 firebase_uid 문자열로만
 -- 사람을 가리킨다. 사용자의 원본은 Firebase Auth이고, app_user는 화면 표시용 프로필 캐시일
@@ -61,7 +62,7 @@ CREATE TABLE chat_room_member (
 CREATE INDEX idx_chat_room_member_uid ON chat_room_member (firebase_uid);
 
 -- 메시지. 위치 공유 메시지(1회성 핀)는 이번 범위에서 빠졌으므로(Plan D 제외 범위) type은
--- TEXT와 IMAGE만 허용한다. IMAGE에 필요한 image_path 컬럼은 V12에서 추가한다.
+-- TEXT와 IMAGE만 허용한다. IMAGE에 필요한 image_path 컬럼은 V13에서 추가한다.
 CREATE TABLE chat_message (
     id          BIGSERIAL PRIMARY KEY,
     room_id     BIGINT NOT NULL REFERENCES chat_room(id) ON DELETE CASCADE,

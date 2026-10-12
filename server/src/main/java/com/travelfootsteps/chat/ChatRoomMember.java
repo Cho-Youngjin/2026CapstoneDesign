@@ -19,7 +19,7 @@ import java.time.OffsetDateTime;
  * "이미 멤버면 다시 참여해도 중복되지 않는다"는 규칙을 DB가 최종 보장한다.
  *
  * <p>읽음 상태({@link #lastReadMessageId})를 메시지가 아니라 멤버 행에 두는 이유는
- * V10__chat.sql의 chat_room_member 주석 참고.
+ * V11__chat.sql의 chat_room_member 주석 참고.
  */
 @Entity
 @Table(name = "chat_room_member")
