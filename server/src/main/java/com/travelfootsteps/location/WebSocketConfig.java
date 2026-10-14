@@ -1,5 +1,6 @@
 package com.travelfootsteps.location;
 
+import com.travelfootsteps.chat.RoomSubscriptionInterceptor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
@@ -22,6 +23,7 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final StompAuthChannelInterceptor stompAuthChannelInterceptor;
+    private final RoomSubscriptionInterceptor roomSubscriptionInterceptor;
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
@@ -42,8 +44,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
-        // 모든 인바운드 STOMP 프레임(CONNECT/SUBSCRIBE/SEND/...)이 이 인터셉터를 거치게 등록한다.
-        // 실제 인증/Principal 고정 로직은 StompAuthChannelInterceptor 자체의 주석을 참고.
-        registration.interceptors(stompAuthChannelInterceptor);
+        // 모든 인바운드 STOMP 프레임(CONNECT/SUBSCRIBE/SEND/...)이 이 인터셉터들을 거친다.
+        // 1) StompAuthChannelInterceptor: CONNECT에서 토큰을 검증하고 uid를 세션에 고정한다.
+        // 2) RoomSubscriptionInterceptor: SUBSCRIBE에서 그 uid가 해당 방의 멤버인지 확인한다(Plan D Task 2).
+        // 둘은 서로 다른 프레임(CONNECT / SUBSCRIBE)만 보므로 등록 순서에 의존하지 않는다 — Spring이
+        // CONNECT 때 고정된 Principal을 이후 프레임에 인터셉터보다 먼저 붙여 두기 때문이다.
+        // 읽는 사람이 흐름(인증 → 권한)을 따라가기 쉽도록 이 순서로 둔다.
+        // 2)를 빠뜨리면 로그인한 누구나 아무 방이나 구독할 수 있게 된다 — StompChatIntegrationTest가 이를 잡는다.
+        registration.interceptors(stompAuthChannelInterceptor, roomSubscriptionInterceptor);
     }
 }

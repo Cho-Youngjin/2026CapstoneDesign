@@ -65,4 +65,25 @@ public class ChatRoom {
         room.createdAt = OffsetDateTime.now();
         return room;
     }
+
+    /** 미리보기 최대 길이 — chat_room.last_message_preview 컬럼 크기와 같다. */
+    static final int PREVIEW_MAX_LENGTH = 100;
+
+    /**
+     * 방 목록 정렬·미리보기용 비정규화 값을 갱신한다. 메시지를 저장하는 같은 트랜잭션 안에서
+     * 부르므로, 메시지 저장이 롤백되면 이 갱신도 함께 롤백된다.
+     */
+    public void recordLastMessage(ChatMessage message) {
+        this.lastMessageId = message.getId();
+        this.lastMessagePreview = previewOf(message);
+        this.lastMessageAt = message.getCreatedAt();
+    }
+
+    private static String previewOf(ChatMessage message) {
+        if (message.getType() == MessageType.IMAGE) {
+            return "사진";
+        }
+        String text = message.getText();
+        return text.length() <= PREVIEW_MAX_LENGTH ? text : text.substring(0, PREVIEW_MAX_LENGTH);
+    }
 }

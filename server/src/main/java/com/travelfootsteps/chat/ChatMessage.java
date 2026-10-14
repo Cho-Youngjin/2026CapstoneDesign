@@ -17,7 +17,6 @@ import java.time.OffsetDateTime;
 /**
  * 채팅 메시지. id는 서버가 매기는 단조 증가값이라 "이 id보다 오래된 메시지" 페이지 조회와
  * 읽음 위치({@link ChatRoomMember#getLastReadMessageId()}) 비교의 기준으로 그대로 쓴다.
- * 생성 팩토리는 메시지 저장을 구현하는 Plan D Task 2에서 추가한다.
  */
 @Entity
 @Table(name = "chat_message")
@@ -44,4 +43,15 @@ public class ChatMessage {
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
+
+    /** 텍스트 메시지. 앞뒤 공백 제거와 길이 검증은 요청 DTO에서 끝난 값을 받는다. */
+    public static ChatMessage text(Long roomId, String senderUid, String text) {
+        ChatMessage message = new ChatMessage();
+        message.roomId = roomId;
+        message.senderUid = senderUid;
+        message.type = MessageType.TEXT;
+        message.text = text;
+        message.createdAt = OffsetDateTime.now();
+        return message;
+    }
 }

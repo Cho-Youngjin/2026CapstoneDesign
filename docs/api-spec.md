@@ -376,9 +376,11 @@ WS /ws
 SEND /app/location
 ```
 ```json
-{ "roomId": "room-1", "lat": 37.5, "lng": 127.0, "ts": 1700000000000 }
+{ "roomId": "12", "lat": 37.5, "lng": 127.0, "ts": 1700000000000 }
 ```
-`ts`는 클라이언트 로컬 epoch millis. **`uid` 필드는 보내지 않는다** — 보내도 무시된다(서버가 CONNECT 시점의 인증된 사용자로만 채운다, 위조 불가).
+`roomId`는 **채팅방 id**(10절 `chat_room.id`)를 문자열로 보낸다. `ts`는 클라이언트 로컬 epoch millis. **`uid` 필드는 보내지 않는다** — 보내도 무시된다(서버가 CONNECT 시점의 인증된 사용자로만 채운다, 위조 불가).
+
+보낸 사람이 그 방의 멤버가 아니거나 `roomId`가 숫자가 아니면 **조용히 버린다**(STOMP SEND에는 응답이 없고, 5초마다 오는 좌표라 하나를 버려도 영향이 없다).
 
 ### 위치 구독
 ```
@@ -387,13 +389,15 @@ SUBSCRIBE /topic/group/{roomId}/location
 ```json
 { "uid": "firebase-uid-abc", "lat": 37.5, "lng": 127.0, "ts": 1700000000000 }
 ```
-`uid`는 발신자의 실제 인증된 uid(서버가 채움). `roomId`는 초대 코드를 통해서만 알 수 있는 비공개 값이라는 전제 하에, "로그인 + roomId를 아는 사람"까지만 최소 인가 보장한다 — **그룹 멤버십(누가 이 방에 실제로 속해 있는지) 검증은 v1 범위에서 의도적으로 생략**돼 있다(방 나간 사람도 roomId를 기억하면 계속 구독 가능한 잔여 리스크 있음, 캡스톤 규모에서 수용).
+`uid`는 발신자의 실제 인증된 uid(서버가 채움).
+
+**그룹 멤버만 구독할 수 있다** (Plan D Task 2에서 추가). SUBSCRIBE 시점에 서버가 그 방의 멤버인지 확인하고, 아니면 ERROR 프레임을 보내고 연결을 끊는다. 채팅방 멤버 테이블이 생기기 전에는 "로그인 + roomId를 아는 사람"까지만 보장했는데, 그 잔여 리스크를 닫았다.
 
 ---
 
 ## 10. 채팅 (Plan D)
 
-> **설계 핵심: 보내기는 REST, 받기는 STOMP.** 메시지 전송은 REST로 하고(응답으로 저장 성공과 메시지 id를 확실히 받는다), 실시간 수신은 9절과 같은 `/ws` 연결의 STOMP 구독으로 한다. 이 절은 Plan D Task 단위로 채워진다 — 현재 **Task 1(그룹·프로필)**까지 반영.
+> **설계 핵심: 보내기는 REST, 받기는 STOMP.** 메시지 전송은 REST로 하고(응답으로 저장 성공과 메시지 id를 확실히 받는다), 실시간 수신은 9절과 같은 `/ws` 연결의 STOMP 구독으로 한다. 이 절은 Plan D Task 단위로 채워진다 — 현재 **Task 2(메시지·실시간 수신)**까지 반영.
 >
 > **권한 원칙**: 내가 멤버가 아닌 방에 대한 요청은 전부 **404**다(방이 없을 때와 구분하지 않음 — 방의 존재 여부를 흘리지 않는다).
 
@@ -438,7 +442,7 @@ SUBSCRIBE /topic/group/{roomId}/location
 **404** — 없는 초대 코드.
 
 ### `GET /api/rooms`
-내가 멤버인 방 목록. 현재는 **만든 순서 최신순**(메시지 기능 추가 후 "최근 메시지순"으로 바뀜).
+내가 멤버인 방 목록, **최근 활동순**. 마지막 메시지가 최근인 방이 위로 오고, 메시지가 아직 없는 방은 만든 시각을 기준으로 한다(방금 만든 빈 방도 맨 위에 보인다).
 
 **응답 200**
 ```json
@@ -458,7 +462,7 @@ SUBSCRIBE /topic/group/{roomId}/location
 ```
 | 필드 | 비고 |
 |---|---|
-| `lastMessagePreview`, `lastMessageAt` | 메시지 기능(Task 2) 전까지 `null` |
+| `lastMessagePreview`, `lastMessageAt` | 마지막 메시지(미리보기는 최대 100자). 메시지가 없는 방은 `null` |
 | `unreadCount` | 읽음 표시(Task 7) 전까지 항상 `0` |
 | `dmPeer` | DM(Task 5) 전까지 항상 `null`. DM 방이면 상대방 `{uid, displayName, photoUrl}` |
 
@@ -480,6 +484,62 @@ SUBSCRIBE /topic/group/{roomId}/location
 ```
 **404** — 없는 방, 또는 내가 멤버가 아닌 방.
 
+### `POST /api/rooms/{roomId}/messages`
+텍스트 메시지를 보낸다. 저장이 끝나면(트랜잭션 커밋 후) 같은 내용이 `/topic/rooms/{roomId}/messages` 구독자에게 실시간으로 전달된다 — **보낸 사람 자신도 구독 중이면 받는다**. 앱은 REST 응답과 실시간 수신으로 같은 메시지를 두 번 받을 수 있으므로 `id`로 중복을 걸러야 한다.
+
+**요청**
+```json
+{ "text": "지금 공항 도착!" }
+```
+| 필드 | 검증 |
+|---|---|
+| `text` | 필수, 앞뒤 공백을 자른 뒤 1~1000자 (공백만 있으면 400) |
+
+**응답 201 (Message 공통 형태 — 보내기·목록·실시간 수신 동일)**
+```json
+{
+  "id": 345,
+  "roomId": 12,
+  "senderUid": "firebase-uid-a",
+  "type": "TEXT",
+  "text": "지금 공항 도착!",
+  "imageUrl": null,
+  "createdAt": "2026-10-14T19:40:12.345+09:00"
+}
+```
+`imageUrl`은 사진 메시지(Task 6) 전까지 항상 `null`.
+**400** — 빈 메시지 또는 1000자 초과. **404** — 없는 방 또는 멤버가 아닌 방.
+
+### `GET /api/rooms/{roomId}/messages?before={messageId}&size={n}`
+메시지 목록, **최신순(id 내림차순)**. 페이지 번호 대신 **커서(`before`)** 방식이다.
+
+| 파라미터 | 설명 |
+|---|---|
+| `before` | 선택. 없으면 가장 최근 메시지부터, 있으면 그 id보다 오래된 메시지부터 |
+| `size` | 선택, 기본 30. 1~50 범위를 벗어나면 그 범위로 맞춘다(오류 아님) |
+
+**사용 흐름**: 채팅방에 들어오면 `before` 없이 최근 30개 → 위로 스크롤하면 받은 것 중 **가장 작은 id**를 `before`로 넘겨 다음 30개. 빈 배열이 오면 더 이상 없다.
+
+**응답 200** — `[Message, ...]` (위 형태). **404** — 없는 방 또는 멤버가 아닌 방.
+
+### 실시간 수신 (STOMP)
+9절과 같은 `/ws` 연결을 그대로 쓴다(CONNECT 시 `Authorization: Bearer <ID Token>`).
+
+```
+SUBSCRIBE /topic/rooms/{roomId}/messages
+```
+바디는 위의 Message 형태와 같다.
+
+**구독 권한**: 그 방의 멤버만 구독할 수 있다. 멤버가 아니거나 없는 방이면 서버가 ERROR 프레임을 보내고 **연결을 끊는다**. 구독 가능한 경로는 아래 세 가지뿐이고, 그 외 경로를 구독해도 같은 이유로 끊긴다.
+
+| 경로 | 내용 |
+|---|---|
+| `/topic/rooms/{roomId}/messages` | 새 메시지 |
+| `/topic/rooms/{roomId}/read` | 읽음 위치 갱신 (Task 7에서 추가 예정) |
+| `/topic/group/{roomId}/location` | 실시간 위치 (9절) |
+
+**재연결 시 주의**: 연결이 끊긴 동안 온 메시지는 실시간으로 다시 오지 않는다. 재연결 후에는 REST 목록으로 마지막으로 받은 id 이후를 다시 받아 빈 구간을 메워야 한다.
+
 ---
 
 ## 부록: 국가 코드/enum 참고
@@ -488,6 +548,7 @@ SUBSCRIBE /topic/group/{roomId}/location
 - `source`(체크인): `AUTO`, `MANUAL`, `IMPORT`
 - `VisaVerdict`: `VISA_FREE_OK`, `VISA_FREE_EXCEEDED`, `VISA_REQUIRED`, `UNVERIFIED`
 - `RoomType`(채팅방): `GROUP`, `DM`
+- `MessageType`(채팅 메시지): `TEXT`, `IMAGE`
 - 여행경보 `level`: 1~4 (실제 등급), 0 (파싱 실패/UNKNOWN)
 
 ## 미구현 / 알려진 제약
@@ -495,4 +556,5 @@ SUBSCRIBE /topic/group/{roomId}/location
 - 배포된 서버 URL 없음(로컬 개발 전용, 배포는 별도 작업 필요).
 - 한국수출입은행 API 키(`KOREA_EXIM_API_KEY`) 미발급 — 환율 필드명 실 API 미검증(TODO 주석 있음).
 - 환전 알림(FCM) 기능 없음 — 이번 범위 밖.
-- 그룹 위치공유 참여자 검증 없음 — 9절 참고. 채팅방 멤버 테이블(10절)이 생겼으므로 Plan D Task 2에서 멤버만 구독·전송하도록 막을 예정.
+- 실시간 브로커가 서버 메모리 안에서 동작한다(인메모리 간이 브로커). 서버가 한 대일 때만 정상 동작하며, 여러 대로 늘리려면 외부 브로커(RabbitMQ 등)가 필요하다.
+- 방에서 나가기·강퇴 기능이 없다(Plan D 제외 범위). 그래서 "구독 이후 멤버에서 빠진 사람"을 끊는 처리도 없다.

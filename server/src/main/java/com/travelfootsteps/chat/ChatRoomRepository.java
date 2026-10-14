@@ -16,13 +16,14 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
     boolean existsByInviteCode(String inviteCode);
 
     /**
-     * 내가 멤버인 방 목록. Task 1에서는 만든 순서 최신순이고, 메시지가 생기는 Task 2에서
-     * "최근 메시지순"으로 바꾼다. created_at이 같은 경우를 대비해 id를 보조 정렬로 둔다.
+     * 내가 멤버인 방 목록, 최근 활동순. "최근 활동"은 마지막 메시지 시각이고, 메시지가 아직
+     * 없는 방은 만든 시각으로 대신한다 — 그래서 방금 만든 빈 방도 목록 맨 위에 보인다.
+     * 시각이 같은 경우를 대비해 id를 보조 정렬로 둔다.
      */
     @Query("""
             select r from ChatRoom r
             where r.id in (select m.roomId from ChatRoomMember m where m.firebaseUid = :uid)
-            order by r.createdAt desc, r.id desc
+            order by coalesce(r.lastMessageAt, r.createdAt) desc, r.id desc
             """)
     List<ChatRoom> findRoomsOf(@Param("uid") String firebaseUid);
 }
