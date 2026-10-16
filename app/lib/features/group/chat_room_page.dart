@@ -7,8 +7,11 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
 
 /// 채팅방 화면 (와이어프레임 정적 UI, 실제 메시지/전송 연동 없음).
+/// [roomId]로 실제 방 데이터를 연결하는 것은 Plan D Task 4에서 한다.
 class ChatRoomPage extends StatelessWidget {
-  const ChatRoomPage({super.key});
+  const ChatRoomPage({super.key, required this.roomId});
+
+  final int roomId;
 
   @override
   Widget build(BuildContext context) {

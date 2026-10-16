@@ -57,7 +57,11 @@ class AppRoutes {
   static String tripOf(int id) => '/visa/trip/$id';
 
   static const footstepsDetail = '/footsteps/detail';
-  static const groupChat = '/group/chat';
+
+  /// 채팅방. `groupChatOf(3)` → `/group/chat/3`. (Plan D Task 3에서 방 id 경로로 바꿨다.)
+  static const groupChat = '/group/chat/:roomId';
+
+  static String groupChatOf(int roomId) => '/group/chat/$roomId';
   static const groupLocation = '/group/location';
 
   /// 여행별 지갑. 준비물 탭 아래 화면이라 경로를 /checklist로 시작해 탭바의 준비물 탭이 켜진 채로 둔다.
@@ -116,7 +120,11 @@ GoRouter createRouter({required bool isLoggedIn}) {
             builder: (_, _) => const FootstepsDetailPage(),
           ),
           GoRoute(path: AppRoutes.group, builder: (_, _) => const GroupPage()),
-          GoRoute(path: AppRoutes.groupChat, builder: (_, _) => const ChatRoomPage()),
+          GoRoute(
+            path: AppRoutes.groupChat,
+            builder: (_, state) =>
+                ChatRoomPage(roomId: int.parse(state.pathParameters['roomId']!)),
+          ),
           GoRoute(
             path: AppRoutes.groupLocation,
             builder: (_, _) => const LocationSharePage(),
