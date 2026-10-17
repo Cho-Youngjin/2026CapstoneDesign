@@ -24,7 +24,7 @@ import java.io.InputStream;
 // 그 파일이 없으므로(팀원 각자 로컬에만 둠), 프로필로 아예 꺼버려서
 // "파일이 없어서 테스트가 실패하는" 상황을 막는다.
 @Configuration
-@Profile("!test")
+@Profile("!test & !local")
 public class FirebaseConfig {
 
     // application.yml의 firebase.service-account-path 값을 그대로 주입받는다.

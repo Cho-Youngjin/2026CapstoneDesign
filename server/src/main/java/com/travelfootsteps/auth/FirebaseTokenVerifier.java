@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 // @Profile("!test")로 FirebaseConfig와 마찬가지로 테스트 환경에서는 이 빈이 아예 생기지 않는다 —
 // 그 자리는 테스트 코드가 직접 등록하는 StubTokenVerifier가 대신 채운다.
 @Component
-@Profile("!test")
+@Profile("!test & !local")
 @RequiredArgsConstructor
 public class FirebaseTokenVerifier implements TokenVerifier {
 
