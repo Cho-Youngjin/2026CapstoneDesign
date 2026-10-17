@@ -42,6 +42,76 @@ void main() {
     });
   });
 
+  group('주변 정보 기준 위치', () {
+    const seoul = LatLng(37.5572, 126.9246);
+    const tokyoStation = LatLng(35.6812, 139.7671);
+    // 가짜 위치 스트림이 값을 내고 파생 provider들이 반영될 때까지 몇 번 양보한다.
+    Future<void> settle() async {
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    ProviderContainer makeContainer({LatLng? lastGps}) {
+      final container = ProviderContainer(overrides: [
+        liveRouteProvider.overrideWith(
+          (ref) => lastGps == null ? const Stream.empty() : Stream.value([lastGps]),
+        ),
+      ]);
+      addTearDown(container.dispose);
+      // 앱에서는 탭 화면이 구독을 유지한다 — 테스트에서도 같은 방식으로 살려 둔다.
+      container.listen(nearbyAnchorUpdaterProvider, (_, _) {});
+      container.listen(liveRouteProvider, (_, _) {});
+      return container;
+    }
+
+    test('마지막 실제 GPS를 기준 위치로 쓴다', () async {
+      final container = makeContainer(lastGps: seoul);
+      await settle();
+
+      expect(container.read(nearbyAnchorProvider), seoul);
+    });
+
+    test('해외 매핑 중이면 해외 현재 위치를 기준으로 삼는다', () async {
+      final container = makeContainer(lastGps: seoul);
+      await settle();
+
+      container.read(overseasPositionProvider.notifier).state = tokyoStation;
+      await settle();
+
+      expect(container.read(nearbyAnchorProvider), tokyoStation);
+    });
+
+    test('기준 거리보다 적게 움직이면 갱신하지 않고, 넘으면 갱신한다', () async {
+      final container = makeContainer();
+      container.read(overseasPositionProvider.notifier).state = tokyoStation;
+      await settle();
+
+      // 위도 0.0003° ≈ 33m — 기준(300m) 미만이라 그대로다.
+      container.read(overseasPositionProvider.notifier).state = const LatLng(35.6815, 139.7671);
+      await settle();
+      expect(container.read(nearbyAnchorProvider), tokyoStation);
+
+      // 위도 0.005° ≈ 556m — 기준을 넘어 갱신된다.
+      const farther = LatLng(35.6862, 139.7671);
+      container.read(overseasPositionProvider.notifier).state = farther;
+      await settle();
+      expect(container.read(nearbyAnchorProvider), farther);
+    });
+
+    test('해외 매핑이 끝나면 마지막 실제 GPS로 돌아온다', () async {
+      final container = makeContainer(lastGps: seoul);
+      container.read(overseasPositionProvider.notifier).state = tokyoStation;
+      await settle();
+      expect(container.read(nearbyAnchorProvider), tokyoStation);
+
+      container.read(overseasPositionProvider.notifier).state = null;
+      await settle();
+
+      expect(container.read(nearbyAnchorProvider), seoul);
+    });
+  });
+
   test('카테고리 기본값은 관광지다', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);

@@ -37,7 +37,7 @@ Future<List<Place>> fetchNearbyPlaces(
 }
 
 final nearbyPlacesProvider = FutureProvider<List<Place>>((ref) async {
-  final position = await ref.watch(currentPositionProvider.future);
+  final position = await ref.watch(nearbyPositionProvider.future);
   final category = ref.watch(nearbyCategoryProvider);
   final dio = ref.watch(apiClientProvider);
 

@@ -94,9 +94,12 @@ void main() {
         child: const MaterialApp(home: NearbyPage()),
       ),
     );
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-    await tester.pump();
-    await tester.pump();
+    // 탭 진입 시 위치 새로고침이 한 번 더 비동기로 돈 뒤 화면이 안정되므로 두 번 기다린다.
+    for (var i = 0; i < 2; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump();
+      await tester.pump();
+    }
 
     // 필터 칩 라벨과 리스트 항목의 카테고리 라벨 둘 다 "관광지"라 2곳에서 보인다.
     expect(find.text('관광지'), findsWidgets);

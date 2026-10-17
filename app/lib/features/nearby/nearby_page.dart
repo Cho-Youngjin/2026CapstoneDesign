@@ -14,12 +14,29 @@ import 'widgets/embassy_card.dart';
 import 'widgets/nearby_map_view.dart';
 import 'widgets/place_list_tile.dart';
 
-class NearbyPage extends ConsumerWidget {
+class NearbyPage extends ConsumerStatefulWidget {
   const NearbyPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final position = ref.watch(currentPositionProvider);
+  ConsumerState<NearbyPage> createState() => _NearbyPageState();
+}
+
+class _NearbyPageState extends ConsumerState<NearbyPage> {
+  @override
+  void initState() {
+    super.initState();
+    // 탭에 들어올 때마다 최신 위치로 새로고침한다(해외 매핑 중이면 해외 현재 위치).
+    // 위치 권한 거부 등으로 실패해도 화면은 아래 position.when의 에러 표시로 처리한다.
+    Future.microtask(() async {
+      try {
+        await refreshNearbyPosition(ref);
+      } catch (_) {}
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final position = ref.watch(nearbyPositionProvider);
     final countries = ref.watch(countryListProvider);
     final selectedIso2 = ref.watch(selectedCountryProvider);
     final currentLocationIso2 = ref.watch(currentLocationCountryProvider).asData?.value;
@@ -39,7 +56,7 @@ class NearbyPage extends ConsumerWidget {
           IconButton(
             tooltip: '위치 새로고침',
             icon: const Icon(Icons.my_location),
-            onPressed: () => ref.invalidate(currentPositionProvider),
+            onPressed: () => refreshNearbyPosition(ref),
           ),
           countries.when(
             loading: () => const SizedBox.shrink(),

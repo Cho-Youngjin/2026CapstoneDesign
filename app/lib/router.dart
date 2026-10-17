@@ -8,6 +8,7 @@ import 'features/checklist/checklist_page.dart';
 import 'features/footsteps/footsteps_detail_page.dart';
 import 'features/footsteps/footsteps_page.dart';
 import 'features/footsteps/providers/footsteps_providers.dart';
+import 'features/nearby/providers/nearby_selection_providers.dart';
 import 'features/group/chat_room_page.dart';
 import 'features/group/group_page.dart';
 import 'features/group/location_share_page.dart';
@@ -170,6 +171,8 @@ class _TabScaffoldState extends ConsumerState<_TabScaffold> {
   Widget build(BuildContext context) {
     // 구독만 유지한다(화면 갱신 불필요) — 어느 탭에 있든 이동 좌표가 계속 저장된다.
     ref.listen(liveRouteProvider, (_, _) {});
+    // 주변 정보의 기준 위치도 탭과 무관하게 앱이 켜져 있는 동안 최신으로 유지한다.
+    ref.watch(nearbyAnchorUpdaterProvider);
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(child: widget.child),

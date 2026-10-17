@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 
-import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter/material.dart';
 
@@ -18,7 +17,7 @@ class NearbyMapView extends StatefulWidget {
     required this.embassies,
   });
 
-  final Position center;
+  final LatLng center;
   final List<Place> places;
   final List<Embassy> embassies;
 
@@ -42,7 +41,7 @@ class _NearbyMapViewState extends State<NearbyMapView> {
     if (controller == null || widget.places.isEmpty) return;
 
     final points = [
-      LatLng(widget.center.latitude, widget.center.longitude),
+      widget.center,
       for (final p in widget.places) LatLng(p.lat, p.lng),
     ];
     final lats = points.map((p) => p.latitude);
@@ -83,7 +82,7 @@ class _NearbyMapViewState extends State<NearbyMapView> {
 
     return BaseGoogleMap(
       initialCamera: CameraPosition(
-        target: LatLng(center.latitude, center.longitude),
+        target: center,
         zoom: 15,
       ),
       markers: markers,
