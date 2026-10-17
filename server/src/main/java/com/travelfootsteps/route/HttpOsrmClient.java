@@ -110,7 +110,13 @@ public class HttpOsrmClient implements OsrmClient {
                 + "?overview=full&geometries=geojson");
         if (data == null || !"Ok".equals(data.path("code").asText())) return List.of();
 
-        return geometry(data.path("matchings").path(0).path("geometry"));
+        // GPS가 끊기거나 튀는 구간이 있으면 OSRM은 궤적을 matching 여러 개로 쪼개 돌려준다.
+        // 첫 번째만 쓰면 그 뒤의 경로가 통째로 사라지므로 전부 순서대로 이어 붙인다.
+        List<GeoPoint> out = new ArrayList<>();
+        for (JsonNode matching : data.path("matchings")) {
+            out.addAll(geometry(matching.path("geometry")));
+        }
+        return out;
     }
 
     // 실패(연결 거부, 타임아웃, 4xx/5xx, JSON 아님)는 전부 null로 바꾼다 — OsrmClient 주석 참고.

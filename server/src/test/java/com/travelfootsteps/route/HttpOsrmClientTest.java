@@ -113,4 +113,26 @@ class HttpOsrmClientTest {
         // 두 구간이 좌표 1점을 공유하므로 이어 붙일 때 중복 하나를 떼어낸다: 2 + (2 - 1).
         assertThat(matched).hasSize(3);
     }
+
+    @Test
+    void match는_OSRM이_궤적을_여러_matching으로_나눠_주면_전부_이어_붙인다() {
+        // GPS가 끊기거나 튀는 구간이 있으면 OSRM은 궤적을 matching 여러 개로 쪼개 돌려준다.
+        // 첫 번째만 쓰면 그 뒤의 이동 경로가 통째로 사라진다.
+        server.expect(requestTo(startsWith("http://jp.osrm:5002/match/v1/foot/")))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {"code":"Ok","matchings":[
+                          {"geometry":{"coordinates":[[139.0,35.0],[139.1,35.1]]}},
+                          {"geometry":{"coordinates":[[139.2,35.2],[139.3,35.3]]}}
+                        ]}
+                        """, MediaType.APPLICATION_JSON));
+
+        List<GeoPoint> matched = client.match("JP",
+                List.of(new GeoPoint(35.0, 139.0), new GeoPoint(35.3, 139.3)));
+
+        server.verify();
+        assertThat(matched).containsExactly(
+                new GeoPoint(35.0, 139.0), new GeoPoint(35.1, 139.1),
+                new GeoPoint(35.2, 139.2), new GeoPoint(35.3, 139.3));
+    }
 }
