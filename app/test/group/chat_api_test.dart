@@ -1,4 +1,5 @@
 import 'package:app/features/group/data/chat_api.dart';
+import 'package:app/features/group/models/chat_message.dart';
 import 'package:app/features/group/models/room.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -93,6 +94,52 @@ void main() {
 
     expect(adapter.lastRequest!.method, 'PUT');
     expect(adapter.lastRequest!.data, {'displayName': '성주', 'photoUrl': null});
+  });
+
+  group('메시지', () {
+    const messageJson =
+        '{"id": 345, "roomId": 12, "senderUid": "uid-a", "type": "TEXT", "text": "공항 도착!", '
+        '"imageUrl": null, "createdAt": "2026-10-17T10:40:12.345+09:00"}';
+
+    test('messages가 GET으로 최신 페이지를 가져온다 (before 없으면 쿼리에도 없다)', () async {
+      final adapter = StubHttpClientAdapter(
+        path: '/api/rooms/12/messages', statusCode: 200, body: '[$messageJson]');
+
+      final messages = await _api(adapter).messages(12);
+
+      expect(messages.single.id, 345);
+      expect(messages.single.text, '공항 도착!');
+      expect(messages.single.type, MessageType.text);
+      expect(messages.single.createdAt, DateTime.parse('2026-10-17T10:40:12.345+09:00'));
+      expect(adapter.lastRequest!.method, 'GET');
+      expect(adapter.lastRequest!.queryParameters, {'size': 30});
+    });
+
+    test('messages에 before를 주면 쿼리로 보낸다', () async {
+      final adapter = StubHttpClientAdapter(path: '/api/rooms/12/messages', statusCode: 200, body: '[]');
+
+      await _api(adapter).messages(12, before: 300, size: 20);
+
+      expect(adapter.lastRequest!.queryParameters, {'size': 20, 'before': 300});
+    });
+
+    test('sendText가 POST로 보내고 저장된 메시지를 돌려준다', () async {
+      final adapter = StubHttpClientAdapter(
+        path: '/api/rooms/12/messages', statusCode: 201, body: messageJson);
+
+      final message = await _api(adapter).sendText(12, '공항 도착!');
+
+      expect(message.id, 345);
+      expect(adapter.lastRequest!.method, 'POST');
+      expect(adapter.lastRequest!.data, {'text': '공항 도착!'});
+    });
+
+    test('멤버가 아닌 방(404)은 RoomNotFoundException이다', () async {
+      final adapter = StubHttpClientAdapter(path: '/api/rooms/99/messages', statusCode: 404, body: '');
+
+      expect(() => _api(adapter).messages(99), throwsA(isA<RoomNotFoundException>()));
+      expect(() => _api(adapter).sendText(99, '안녕'), throwsA(isA<RoomNotFoundException>()));
+    });
   });
 
   test('404가 아닌 서버 오류는 DioException 그대로 던진다', () async {
