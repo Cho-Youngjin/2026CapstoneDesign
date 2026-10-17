@@ -8,6 +8,7 @@ import '../data/route_point.dart';
 import '../data/route_snapping_api.dart';
 // 날짜 묶음 기준을 걸음수 귀속(DailySteps)과 똑같이 맞춘다 — 여기서 따로 만들면
 // 한쪽은 UTC 플래그, 한쪽은 로컬 플래그가 되어 같은 날짜가 달라 보인다.
+import '../health/distance_step_estimator.dart';
 import '../health/step_attribution.dart' show dayKeyOf;
 import '../providers/footsteps_providers.dart';
 import 'base_google_map.dart';
@@ -56,12 +57,6 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
   List<LatLng>? _snappedRouteLine;
   DateTime? _snappedForDay;
   int _snappedForPointCount = -1;
-
-  void _showTimestamp(DateTime recordedAt) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('기록 시각: ${recordedAt.toLocal()}')),
-    );
-  }
 
   LatLng? _lastOrNull(List<LatLng> points) => points.isEmpty ? null : points.last;
 
@@ -170,31 +165,10 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
                 ),
               ),
               Expanded(
+                flex: 3,
                 child: BaseGoogleMap(
                   initialCamera: CameraPosition(target: initialCameraTarget, zoom: _tenKmZoom),
                   onMapCreated: (controller) => _mapController = controller,
-                  circles: {
-                    // 실선 위에 각 기록 갱신 시점을 작은 점으로 구분 표시한다.
-                    // 탭하면 그 지점이 언제 기록됐는지 스낵바로 보여준다. 도로 스냅
-                    // 결과(routeLine)는 보간되며 개수·순서가 원본과 달라질 수 있어
-                    // 구분점은 항상 원본 좌표(rawRouteLine)에 찍는다.
-                    for (var i = 0; i < dayRoutePoints.length; i++)
-                      Circle(
-                        circleId: CircleId('route_point_$i'),
-                        center: rawRouteLine[i],
-                        // 10km 뷰(_tenKmZoom) 기준으로 화면에서 알아볼 수 있는 크기.
-                        // Circle 반경은 실제 미터 단위라 다른 줌에서는 커 보이거나
-                        // 작아 보일 수 있다 — 기본 줌에 맞춘 근사치다.
-                        // 실선과 같은 주황 계열로 채우면 선 위에서 묻혀 안 보이므로
-                        // 흰 배경 + 진한 테두리로 확실히 도드라지게 한다.
-                        radius: 80,
-                        fillColor: Colors.white,
-                        strokeWidth: 3,
-                        strokeColor: const Color(0xFF9A3412),
-                        consumeTapEvents: true,
-                        onTap: () => _showTimestamp(dayRoutePoints[i].recordedAt),
-                      ),
-                  },
                   markers: {
                     for (var i = 0; i < dayCheckins.length; i++)
                       Marker(
@@ -227,10 +201,62 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
                   },
                 ),
               ),
+              Expanded(flex: 2, child: _MovementHistory(points: dayRoutePoints)),
             ],
           );
         },
       ),
+    );
+  }
+}
+
+/// 선택한 날짜의 이동 기록 — 요약(총 이동 거리·추정 걸음)과 최신순 좌표 목록.
+class _MovementHistory extends StatelessWidget {
+  const _MovementHistory({required this.points});
+
+  final List<RoutePoint> points;
+
+  static String _hms(DateTime t) {
+    final l = t.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(l.hour)}:${two(l.minute)}:${two(l.second)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (points.isEmpty) {
+      return const Center(child: Text('이 날짜의 이동 기록이 없습니다'));
+    }
+    final latLngs = [for (final p in points) LatLng(p.lat, p.lng)];
+    final totalMeters = totalDistanceMeters(latLngs);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: Text(
+            '이동 기록 ${points.length}건 · ${totalMeters.round()}m · 추정 ${estimateStepsFromDistance(totalMeters)}걸음',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            itemCount: points.length,
+            itemBuilder: (_, row) {
+              final i = points.length - 1 - row; // 최신순
+              final gap = i == 0 ? 0.0 : totalDistanceMeters([latLngs[i - 1], latLngs[i]]);
+              return ListTile(
+                dense: true,
+                leading: Text('${i + 1}'),
+                title: Text(_hms(points[i].recordedAt)),
+                subtitle: Text('${points[i].lat.toStringAsFixed(5)}, ${points[i].lng.toStringAsFixed(5)}'),
+                trailing: Text(i == 0 ? '출발' : '+${gap.round()}m'),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

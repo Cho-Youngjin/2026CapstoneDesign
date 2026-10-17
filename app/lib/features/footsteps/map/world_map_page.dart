@@ -23,10 +23,12 @@ final cumulativeStepsProvider = FutureProvider<Map<String, int>>((ref) {
   return ref.watch(footstepsRepositoryProvider).cumulativeStepsByCountry();
 });
 
-/// Health Connect 걸음 수와는 독립적으로, 실시간 GPS 경로(RoutePoints)의 이동
-/// 거리로부터 추정한 걸음 수. Health 연동이 잘 되는지 대조해보기 위한 검증용
-/// 보조 지표라 화면에는 별도 표기로만 노출하고 "총 걸음"에는 합산하지 않는다.
+/// 실시간 GPS 경로(RoutePoints)의 이동 거리로 추정한 국가별 걸음 수. 에뮬레이터에서는
+/// Health Connect 걸음이 없어 임시로 이 값을 화면의 걸음 수로 쓴다(Health 연동이
+/// 가능해지면 cumulativeStepsProvider로 되돌린다). 새 경로 좌표가 저장될 때마다
+/// liveRouteProvider가 값을 내므로 그때 다시 계산된다.
 final estimatedStepsByCountryProvider = FutureProvider<Map<String, int>>((ref) async {
+  ref.watch(liveRouteProvider);
   final repository = ref.watch(footstepsRepositoryProvider);
   final visited = await ref.watch(visitedCountriesProvider.future);
 
@@ -75,8 +77,7 @@ class _WorldMapBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final visited = ref.watch(visitedCountriesProvider).asData?.value ?? const <String>{};
-    final steps = ref.watch(cumulativeStepsProvider).asData?.value ?? const <String, int>{};
-    final estimatedSteps =
+    final steps =
         ref.watch(estimatedStepsByCountryProvider).asData?.value ?? const <String, int>{};
     final countries = ref.watch(countryListProvider).asData?.value ?? const <Country>[];
     final nameByIso = {for (final c in countries) c.isoAlpha2: c.nameKo};
@@ -117,14 +118,8 @@ class _WorldMapBody extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '방문 국가 ${visitedByStepsDesc.length} · 총 걸음 ${steps.values.fold(0, (a, b) => a + b)}',
+                '방문 국가 ${visitedByStepsDesc.length} · 총 걸음 ${steps.values.fold(0, (a, b) => a + b)} (이동 거리 기준)',
                 style: AppTextStyles.caption,
-              ),
-              // Health Connect 연동 검증용 — GPS 이동 거리만으로 추정한 걸음 수.
-              // 실제 걸음 수(위 줄)와 크게 어긋나면 Health 연동을 의심해볼 수 있다.
-              Text(
-                'GPS 거리 기준 추정 걸음 ${estimatedSteps.values.fold(0, (a, b) => a + b)} (테스트용)',
-                style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
               ),
             ],
           ),

@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/theme/app_colors.dart';
 import 'features/checklist/checklist_page.dart';
 import 'features/footsteps/footsteps_detail_page.dart';
 import 'features/footsteps/footsteps_page.dart';
+import 'features/footsteps/providers/footsteps_providers.dart';
 import 'features/group/chat_room_page.dart';
 import 'features/group/group_page.dart';
 import 'features/group/location_share_page.dart';
@@ -132,24 +135,44 @@ GoRouter createRouter({required bool isLoggedIn}) {
 /// 탭 구조를 담당하는 셸. 상단 헤더는 화면마다 다르게 생겨서(뒤로가기, 배지,
 /// 우측 액션 링크 등) 공통 AppBar를 쓰지 않고 각 페이지가 직접 헤더를 그린다 —
 /// 여기서는 배경색과 하단 탭바만 책임진다.
-class _TabScaffold extends StatelessWidget {
+class _TabScaffold extends ConsumerStatefulWidget {
   const _TabScaffold({required this.location, required this.child});
 
   final String location;
   final Widget child;
 
+  @override
+  ConsumerState<_TabScaffold> createState() => _TabScaffoldState();
+}
+
+class _TabScaffoldState extends ConsumerState<_TabScaffold> {
+  @override
+  void initState() {
+    super.initState();
+    // 앱 실행 직후(로그인 후 탭 화면 진입 시) 위치 권한을 받고 이동 기록 저장을 시작한다.
+    // 권한이 없을 때 이미 구독된 스트림은 에러로 끝나므로, 응답을 받은 뒤 다시 구독한다.
+    Future.microtask(() async {
+      try {
+        await Geolocator.requestPermission();
+      } catch (_) {}
+      if (mounted) ref.invalidate(liveRouteProvider);
+    });
+  }
+
   int get _activeTabIndex {
     for (var i = 0; i < AppRoutes.tabs.length; i++) {
-      if (location.startsWith(AppRoutes.tabs[i])) return i;
+      if (widget.location.startsWith(AppRoutes.tabs[i])) return i;
     }
     return 0;
   }
 
   @override
   Widget build(BuildContext context) {
+    // 구독만 유지한다(화면 갱신 불필요) — 어느 탭에 있든 이동 좌표가 계속 저장된다.
+    ref.listen(liveRouteProvider, (_, _) {});
     return Scaffold(
       backgroundColor: Colors.white,
-      body: SafeArea(child: child),
+      body: SafeArea(child: widget.child),
       bottomNavigationBar: _WireframeTabBar(
         activeIndex: _activeTabIndex,
         onTap: (i) => context.go(AppRoutes.tabs[i]),
