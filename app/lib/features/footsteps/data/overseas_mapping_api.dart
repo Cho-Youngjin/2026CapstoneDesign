@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-/// 해외 매핑 테스트/기능 전용 서버 호출. 도로 스냅(route_snapping_api.dart)과
+/// 해외 매핑 전용 서버 호출. 도로 스냅(route_snapping_api.dart)과
 /// 별개로, 국내 이동을 해외 도로망 위에서의 걸음으로 옮기는 서버 로직(mock_server.py의
 /// walk_overseas_segment)을 부른다. 설계 문서:
 /// docs/superpowers/specs/2026-09-29-overseas-footsteps-route-projection.md

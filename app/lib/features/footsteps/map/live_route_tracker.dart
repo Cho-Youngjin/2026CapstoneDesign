@@ -21,11 +21,13 @@ Stream<List<LatLng>> trackAndPersistLiveRoute({
   required CountryResolver countryResolver,
   required FootstepsRepository repository,
   int maxPoints = 2000,
+  // 해외 매핑 중에는 한국에서의 실제 이동을 영구 기록으로 남기지 않는다. 화면용 경로는 그대로 낸다.
+  bool Function()? shouldPersist,
 }) async* {
   final points = <LatLng>[];
   await for (final position in positions) {
     final iso = await countryResolver.resolveIso2(position.latitude, position.longitude);
-    if (iso != Checkin.unknownCountry) {
+    if (iso != Checkin.unknownCountry && (shouldPersist?.call() ?? true)) {
       await repository.recordRoutePoint(
         position.latitude,
         position.longitude,

@@ -8,7 +8,7 @@ import java.util.Optional;
 //
 // 모든 메서드는 OSRM이 꺼져 있거나 응답이 이상한 경우에도 예외를 던지지 않고 빈 결과
 // (Optional.empty / 빈 리스트)를 돌려준다. 앱은 "실패 = ok:false"로 받아 다음 트리거에서
-// 더 긴 구간으로 재시도하므로(overseas_mapping_test_page.dart), 502 같은 에러로 바꿀 이유가 없다.
+// 더 긴 구간으로 재시도하므로(overseas_mapping_page.dart), 502 같은 에러로 바꿀 이유가 없다.
 public interface OsrmClient {
 
     /** point에서 maxDistanceMeters 안에 도로가 있으면 도로 위로 붙인 좌표를 돌려준다. */
