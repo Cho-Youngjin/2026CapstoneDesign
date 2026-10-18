@@ -6,6 +6,7 @@ import 'package:app/core/db/app_database.dart';
 import 'package:app/core/network/api_client.dart';
 import 'package:app/features/footsteps/data/country_resolver.dart';
 import 'package:app/features/footsteps/data/footsteps_repository.dart';
+import 'package:app/features/footsteps/map/world_map_page.dart' show visitedCountriesProvider;
 import 'package:app/features/footsteps/providers/footsteps_providers.dart';
 import 'package:app/features/footsteps/providers/overseas_mapping_session.dart';
 import 'package:dio/dio.dart';
@@ -40,6 +41,9 @@ Position _positionAt(double lat, double lng) => Position(
 class _FakeWalkAdapter implements HttpClientAdapter {
   final requests = <Map<String, dynamic>>[];
 
+  /// 설정하면 응답을 이 completer가 끝날 때까지 붙잡아 둔다(느린 네트워크 흉내).
+  Completer<void>? gate;
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -48,6 +52,8 @@ class _FakeWalkAdapter implements HttpClientAdapter {
   ) async {
     expect(options.path, '/api/route/overseas-walk');
     requests.add(options.data as Map<String, dynamic>);
+    final hold = gate;
+    if (hold != null) await hold.future;
 
     final json = jsonEncode({
       'ok': true,
@@ -177,5 +183,63 @@ void main() {
     expect(container.read(overseasMappingActiveProvider), isFalse);
     expect(container.read(overseasPositionProvider), isNull);
     expect(gps.hasListener, isFalse);
+  });
+
+  List<(double, double)> sentPoints(Map<String, dynamic> request) => [
+        for (final p in request['points'] as List<dynamic>)
+          ((p as Map<String, dynamic>)['lat'] as double, p['lng'] as double),
+      ];
+
+  test('요청을 기다리는 동안 들어온 좌표는 버리지 않고 다음 구간에 넣는다', () async {
+    container.read(overseasMappingProvider.notifier).start('JP', anchor);
+    adapter.gate = Completer<void>();
+
+    gps.add(_positionAt(37.5000, 127.0000));
+    gps.add(_positionAt(37.5010, 127.0000)); // 첫 요청 시작(응답 대기)
+    await settle();
+    gps.add(_positionAt(37.5020, 127.0000)); // 요청 중에 들어온 좌표
+    await settle();
+    adapter.gate!.complete();
+    adapter.gate = null;
+    await settle();
+
+    gps.add(_positionAt(37.5030, 127.0000)); // 다음 요청
+    await settle();
+
+    expect(adapter.requests, hasLength(2));
+    expect(sentPoints(adapter.requests[1]), [(37.5010, 127.0), (37.5020, 127.0), (37.5030, 127.0)]);
+  });
+
+  test('요청을 기다리는 중에 멈추면 그 구간까지 저장하고 마지막 해외 위치로 체크인한다', () async {
+    final notifier = container.read(overseasMappingProvider.notifier);
+    notifier.start('JP', anchor);
+    adapter.gate = Completer<void>();
+
+    gps.add(_positionAt(37.5000, 127.0000));
+    gps.add(_positionAt(37.5010, 127.0000));
+    await settle();
+    final stopping = notifier.stop();
+    adapter.gate!.complete();
+    await stopping;
+    await settle();
+
+    final saved = await db.routePointsForCountry('JP');
+    expect(saved.map((p) => (p.lat, p.lng)), [(35.6810, 139.7610), (35.6820, 139.7620)]);
+    final checkins = await db.allCheckins();
+    expect((checkins.last.lat, checkins.last.lng), (35.6820, 139.7620));
+    expect(container.read(overseasMappingProvider).active, isFalse);
+  });
+
+  test('멈추면 세계지도의 방문 국가 목록을 다시 읽어 새로 간 나라가 바로 보인다', () async {
+    // 세계지도가 한 번 읽어 캐시해 둔 상태(아직 아무 데도 안 감)
+    expect(await container.read(visitedCountriesProvider.future), isEmpty);
+
+    final notifier = container.read(overseasMappingProvider.notifier);
+    notifier.start('JP', anchor);
+    await settle();
+    await notifier.stop();
+    await settle();
+
+    expect(await container.read(visitedCountriesProvider.future), {'JP'});
   });
 }

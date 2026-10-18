@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -7,6 +8,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../core/network/api_client.dart';
 import '../data/checkin.dart';
 import '../data/overseas_mapping_api.dart';
+import '../map/world_map_page.dart' show visitedCountriesProvider;
 import 'footsteps_providers.dart';
 
 /// 마지막 anchor 이후 누적 이동거리가 이 값을 넘을 때마다 해외 도로 매칭을
@@ -86,6 +88,10 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
   double _segmentDistance = 0;
   bool _busy = false;
 
+  // 지금 서버 응답을 기다리는 구간 요청. 멈출 때 이 요청이 끝날 때까지 기다려, 이미 걸은 구간을 버리지 않는다.
+  Future<void>? _inFlight;
+  bool _stopping = false;
+
   @override
   OverseasMappingState build() {
     ref.onDispose(() => _sub?.cancel());
@@ -110,19 +116,34 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
     ref.read(overseasPositionProvider.notifier).state = anchor;
     _sub = ref.read(overseasMappingPositionStreamProvider).listen(_onPosition);
     // 시작 지점을 체크인으로 남겨, 이 나라가 방문 국가로 잡히고 이동 기록 목록을 볼 수 있게 한다.
-    _recordCheckin(country, anchor);
+    unawaited(_recordCheckin(country, anchor));
   }
 
-  void stop() {
-    _sub?.cancel();
-    _sub = null;
-    // 마지막 해외 위치를 체크인으로 남겨 이번 해외 이동 기록의 끝을 표시한다.
-    final country = state.country;
-    final last = state.anchor;
-    if (state.active && last != null) _recordCheckin(country, last);
-    state = const OverseasMappingState();
-    ref.read(overseasMappingActiveProvider.notifier).state = false;
-    ref.read(overseasPositionProvider.notifier).state = null;
+  /// 해외 매핑을 멈춘다. 서버 응답을 기다리는 구간이 있으면 그 구간을 마저 저장한 뒤에 멈추고,
+  /// 마지막 해외 위치를 체크인으로 남긴 다음 세계지도의 방문 국가 목록을 다시 읽게 한다.
+  Future<void> stop() async {
+    if (_stopping) return;
+    _stopping = true;
+    try {
+      _sub?.cancel();
+      _sub = null;
+      final pending = _inFlight;
+      if (pending != null) await pending;
+
+      // 마지막 해외 위치를 체크인으로 남겨 이번 해외 이동 기록의 끝을 표시한다.
+      final wasActive = state.active;
+      final country = state.country;
+      final last = state.anchor;
+      if (wasActive && last != null) await _recordCheckin(country, last);
+      state = const OverseasMappingState();
+      ref.read(overseasMappingActiveProvider.notifier).state = false;
+      ref.read(overseasPositionProvider.notifier).state = null;
+      // 세계지도의 방문 국가(와 그것을 보고 계산하는 추정 걸음 수)는 한 번 읽으면 캐시된다 —
+      // 이번 세션에 처음 간 나라가 바로 보이도록 다시 읽게 한다.
+      if (wasActive) ref.invalidate(visitedCountriesProvider);
+    } finally {
+      _stopping = false;
+    }
   }
 
   Future<void> _onPosition(Position position) async {
@@ -144,7 +165,9 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
     if (_busy || _segmentBuffer.length < 2 || _segmentDistance < overseasTriggerDistanceMeters) {
       return;
     }
-    await _trySnap();
+    final snap = _trySnap();
+    _inFlight = snap;
+    await snap;
   }
 
   Future<void> _trySnap() async {
@@ -173,10 +196,10 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
           if (jpRoute.isEmpty || p != jpRoute.last) p,
       ];
       _walkState = result.state ?? _walkState;
-      _segmentBuffer
-        ..clear()
-        ..add(krPoints.last);
-      _segmentDistance = 0;
+      // 이번 요청에 보낸 앞부분만 덜어 낸다. 마지막 점은 다음 구간의 기준점으로 남기고, 응답을 기다리는
+      // 동안 새로 들어온 좌표도 그대로 둔다(지우면 그만큼 걸은 길이 해외 경로에서 빠진다).
+      _segmentBuffer.removeRange(0, math.min(krPoints.length - 1, _segmentBuffer.length));
+      _segmentDistance = _pathLength(_segmentBuffer);
       final newAnchor = result.newAnchor ?? state.anchor!;
       state = state.copyWith(
         jpRoute: [...jpRoute, ...result.matched],
@@ -190,13 +213,14 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
       // 네트워크 실패 등은 매칭 실패와 동일하게 취급한다 — 다음 트리거에서 재시도.
     } finally {
       _busy = false;
+      _inFlight = null;
     }
   }
 
-  // 체크인 저장 실패가 매핑 진행이나 종료를 막지 않도록 기다리지 않고, 실패해도 조용히 넘긴다 —
-  // 이동 좌표(RoutePoints)는 별도로 저장되고 있다.
-  void _recordCheckin(String country, LatLng at) {
-    ref
+  // 체크인 저장 실패가 매핑 진행이나 종료를 막지 않도록 실패해도 조용히 넘긴다 — 이동 좌표(RoutePoints)는
+  // 별도로 저장되고 있다. 시작할 때는 기다리지 않고, 멈출 때는 방문 국가 목록을 다시 읽기 전에 기다린다.
+  Future<void> _recordCheckin(String country, LatLng at) {
+    return ref
         .read(footstepsRepositoryProvider)
         .recordCheckinWithCountry(
           at.latitude,
@@ -221,6 +245,19 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
       );
     }
   }
+}
+
+double _pathLength(List<LatLng> path) {
+  var total = 0.0;
+  for (var i = 1; i < path.length; i++) {
+    total += Geolocator.distanceBetween(
+      path[i - 1].latitude,
+      path[i - 1].longitude,
+      path[i].latitude,
+      path[i].longitude,
+    );
+  }
+  return total;
 }
 
 /// 경로 끝의 서로 다른 두 점으로 진행 방향(북쪽 기준 시계 방향 도)을 구한다.
