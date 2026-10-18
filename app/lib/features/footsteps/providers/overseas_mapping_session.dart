@@ -107,6 +107,7 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
     _segmentBuffer.clear();
     _segmentDistance = 0;
     _busy = false;
+    _lastSnapOk = false;
 
     state = OverseasMappingState(
       active: true,
@@ -136,8 +137,8 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
       // 마지막으로 한 번 더 보낸다 — 멈추고 나면 그 구간을 보낼 기회가 없다.
       // 앞선 요청이 실패했다면 버퍼가 그대로라 같은 요청을 또 보내게 되므로(장애 중이면 타임아웃만큼 멈춤이 늦어진다)
       // 성공한 요청 뒤에 남은 좌표가 있을 때만 보낸다.
-      if (pending != null &&
-          _lastSnapOk &&
+      // (요청이 멈추기 직전에 이미 끝났어도 남은 좌표는 그대로 있으므로 pending 여부와 상관없이 본다.)
+      if (_lastSnapOk &&
           state.active &&
           _segmentBuffer.length >= 2 &&
           _segmentDistance >= overseasTriggerDistanceMeters) {

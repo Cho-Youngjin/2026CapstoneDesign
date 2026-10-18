@@ -288,4 +288,23 @@ void main() {
     expect(adapter.requests, hasLength(1));
     expect(container.read(overseasMappingProvider).active, isFalse);
   });
+
+  test('요청이 멈추기 전에 이미 끝났더라도, 그 사이 기준 거리 넘게 더 걸은 구간은 멈출 때 보낸다', () async {
+    final notifier = container.read(overseasMappingProvider.notifier);
+    notifier.start('JP', anchor);
+    adapter.gate = Completer<void>();
+
+    gps.add(_positionAt(37.5000, 127.0000));
+    gps.add(_positionAt(37.5010, 127.0000)); // 첫 요청(응답 대기)
+    await settle();
+    gps.add(_positionAt(37.5020, 127.0000)); // 요청 중 ≈111m 더 걸었다
+    await settle();
+    adapter.gate!.complete(); // 멈추기 전에 응답이 왔다
+    await settle();
+
+    await notifier.stop();
+
+    expect(adapter.requests, hasLength(2));
+    expect(sentPoints(adapter.requests[1]), [(37.5010, 127.0), (37.5020, 127.0)]);
+  });
 }
