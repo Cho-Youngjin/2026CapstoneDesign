@@ -1,9 +1,13 @@
+import 'dart:typed_data';
+
 import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/features/group/chat_room_page.dart';
 import 'package:app/features/group/data/chat_api.dart';
+import 'package:app/features/group/data/chat_images.dart';
 import 'package:app/features/group/data/chat_socket.dart';
 import 'package:app/features/group/models/room.dart';
 import 'package:app/router.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,7 +31,11 @@ RoomDetail _room({List<RoomMember>? members}) => RoomDetail(
           ],
     );
 
-Future<(FakeChatApi, FakeChatSocket)> _pump(WidgetTester tester, {FakeChatApi? api}) async {
+Future<(FakeChatApi, FakeChatSocket)> _pump(
+  WidgetTester tester, {
+  FakeChatApi? api,
+  Future<Uint8List?> Function()? picker,
+}) async {
   final chatApi = api ?? (FakeChatApi()..detailToReturn = _room());
   final socket = FakeChatSocket();
   addTearDown(socket.dispose);
@@ -36,6 +44,7 @@ Future<(FakeChatApi, FakeChatSocket)> _pump(WidgetTester tester, {FakeChatApi? a
       chatApiProvider.overrideWithValue(chatApi),
       chatSocketProvider.overrideWithValue(socket),
       currentUidProvider.overrideWithValue('uid-a'),
+      chatImagePickerProvider.overrideWithValue(picker ?? () async => null),
     ],
     child: const MaterialApp(home: Scaffold(body: ChatRoomPage(roomId: 1))),
   ));
@@ -77,6 +86,93 @@ const _dm = RoomDetail(
 );
 
 void main() {
+  group('사진 (Plan D Task 6)', () {
+    testWidgets('사진 메시지는 그 주소로 받은 그림으로 보여준다', (tester) async {
+      final api = FakeChatApi()
+        ..detailToReturn = _room()
+        ..storedMessages.addAll([sampleImageMessage(id: 5, senderUid: 'uid-b')]);
+
+      await _pump(tester, api: api);
+
+      expect(api.imageDownloads, ['/api/rooms/1/images/5']);
+      expect(find.descendant(of: find.byKey(const Key('image-5')), matching: find.byType(Image)), findsOneWidget);
+    });
+
+    testWidgets('받은 바이트가 깨진 그림이면 깨진 그림 표시로 대신한다', (tester) async {
+      final api = FakeChatApi()
+        ..detailToReturn = _room()
+        ..storedMessages.addAll([sampleImageMessage(id: 5, senderUid: 'uid-b')])
+        // 앞부분은 JPEG처럼 보이지만 뒤가 잘린 바이트 — 서버의 형식 판정은 통과한다.
+        ..imagesByUrl['/api/rooms/1/images/5'] = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]);
+
+      await _pump(tester, api: api);
+      // 그림 해독은 엔진에서 따로 돌므로 실제 시간을 조금 흘려 결과가 돌아오게 한다.
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('brokenImage')), findsOneWidget);
+    });
+
+    testWidgets('사진을 고르면 올리고, 끝나면 내 사진 말풍선으로 보인다', (tester) async {
+      final (api, _) = await _pump(tester, picker: () async => onePixelPng);
+
+      await tester.tap(find.byKey(const Key('attachImage')));
+      await tester.pumpAndSettle();
+
+      expect(api.sentImages, [onePixelPng]);
+      final sentId = api.storedMessages.single.id;
+      expect(find.byKey(Key('image-$sentId')), findsOneWidget);
+      expect(find.byKey(const Key('pending-0')), findsNothing);
+    });
+
+    testWidgets('고르기를 취소하면 아무것도 보내지 않는다', (tester) async {
+      final (api, _) = await _pump(tester, picker: () async => null);
+
+      await tester.tap(find.byKey(const Key('attachImage')));
+      await tester.pumpAndSettle();
+
+      expect(api.sentImages, isEmpty);
+    });
+
+    testWidgets('올리지 못하면 다시 시도할 수 있다', (tester) async {
+      final api = FakeChatApi()
+        ..detailToReturn = _room()
+        ..nextImageError = DioException.connectionError(
+          requestOptions: RequestOptions(path: '/api/rooms/1/images'),
+          reason: 'offline',
+        );
+      await _pump(tester, api: api, picker: () async => onePixelPng);
+
+      await tester.tap(find.byKey(const Key('attachImage')));
+      await tester.pumpAndSettle();
+      expect(find.text('사진을 보내지 못했어요.'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('retryImage-0')));
+      await tester.pumpAndSettle();
+
+      expect(api.sentImages, hasLength(2));
+      expect(find.byKey(const Key('pending-0')), findsNothing);
+      expect(find.byKey(Key('image-${api.storedMessages.single.id}')), findsOneWidget);
+    });
+
+    testWidgets('형식 때문에 거절되면 다시 시도 대신 지우기만 둔다', (tester) async {
+      final api = FakeChatApi()
+        ..detailToReturn = _room()
+        ..nextImageError = const UnsupportedChatImageException();
+      await _pump(tester, api: api, picker: () async => onePixelPng);
+
+      await tester.tap(find.byKey(const Key('attachImage')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('형식'), findsOneWidget);
+      expect(find.byKey(const Key('retryImage-0')), findsNothing);
+      await tester.tap(find.byKey(const Key('discardImage-0')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('pending-0')), findsNothing);
+    });
+  });
+
   group('멤버 목록과 1:1 DM', () {
     testWidgets('멤버 목록에서 [메시지]를 누르면 그 사람과의 DM 방으로 간다', (tester) async {
       final api = await _pumpRouted(tester, FakeChatApi()

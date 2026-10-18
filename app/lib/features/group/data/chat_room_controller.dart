@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,30 @@ import '../models/chat_message.dart';
 import '../models/room.dart';
 import 'chat_api.dart';
 import 'chat_socket.dart';
+
+/// 올리는 중이거나 올리지 못한 사진(Plan D Task 6). 서버 메시지가 되기 전이라 id가 없어 [localId]로 구분한다.
+@immutable
+class PendingImage {
+  const PendingImage({
+    required this.localId,
+    required this.clientId,
+    required this.bytes,
+    this.failed = false,
+    this.error,
+  });
+
+  final int localId;
+
+  /// 서버에 함께 보내는 업로드 id. 다시 시도해도 같은 값을 써서 서버가 한 번만 저장하게 한다.
+  final String clientId;
+  final Uint8List bytes;
+
+  /// 올리지 못했다. 화면이 [다시 시도]·[지우기]를 보여준다.
+  final bool failed;
+
+  /// 다시 시도해도 안 되는 이유(너무 큼, 형식). 연결 오류처럼 다시 해 볼 만한 실패는 null.
+  final String? error;
+}
 
 /// 채팅방 화면 상태.
 @immutable
@@ -18,7 +43,11 @@ class ChatRoomState {
     this.hasMore = true,
     this.loadingMore = false,
     this.sending = false,
+    this.pendingImages = const [],
   });
+
+  /// 아직 서버 메시지가 되지 않은 내 사진, 보낸 순서. 화면은 목록 맨 아래(가장 최신 자리)에 둔다.
+  final List<PendingImage> pendingImages;
 
   /// 최신순(id 내림차순). 화면은 `ListView(reverse: true)`라 첫 항목이 맨 아래에 온다.
   final List<ChatMessage> messages;
@@ -42,6 +71,7 @@ class ChatRoomState {
     bool? hasMore,
     bool? loadingMore,
     bool? sending,
+    List<PendingImage>? pendingImages,
   }) {
     return ChatRoomState(
       messages: messages ?? this.messages,
@@ -50,6 +80,7 @@ class ChatRoomState {
       hasMore: hasMore ?? this.hasMore,
       loadingMore: loadingMore ?? this.loadingMore,
       sending: sending ?? this.sending,
+      pendingImages: pendingImages ?? this.pendingImages,
     );
   }
 }
@@ -169,6 +200,68 @@ class ChatRoomController extends Notifier<ChatRoomState> {
       if (ref.mounted) state = state.copyWith(sending: false);
       return false;
     }
+  }
+
+  int _nextLocalId = 0;
+
+  /// 사진을 보낸다(Plan D Task 6). 올리는 동안 [ChatRoomState.pendingImages]에 자리표시를 두고, 성공하면 그 자리를
+  /// 서버 메시지로 바꾼다. 실패하면 자리표시를 실패로 남겨 [retryImage]·[discardImage]를 고르게 한다 — 사진은 다시
+  /// 고르기 번거로우므로 글자처럼 그냥 버리지 않는다.
+  Future<void> sendImage(Uint8List bytes) async {
+    final pending = PendingImage(localId: _nextLocalId++, clientId: _newClientId(), bytes: bytes);
+    state = state.copyWith(pendingImages: [...state.pendingImages, pending]);
+    await _upload(pending);
+  }
+
+  /// 같은 사진·같은 업로드 id로 다시 올린다. 앞선 요청이 서버에는 저장됐는데 응답만 끊긴 경우라도, 서버가 같은 id를
+  /// 알아보고 그 메시지를 돌려주므로 사진이 두 장이 되지 않는다.
+  Future<void> retryImage(int localId) async {
+    final pending = state.pendingImages.where((p) => p.localId == localId).firstOrNull;
+    if (pending == null || !pending.failed) return;
+    final retrying = PendingImage(localId: localId, clientId: pending.clientId, bytes: pending.bytes);
+    _replacePending(retrying);
+    await _upload(retrying);
+  }
+
+  static final _random = Random.secure();
+
+  /// 서버가 받는 형식(영문·숫자·하이픈 64자 이하)의 무작위 id. 128비트라 겹칠 걱정이 없다.
+  static String _newClientId() =>
+      [for (var i = 0; i < 16; i++) _random.nextInt(256).toRadixString(16).padLeft(2, '0')].join();
+
+  void discardImage(int localId) {
+    state = state.copyWith(pendingImages: [for (final p in state.pendingImages) if (p.localId != localId) p]);
+  }
+
+  Future<void> _upload(PendingImage pending) async {
+    final localId = pending.localId;
+    try {
+      final message = await _api.sendImage(roomId, pending.bytes, clientId: pending.clientId);
+      if (!ref.mounted) return;
+      discardImage(localId);
+      _merge([message]);
+    } catch (e) {
+      debugPrint('사진 전송 실패: $e');
+      if (!ref.mounted) return;
+      final reason = switch (e) {
+        ChatImageTooLargeException() => '사진이 너무 커서 보낼 수 없어요.',
+        UnsupportedChatImageException() => '보낼 수 없는 사진 형식이에요.',
+        _ => null,
+      };
+      _replacePending(PendingImage(
+        localId: localId,
+        clientId: pending.clientId,
+        bytes: pending.bytes,
+        failed: true,
+        error: reason,
+      ));
+    }
+  }
+
+  void _replacePending(PendingImage updated) {
+    state = state.copyWith(pendingImages: [
+      for (final p in state.pendingImages) p.localId == updated.localId ? updated : p,
+    ]);
   }
 
   /// 연결이 끊겼던 동안의 메시지를 REST로 받아 채운다. 최신 페이지부터 거슬러 올라가며,

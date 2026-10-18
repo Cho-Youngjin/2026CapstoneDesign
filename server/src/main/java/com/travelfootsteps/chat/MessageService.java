@@ -3,10 +3,16 @@ package com.travelfootsteps.chat;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * 메시지 보내기와 조회. 권한 검사는 모두 {@link RoomService#requireMember}를 거친다.
@@ -22,19 +28,119 @@ public class MessageService {
     static final int DEFAULT_PAGE_SIZE = 30;
     static final int MAX_PAGE_SIZE = 50;
 
+    /**
+     * 사진 한 장의 최대 크기(5MB). application.yml의 multipart 한도(max-file-size)도 같은 값이라 실제 요청은 그쪽에서
+     * 먼저 413으로 막히지만, 한도 설정이 바뀌거나 빠져도 여기서 한 번 더 막는다.
+     */
+    static final int MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+    /** 앱이 붙이는 업로드 id 형식 — UUID 같은 영문·숫자·하이픈 64자 이하(chat_message.client_id 컬럼 크기). */
+    private static final Pattern CLIENT_ID_PATTERN = Pattern.compile("[A-Za-z0-9-]{1,64}");
+
     private final RoomService roomService;
     private final ChatRoomRepository roomRepository;
     private final ChatMessageRepository messageRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final ChatImageStorage imageStorage;
+
+    /** 스프링 부트가 미리 만들어 두는 빈. {@link #sendImage}가 저장을 별도 트랜잭션으로 열 때 쓴다. */
+    private final TransactionTemplate transactionTemplate;
 
     @Transactional
     public MessageResponse sendText(Long roomId, String uid, String text) {
         roomService.requireMember(roomId, uid); // 멤버 행이 있으면 방도 있다(FK)
+        return saveAndAnnounce(ChatMessage.text(roomId, uid, text));
+    }
 
-        ChatMessage message = messageRepository.save(ChatMessage.text(roomId, uid, text));
+    /**
+     * 사진을 보낸다(Plan D Task 6). 흐름: 멤버 확인 → 크기·형식 검사 → <b>파일 저장 → 메시지 저장</b> → (커밋 후) 실시간 전송.
+     *
+     * <p>파일과 DB가 어긋나지 않게: 파일을 먼저 저장하고, 이 트랜잭션이 <b>커밋되지 못하면</b>(메시지 저장 실패, 커밋 실패
+     * 모두) 방금 저장한 파일을 지운다. "커밋되지 못하면"을 아는 방법이 아래의 트랜잭션 동기화 콜백이다 — 메서드 안의
+     * try/catch로는 메서드가 끝난 뒤 커밋 단계에서 나는 실패를 잡을 수 없다. 거꾸로 메시지를 먼저 저장하면, 파일 저장이
+     * 실패했을 때 열리지 않는 사진 메시지가 실시간으로 먼저 퍼질 수 있다.
+     *
+     * <p><b>같은 업로드 id가 동시에 오면</b>(첫 요청이 커밋되기 전에 다시 보내기가 들어옴) 둘 다 "아직 없음"을 보고 저장하려
+     * 하고, 늦은 쪽은 UNIQUE 인덱스(V14)에 걸린다. 그때는 먼저 저장된 메시지를 찾아 돌려준다 — 진 쪽이 저장한 파일은 위의
+     * 콜백이 롤백 때 지운다. PostgreSQL은 제약 위반이 난 트랜잭션에서 더 조회할 수 없으므로(DmRoomCreator 주석 참고)
+     * 저장은 {@link TransactionTemplate}으로 연 별도 트랜잭션에서 하고, 이 메서드 자체는 트랜잭션 없이 돈다
+     * ({@code NOT_SUPPORTED}). TransactionTemplate은 {@code @Transactional}을 코드로 쓰는 방법이다 —
+     * {@code execute} 안의 코드가 한 트랜잭션에서 돌고, 끝나면 커밋(예외면 롤백)한다.
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public MessageResponse sendImage(Long roomId, String uid, byte[] bytes, String clientId) {
+        roomService.requireMember(roomId, uid);
+        if (clientId != null) {
+            if (!CLIENT_ID_PATTERN.matcher(clientId).matches()) {
+                throw new InvalidChatImageException();
+            }
+            // 같은 업로드 id로 이미 저장했으면(응답이 끊겨 앱이 다시 보낸 경우) 새로 저장하지 않고 그대로 돌려준다.
+            // 실시간 전송도 다시 하지 않는다 — 처음 저장할 때 이미 나갔다.
+            var existing = messageRepository.findByRoomIdAndSenderUidAndClientId(roomId, uid, clientId);
+            if (existing.isPresent()) {
+                return MessageResponse.of(existing.get());
+            }
+        }
+        if (bytes.length == 0) {
+            throw new InvalidChatImageException();
+        }
+        if (bytes.length > MAX_IMAGE_BYTES) {
+            throw new ChatImageTooLargeException();
+        }
+        ChatImageFormat format = ChatImageFormat.detect(bytes).orElseThrow(UnsupportedChatImageException::new);
+
+        try {
+            return transactionTemplate.execute(status -> storeImage(roomId, uid, bytes, format, clientId));
+        } catch (DataIntegrityViolationException e) {
+            if (clientId == null) {
+                throw e;
+            }
+            return messageRepository.findByRoomIdAndSenderUidAndClientId(roomId, uid, clientId)
+                    .map(MessageResponse::of)
+                    .orElseThrow(() -> e);
+        }
+    }
+
+    /** 파일 저장 → 메시지 저장. {@link #sendImage}가 연 트랜잭션 안에서 돈다. */
+    private MessageResponse storeImage(Long roomId, String uid, byte[] bytes, ChatImageFormat format, String clientId) {
+        String path = imageStorage.save(bytes, format);
+        // TransactionSynchronization: 지금 진행 중인 트랜잭션이 끝날 때(커밋이든 롤백이든) 스프링이 불러 주는 콜백.
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_COMMITTED) {
+                    imageStorage.delete(path);
+                }
+            }
+        });
+        return saveAndAnnounce(ChatMessage.image(roomId, uid, path, clientId));
+    }
+
+    /**
+     * 사진 내려받기. 내가 그 방의 멤버이고, 메시지가 <b>그 방의 사진 메시지</b>일 때만 준다 — 다른 방의 메시지 id를
+     * 경로에 넣거나 글자 메시지 id를 넣으면, 내가 그 방들의 멤버여도 없는 것(404)으로 본다.
+     */
+    public ChatImage loadImage(Long roomId, String uid, Long messageId) {
+        roomService.requireMember(roomId, uid);
+        ChatMessage message = messageRepository.findById(messageId)
+                .filter(m -> m.getRoomId().equals(roomId) && m.getType() == MessageType.IMAGE)
+                .orElseThrow(RoomNotFoundException::new);
+        String path = message.getImagePath();
+        ChatImageFormat format = ChatImageFormat.fromExtension(path).orElseThrow(RoomNotFoundException::new);
+        return new ChatImage(imageStorage.load(path), format.contentType);
+    }
+
+    /** 내려받기 응답에 쓸 사진 바이트와 형식. */
+    public record ChatImage(byte[] bytes, String contentType) {
+    }
+
+    private MessageResponse saveAndAnnounce(ChatMessage unsaved) {
+        // saveAndFlush: INSERT를 바로 보내 UNIQUE 위반(같은 업로드 id)이 커밋 단계가 아니라 여기서 드러나게 한다.
+        ChatMessage message = messageRepository.saveAndFlush(unsaved);
         // 같은 트랜잭션 안의 UPDATE라 메시지 저장이 롤백되면 이 갱신도 함께 롤백된다.
         // 더 새로운 메시지가 이미 기록돼 있으면 아무것도 바꾸지 않는다(동시 전송 대비).
-        roomRepository.recordLastMessage(roomId, message.getId(), ChatRoom.previewOf(message), message.getCreatedAt());
+        roomRepository.recordLastMessage(message.getRoomId(), message.getId(), ChatRoom.previewOf(message),
+                message.getCreatedAt());
 
         MessageResponse response = MessageResponse.of(message);
         eventPublisher.publishEvent(new MessageSentEvent(response));

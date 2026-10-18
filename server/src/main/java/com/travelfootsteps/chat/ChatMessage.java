@@ -41,6 +41,17 @@ public class ChatMessage {
     @Column(length = 1000)
     private String text;
 
+    /**
+     * 사진 메시지만 값이 있다(Plan D Task 6). {@link ChatImageStorage}의 저장 디렉터리 안 상대 경로 —
+     * 서버 안에서만 쓰고 응답에는 내보내지 않는다(응답은 내려받기 주소 {@code imageUrl}을 준다).
+     */
+    @Column(name = "image_path", length = 300)
+    private String imagePath;
+
+    /** 앱이 사진마다 붙인 업로드 id(없을 수 있다). 같은 사진을 다시 보내도 한 번만 저장하려고 쓴다(V14 주석 참고). */
+    @Column(name = "client_id", length = 64)
+    private String clientId;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -51,6 +62,18 @@ public class ChatMessage {
         message.senderUid = senderUid;
         message.type = MessageType.TEXT;
         message.text = text;
+        message.createdAt = OffsetDateTime.now();
+        return message;
+    }
+
+    /** 사진 메시지. 파일은 이미 저장소에 저장된 뒤이고, {@code imagePath}는 그 상대 경로다. */
+    public static ChatMessage image(Long roomId, String senderUid, String imagePath, String clientId) {
+        ChatMessage message = new ChatMessage();
+        message.roomId = roomId;
+        message.senderUid = senderUid;
+        message.type = MessageType.IMAGE;
+        message.imagePath = imagePath;
+        message.clientId = clientId;
         message.createdAt = OffsetDateTime.now();
         return message;
     }

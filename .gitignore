@@ -11,6 +11,8 @@ app/android/.gradle/
 server/build/
 server/.gradle/
 server/bin/
+# 로컬에서 서버를 띄우면 생기는 채팅 사진 저장 폴더(chat.image-dir 기본값) — 사용자 사진이라 올리지 않는다
+server/data/
 
 # 비밀정보 — 절대 커밋하지 않는다
 **/firebase-service-account.json

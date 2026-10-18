@@ -1,9 +1,27 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:app/features/group/data/chat_api.dart';
 import 'package:app/features/group/models/chat_message.dart';
 import 'package:app/features/group/models/room.dart';
 import 'package:dio/dio.dart';
+
+/// 1x1 투명 PNG — Image.memory가 실제로 디코딩할 수 있는 가장 작은 그림.
+final onePixelPng = Uint8List.fromList(base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='));
+
+/// 테스트용 사진 메시지.
+ChatMessage sampleImageMessage({required int id, int roomId = 1, String senderUid = 'uid-b'}) {
+  return ChatMessage(
+    id: id,
+    roomId: roomId,
+    senderUid: senderUid,
+    type: MessageType.image,
+    imageUrl: '/api/rooms/$roomId/images/$id',
+    createdAt: DateTime(2026, 10, 17, 9).add(Duration(minutes: id)),
+  );
+}
 
 /// 테스트용 메시지. createdAt은 id에 따라 1분씩 늘어난다.
 ChatMessage sampleMessage({
@@ -181,6 +199,51 @@ class FakeChatApi implements ChatApi {
     final message = sampleMessage(id: _nextId++, roomId: roomId, text: text, senderUid: 'uid-a');
     storedMessages.add(message);
     return message;
+  }
+
+  // ───────────── 사진 (Plan D Task 6) ─────────────
+
+  /// 다음 sendImage를 이 오류로 실패시킨다(한 번만).
+  Object? nextImageError;
+
+  /// 정해 두면 sendImage 응답을 이 Completer가 끝날 때까지 미룬다(올리는 중인 상태를 보려고).
+  Completer<void>? holdImage;
+
+  final List<Uint8List> sentImages = [];
+  final List<String> sentImageClientIds = [];
+
+  /// imageBytes가 돌려줄 바이트(주소별). 없으면 1x1 PNG.
+  final Map<String, Uint8List> imagesByUrl = {};
+  final List<String> imageDownloads = [];
+
+  @override
+  Future<ChatMessage> sendImage(int roomId, Uint8List bytes, {required String clientId}) async {
+    sentImages.add(bytes);
+    sentImageClientIds.add(clientId);
+    final hold = holdImage;
+    if (hold != null) await hold.future;
+    final error = nextImageError;
+    if (error != null) {
+      nextImageError = null;
+      throw error;
+    }
+    final id = _nextId++;
+    final message = ChatMessage(
+      id: id,
+      roomId: roomId,
+      senderUid: 'uid-a',
+      type: MessageType.image,
+      imageUrl: '/api/rooms/$roomId/images/$id',
+      createdAt: DateTime(2026, 10, 19, 9),
+    );
+    storedMessages.add(message);
+    return message;
+  }
+
+  @override
+  Future<Uint8List> imageBytes(String imageUrl) async {
+    imageDownloads.add(imageUrl);
+    return imagesByUrl[imageUrl] ?? onePixelPng;
   }
 
   @override
