@@ -197,29 +197,71 @@ void main() {
   });
 
   group('visaAlarmAccountGuardProvider', () {
-    test('로그아웃하거나 계정이 바뀌면 이전 계정의 비자 알람을 지운다', () async {
-      final auth = StreamController<AppUser?>();
+    late StreamController<AppUser?> auth;
+    late FakeAlarmBackend backend;
+    late AlarmScheduler scheduler;
+
+    /// 이전 실행에서 예약해 둔 알람이 남아 있는 상태로 앱을 켠다(인증 상태는 아직 모른다).
+    Future<void> launch() async {
+      auth = StreamController<AppUser?>();
       addTearDown(auth.close);
-      final backend = FakeAlarmBackend();
+      backend = FakeAlarmBackend();
+      scheduler = AlarmScheduler(backend, now: () => seoulTime(2026, 9, 7, 12));
+      await scheduler.syncTrip(sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
       final container = ProviderContainer(overrides: [
         authStateProvider.overrideWith((ref) => auth.stream),
-        alarmSchedulerProvider.overrideWithValue(
-            AlarmScheduler(backend, now: () => seoulTime(2026, 9, 7, 12))),
+        alarmSchedulerProvider.overrideWithValue(scheduler),
       ]);
       addTearDown(container.dispose);
       container.listen(visaAlarmAccountGuardProvider, (_, _) {});
-      final scheduler = container.read(alarmSchedulerProvider);
+    }
+
+    /// 앞서 줄 선 정리가 끝날 때까지 기다린다(스케줄러는 부른 순서대로 처리한다).
+    Future<void> settle() async {
+      await pumpEventQueue();
+      await scheduler.keepOnlyTrips({7});
+    }
+
+    test('로그인 상태로 켜면 알람을 그대로 둔다', () async {
+      await launch();
+      await settle();
+      expect(backend.scheduled, isNotEmpty, reason: '인증 상태를 아직 모를 때는 지우지 않는다');
 
       auth.add(const AppUser(uid: 'uid-a'));
-      await container.read(authStateProvider.future);
-      await scheduler.syncTrip(sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
-      expect(backend.scheduled, isNotEmpty, reason: '로그인할 때는 지우지 않는다');
+      await settle();
+
+      expect(backend.scheduled.keys, [notificationIdFor(101)]);
+    });
+
+    test('로그아웃하면 이전 계정의 비자 알람을 지운다', () async {
+      await launch();
+      auth.add(const AppUser(uid: 'uid-a'));
+      await settle();
 
       auth.add(null);
-      await pumpEventQueue();
-      await scheduler.cancelAll(); // 순서대로 처리되므로 이 호출이 끝나면 앞선 정리도 끝났다
+      await settle();
 
       expect(backend.cancelled, contains(notificationIdFor(101)));
+      expect(backend.scheduled, isEmpty);
+    });
+
+    test('다른 계정으로 바로 바뀌어도 이전 계정의 알람을 지운다', () async {
+      await launch();
+      auth.add(const AppUser(uid: 'uid-a'));
+      await settle();
+
+      auth.add(const AppUser(uid: 'uid-b'));
+      await settle();
+
+      expect(backend.scheduled, isEmpty);
+    });
+
+    test('로그아웃 때 정리하지 못했어도 로그아웃 상태로 다시 켜면 지운다', () async {
+      await launch();
+
+      auth.add(null);
+      await settle();
+
       expect(backend.scheduled, isEmpty);
     });
   });

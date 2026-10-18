@@ -20,14 +20,18 @@ import 'fake_alarm_backend.dart';
 import 'fake_trip_api.dart';
 
 class FakePermission implements NotificationPermission {
-  FakePermission({this.fails = false});
+  FakePermission({this.fails = false, this.hold});
 
   final bool fails;
+
+  /// 정해 두면 이 Completer가 끝날 때까지 답하지 않는다 — 권한 대화상자가 떠 있는 동안.
+  final Completer<void>? hold;
   int calls = 0;
 
   @override
   Future<bool> request() async {
     calls++;
+    if (hold != null) await hold!.future;
     if (fails) throw Exception('permission plugin failed');
     return true;
   }
@@ -357,6 +361,22 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(alarms.scheduled.keys, [notificationIdFor(5)]);
+    });
+
+    testWidgets('권한 대화상자가 떠 있는 동안 완료한 일정의 알람은 되살아나지 않는다', (tester) async {
+      final dialog = Completer<void>();
+      final r = await pumpResultPage(tester,
+          trip: sampleTrip(id: 7, tasks: [
+            task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+          ]),
+          permission: FakePermission(hold: dialog));
+
+      await tester.tap(find.text('여행자보험 가입'));
+      await tester.pumpAndSettle();
+      dialog.complete();
+      await tester.pumpAndSettle();
+
+      expect(r.alarms.scheduled, isEmpty);
     });
 
     testWidgets('완료 응답이 오기 전에 화면을 나가도 그 일정의 알람은 취소한다', (tester) async {

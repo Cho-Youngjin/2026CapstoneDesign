@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../../../core/auth/app_user.dart';
 import '../../../core/auth/auth_providers.dart';
 import '../../../core/prefs/shared_preferences_provider.dart';
 import '../models/trip.dart';
@@ -247,14 +248,21 @@ final alarmSchedulerProvider = Provider<AlarmScheduler>((ref) => AlarmScheduler(
       registry: PrefsAlarmRegistry(ref.watch(sharedPreferencesProvider)),
     ));
 
-/// 로그아웃하거나 다른 계정으로 바뀌면 이전 계정의 알람을 모두 지운다 — 알림에 이전 계정의
+/// 로그아웃 상태이거나 다른 계정으로 바뀌면 이전 계정의 알람을 모두 지운다 — 알림에 이전 계정의
 /// 국가·일정이 뜨면 안 된다. 새 계정의 알람은 그 계정의 여행 상세를 열 때 다시 예약된다.
 /// 앱 최상단(main.dart의 _Root)이 watch해서 앱이 떠 있는 동안 계속 지켜본다.
+///
+/// 로그아웃 "순간"만이 아니라 로그아웃 "상태"를 볼 때마다 지운다. 로그아웃 때 정리가 실패했거나
+/// 중간에 앱이 꺼졌어도, 다음에 로그아웃 상태로 켜면 다시 지운다. 지울 게 없으면 플러그인을 부르지 않는다.
+/// 인증 상태를 아직 모를 때(로딩)는 아무것도 하지 않는다 — 로그인한 사용자의 알람을 지우면 안 된다.
 final visaAlarmAccountGuardProvider = Provider<void>((ref) {
-  ref.listen<String?>(currentUidProvider, (previous, next) {
-    if (previous == null || previous == next) return;
+  ref.listen<AsyncValue<AppUser?>>(authStateProvider, (previous, next) {
+    if (!next.hasValue) return;
+    final uid = next.value?.uid;
+    final previousUid = previous?.value?.uid;
+    if (uid != null && (previousUid == null || previousUid == uid)) return;
     unawaited(ref.read(alarmSchedulerProvider).cancelAll().catchError((Object e) {
       debugPrint('이전 계정의 비자 준비 알람 정리 실패: $e');
     }));
-  });
+  }, fireImmediately: true);
 });
