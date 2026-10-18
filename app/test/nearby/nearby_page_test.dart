@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app/core/network/country_api.dart';
 import 'package:app/features/nearby/api/embassy_api.dart';
 import 'package:app/features/nearby/api/places_api.dart';
@@ -94,14 +96,114 @@ void main() {
         child: const MaterialApp(home: NearbyPage()),
       ),
     );
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-    await tester.pump();
-    await tester.pump();
+    // 탭 진입 시 위치 새로고침이 한 번 더 비동기로 돈 뒤 화면이 안정되므로 두 번 기다린다.
+    for (var i = 0; i < 2; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump();
+      await tester.pump();
+    }
 
     // 필터 칩 라벨과 리스트 항목의 카테고리 라벨 둘 다 "관광지"라 2곳에서 보인다.
     expect(find.text('관광지'), findsWidgets);
     expect(find.text('호안끼엠 호수'), findsOneWidget);
     expect(find.text('황색경보 (여행자제)'), findsOneWidget);
     expect(find.textContaining('주베트남대한민국대사관'), findsOneWidget);
+  });
+
+  Future<void> pumpNearby(
+    WidgetTester tester, {
+    required Future<List<TravelAlert>> Function() alerts,
+  }) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentPositionProvider.overrideWith((ref) async => fakePosition),
+          currentLocationCountryProvider.overrideWith((ref) async => 'VN'),
+          countryListProvider.overrideWith((ref) async => [country]),
+          nearbyPlacesProvider.overrideWith((ref) async => const <Place>[]),
+          travelAlertsProvider.overrideWith((ref, iso2) => alerts()),
+          embassiesProvider.overrideWith((ref, iso2) async => const <Embassy>[]),
+        ],
+        child: const MaterialApp(home: NearbyPage()),
+      ),
+    );
+    for (var i = 0; i < 2; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump();
+      await tester.pump();
+    }
+  }
+
+  testWidgets('경보 배지 아래에 그 경보의 대상 지역이 함께 보인다', (tester) async {
+    await pumpNearby(
+      tester,
+      alerts: () async => [
+        TravelAlert(
+          id: 'a1',
+          level: 3,
+          region: '후쿠시마 원전 반경 30km 이내',
+          title: '일본 여행경보 3단계',
+          issuedAt: DateTime(2026, 8, 1),
+        ),
+      ],
+    );
+
+    expect(find.text('적색경보 (철수권고)'), findsOneWidget);
+    expect(find.text('후쿠시마 원전 반경 30km 이내'), findsOneWidget);
+    expect(find.text('등록된 여행경보 없음'), findsNothing);
+  });
+
+  testWidgets('불러온 경보가 하나도 없는 나라는 경보 없음을 안내한다', (tester) async {
+    await pumpNearby(tester, alerts: () async => const <TravelAlert>[]);
+
+    expect(find.text('등록된 여행경보 없음'), findsOneWidget);
+  });
+
+  testWidgets('경보를 아직 불러오는 중에는 없음이라고 단정하지 않는다', (tester) async {
+    await pumpNearby(tester, alerts: () => Completer<List<TravelAlert>>().future);
+
+    expect(find.text('등록된 여행경보 없음'), findsNothing);
+  });
+
+  testWidgets('경보를 불러오지 못하면 없음이 아니라 불러오지 못했다고 알린다', (tester) async {
+    await pumpNearby(tester, alerts: () async => throw StateError('network'));
+
+    expect(find.text('등록된 여행경보 없음'), findsNothing);
+    expect(find.text('여행경보를 불러오지 못했습니다'), findsOneWidget);
+  });
+
+  testWidgets('한국에 있을 때는 한국이 기본으로 선택되고 경보·공관은 조회하지 않는다', (tester) async {
+    final alertCalls = <String>[];
+    final embassyCalls = <String>[];
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentPositionProvider.overrideWith((ref) async => fakePosition),
+          currentLocationCountryProvider.overrideWith((ref) async => 'KR'),
+          countryListProvider.overrideWith((ref) async => [country]),
+          nearbyPlacesProvider.overrideWith((ref) async => const <Place>[]),
+          travelAlertsProvider.overrideWith((ref, iso2) async {
+            alertCalls.add(iso2);
+            return const <TravelAlert>[];
+          }),
+          embassiesProvider.overrideWith((ref, iso2) async {
+            embassyCalls.add(iso2);
+            return const <Embassy>[];
+          }),
+        ],
+        child: const MaterialApp(home: NearbyPage()),
+      ),
+    );
+    for (var i = 0; i < 2; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump();
+      await tester.pump();
+    }
+
+    expect(find.text('대한민국'), findsOneWidget);
+    // 한국은 서버 국가 목록에 없어 경보·공관 API가 404가 된다 — 아예 부르지 않고 "경보 없음"도 말하지 않는다.
+    expect(alertCalls, isEmpty);
+    expect(embassyCalls, isEmpty);
+    expect(find.text('등록된 여행경보 없음'), findsNothing);
   });
 }

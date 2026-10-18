@@ -7,6 +7,7 @@ import 'package:app/features/footsteps/data/country_resolver.dart';
 import 'package:app/features/footsteps/map/base_google_map.dart';
 import 'package:app/features/footsteps/map/country_detail_map_page.dart';
 import 'package:app/features/footsteps/providers/footsteps_providers.dart';
+import 'package:app/features/footsteps/providers/overseas_mapping_session.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -63,6 +64,16 @@ class _FixedCountryResolver implements CountryResolver {
   Future<String> resolveIso2(double lat, double lng) async => 'JP';
 }
 
+/// 해외 매핑 세션 상태를 고정해 두는 대역(실제 위치 구독·서버 호출 없이 화면만 본다).
+class _FixedOverseasMapping extends OverseasMappingNotifier {
+  _FixedOverseasMapping(this._state);
+
+  final OverseasMappingState _state;
+
+  @override
+  OverseasMappingState build() => _state;
+}
+
 void main() {
   setUpAll(() {
     GoogleMapsFlutterPlatform.instance = _FakeGoogleMapsFlutterPlatform();
@@ -85,7 +96,7 @@ void main() {
     }
   }
 
-  Future<void> pumpPage(WidgetTester tester) async {
+  Future<void> pumpPage(WidgetTester tester, {OverseasMappingState? overseas}) async {
     final dio = Dio(BaseOptions(baseUrl: 'http://test'));
     dio.httpClientAdapter = _ShiftingSnapAdapter();
     // dio 기본 transformer는 JSON 인코딩/디코딩을 compute(별도 isolate)로 돌린다.
@@ -102,6 +113,8 @@ void main() {
           // 실제 GPS 스트림(Geolocator)은 테스트에서 쓸 수 없다. 이 화면의 과거
           // 기록 렌더링만 보려는 것이므로 빈 스트림으로 둔다.
           liveRouteProvider.overrideWith((ref) => const Stream<List<LatLng>>.empty()),
+          if (overseas != null)
+            overseasMappingProvider.overrideWith(() => _FixedOverseasMapping(overseas)),
         ],
         child: MaterialApp(
           home: CountryDetailMapPage(isoAlpha2: 'JP', onBack: () {}),
@@ -198,5 +211,52 @@ void main() {
     await settle(tester);
 
     expect(walkingRoute(tester), isNull);
+  });
+
+  // 해외 매핑 중에는 실제 GPS가 한국에 있다. 일본 상세 화면이 그 한국 위치에 파란 점을 찍거나
+  // 카메라를 옮기면 일본 이동 기록을 보는 화면에서 지도가 한국으로 튄다.
+  testWidgets('해외 매핑 중인 나라의 상세 화면은 한국 GPS 대신 해외 현재 위치를 보여준다', (tester) async {
+    final at = DateTime(2026, 10, 6, 12);
+    await db.insertRoutePoint(lat: 35.60, lng: 139.70, countryIso: 'JP', recordedAt: at);
+    await db.insertRoutePoint(
+      lat: 35.61,
+      lng: 139.71,
+      countryIso: 'JP',
+      recordedAt: at.add(const Duration(minutes: 1)),
+    );
+    const current = LatLng(35.62, 139.72);
+
+    await pumpPage(
+      tester,
+      overseas: const OverseasMappingState(
+        active: true,
+        country: 'JP',
+        startAnchor: LatLng(35.60, 139.70),
+        anchor: current,
+      ),
+    );
+
+    final map = tester.widget<BaseGoogleMap>(find.byType(BaseGoogleMap));
+    expect(map.myLocationEnabled, isFalse);
+    expect(map.initialCamera.target, current);
+    final marker = map.markers.singleWhere((m) => m.markerId.value == 'overseas_current');
+    expect(marker.position, current);
+  });
+
+  testWidgets('해외 매핑 중이 아닌 나라의 상세 화면은 기존처럼 실제 위치 표시를 쓴다', (tester) async {
+    final at = DateTime(2026, 10, 6, 12);
+    await db.insertRoutePoint(lat: 35.60, lng: 139.70, countryIso: 'JP', recordedAt: at);
+    await db.insertRoutePoint(
+      lat: 35.61,
+      lng: 139.71,
+      countryIso: 'JP',
+      recordedAt: at.add(const Duration(minutes: 1)),
+    );
+
+    await pumpPage(tester);
+
+    final map = tester.widget<BaseGoogleMap>(find.byType(BaseGoogleMap));
+    expect(map.myLocationEnabled, isTrue);
+    expect(map.markers.map((m) => m.markerId.value), isNot(contains('overseas_current')));
   });
 }

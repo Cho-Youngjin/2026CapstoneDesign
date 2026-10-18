@@ -18,6 +18,30 @@ double totalDistanceMeters(List<LatLng> points) {
   return total;
 }
 
+/// 두 기록 사이가 이보다 오래 비면 이어서 걸은 것으로 보지 않는다(다른 날, 다른 해외 매핑 세션).
+const maxWalkingGap = Duration(minutes: 10);
+
+/// 연속한 두 기록이 이보다 멀면 걸어서 이동한 것으로 보지 않는다(다른 출발점에서 새로 시작한 해외 매핑 등).
+/// 경로는 10m마다 기록되므로 정상적인 걷기에서는 나올 수 없는 거리다.
+const maxWalkingJumpMeters = 1000.0;
+
+/// 기록 시각 순서대로 이동 거리를 합하되, 오래 비었거나 한 번에 멀리 뛴 구간은 빼고 더한다.
+///
+/// 한 나라의 기록을 전부 한 줄로 이으면, 다른 날·다른 세션 사이의 직선거리(수백 km일 수도 있다)가
+/// 걸은 거리로 잡혀 추정 걸음 수가 크게 부풀기 때문이다.
+double walkingDistanceMeters(List<(LatLng, DateTime)> points) {
+  var total = 0.0;
+  for (var i = 1; i < points.length; i++) {
+    final (prev, prevAt) = points[i - 1];
+    final (cur, curAt) = points[i];
+    if (curAt.difference(prevAt).abs() > maxWalkingGap) continue;
+    final meters = _haversineMeters(prev, cur);
+    if (meters > maxWalkingJumpMeters) continue;
+    total += meters;
+  }
+  return total;
+}
+
 int estimateStepsFromDistance(double meters) => (meters / averageStrideMeters).round();
 
 double _haversineMeters(LatLng a, LatLng b) {

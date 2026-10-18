@@ -7,20 +7,39 @@ import 'api/places_api.dart';
 import 'api/travel_alert_api.dart';
 import 'models/embassy.dart';
 import 'models/travel_alert.dart';
+import '../footsteps/providers/footsteps_providers.dart' show overseasPositionProvider;
+import '../footsteps/providers/overseas_mapping_session.dart' show overseasMappingProvider;
 import 'providers/nearby_selection_providers.dart';
-import 'widgets/alert_badge.dart';
+import 'widgets/alert_section.dart';
 import 'widgets/category_filter_tabs.dart';
 import 'widgets/embassy_card.dart';
 import 'widgets/nearby_map_view.dart';
 import 'widgets/place_list_tile.dart';
 
-class NearbyPage extends ConsumerWidget {
+class NearbyPage extends ConsumerStatefulWidget {
   const NearbyPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final position = ref.watch(currentPositionProvider);
-    final countries = ref.watch(countryListProvider);
+  ConsumerState<NearbyPage> createState() => _NearbyPageState();
+}
+
+class _NearbyPageState extends ConsumerState<NearbyPage> {
+  @override
+  void initState() {
+    super.initState();
+    // 탭에 들어올 때마다 최신 위치로 새로고침한다(해외 매핑 중이면 해외 현재 위치).
+    // 위치 권한 거부 등으로 실패해도 화면은 아래 position.when의 에러 표시로 처리한다.
+    Future.microtask(() async {
+      try {
+        await refreshNearbyPosition(ref);
+      } catch (_) {}
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final position = ref.watch(nearbyPositionProvider);
+    final countries = ref.watch(countriesWithHomeProvider);
     final selectedIso2 = ref.watch(selectedCountryProvider);
     final currentLocationIso2 = ref.watch(currentLocationCountryProvider).asData?.value;
 
@@ -39,7 +58,7 @@ class NearbyPage extends ConsumerWidget {
           IconButton(
             tooltip: '위치 새로고침',
             icon: const Icon(Icons.my_location),
-            onPressed: () => ref.invalidate(currentPositionProvider),
+            onPressed: () => refreshNearbyPosition(ref),
           ),
           countries.when(
             loading: () => const SizedBox.shrink(),
@@ -80,12 +99,15 @@ class NearbyPage extends ConsumerWidget {
           final iso2 = effectiveIso2(countries.asData?.value ?? const []);
 
           final places = ref.watch(nearbyPlacesProvider);
-          final AsyncValue<List<TravelAlert>> alerts = iso2 == null
-              ? const AsyncValue.data([])
-              : ref.watch(travelAlertsProvider(iso2));
-          final AsyncValue<List<Embassy>> embassies = iso2 == null
-              ? const AsyncValue.data([])
-              : ref.watch(embassiesProvider(iso2));
+          // 국가가 아직 정해지지 않았으면(null) "경보 없음"이라고 말하지 않도록 구분해 둔다.
+          // 본국(한국)은 서버 국가 목록에 없어 경보·공관 API가 404다 — 부르지 않고 "경보 없음"이라고도
+          // 말하지 않는다(null).
+          final isAbroad = iso2 != null && iso2 != homeCountryIso2;
+          final AsyncValue<List<TravelAlert>>? alerts =
+              isAbroad ? ref.watch(travelAlertsProvider(iso2)) : null;
+          final AsyncValue<List<Embassy>> embassies = isAbroad
+              ? ref.watch(embassiesProvider(iso2))
+              : const AsyncValue.data([]);
 
           return CustomScrollView(
             slivers: [
@@ -96,6 +118,8 @@ class NearbyPage extends ConsumerWidget {
                     center: pos,
                     places: places.asData?.value ?? const [],
                     embassies: embassies.asData?.value ?? const [],
+                    overseasPosition: ref.watch(overseasPositionProvider),
+                    overseasHeading: ref.watch(overseasMappingProvider.select((s) => s.jpHeading)),
                   ),
                 ),
               ),
@@ -105,18 +129,7 @@ class NearbyPage extends ConsumerWidget {
                   child: CategoryFilterTabs(),
                 ),
               ),
-              if ((alerts.asData?.value ?? const []).isNotEmpty)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    child: Wrap(
-                      spacing: 8,
-                      children: [
-                        for (final a in alerts.asData!.value) AlertBadge(level: a.level),
-                      ],
-                    ),
-                  ),
-                ),
+              SliverToBoxAdapter(child: AlertSection(alerts: alerts)),
               places.when(
                 loading: () => const SliverToBoxAdapter(
                   child: Padding(

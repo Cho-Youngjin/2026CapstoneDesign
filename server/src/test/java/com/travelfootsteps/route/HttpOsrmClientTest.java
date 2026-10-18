@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -112,5 +113,44 @@ class HttpOsrmClientTest {
         server.verify();
         // 두 구간이 좌표 1점을 공유하므로 이어 붙일 때 중복 하나를 떼어낸다: 2 + (2 - 1).
         assertThat(matched).hasSize(3);
+    }
+
+    @Test
+    void match는_점마다_30m_탐색_반경을_보내_도로에서_조금_벗어난_GPS도_붙인다() {
+        // OSRM 기본 반경(약 5m)에서는 도로에서 조금만 벗어난 점이 하나만 있어도 NoMatch로 거절돼
+        // 서버가 원본 좌표를 돌려주고, 앱 지도에는 도로를 무시한 직선이 그려진다.
+        server.expect(requestTo(containsString("radiuses=30;30;30")))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {"code":"Ok","matchings":[{"geometry":{"coordinates":[[139.0,35.0],[139.1,35.1]]}}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        List<GeoPoint> matched = client.match("JP", List.of(
+                new GeoPoint(35.0, 139.0), new GeoPoint(35.05, 139.05), new GeoPoint(35.1, 139.1)));
+
+        server.verify();
+        assertThat(matched).hasSize(2);
+    }
+
+    @Test
+    void match는_OSRM이_궤적을_여러_matching으로_나눠_주면_전부_이어_붙인다() {
+        // GPS가 끊기거나 튀는 구간이 있으면 OSRM은 궤적을 matching 여러 개로 쪼개 돌려준다.
+        // 첫 번째만 쓰면 그 뒤의 이동 경로가 통째로 사라진다.
+        server.expect(requestTo(startsWith("http://jp.osrm:5002/match/v1/foot/")))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {"code":"Ok","matchings":[
+                          {"geometry":{"coordinates":[[139.0,35.0],[139.1,35.1]]}},
+                          {"geometry":{"coordinates":[[139.2,35.2],[139.3,35.3]]}}
+                        ]}
+                        """, MediaType.APPLICATION_JSON));
+
+        List<GeoPoint> matched = client.match("JP",
+                List.of(new GeoPoint(35.0, 139.0), new GeoPoint(35.3, 139.3)));
+
+        server.verify();
+        assertThat(matched).containsExactly(
+                new GeoPoint(35.0, 139.0), new GeoPoint(35.1, 139.1),
+                new GeoPoint(35.2, 139.2), new GeoPoint(35.3, 139.3));
     }
 }

@@ -24,7 +24,9 @@ class DioFootstepsApi implements FootstepsApi {
           'lat': c.lat,
           'lng': c.lng,
           'countryIso': c.countryIso,
-          'recordedAt': c.recordedAt.toIso8601String(),
+          // drift가 돌려주는 DateTime은 로컬이라 그대로 직렬화하면 Z가 없어 서버(Instant)가
+          // 파싱하지 못하고, 파싱되더라도 UTC로 오해된다 — 항상 UTC로 바꿔 보낸다.
+          'recordedAt': c.recordedAt.toUtc().toIso8601String(),
           'source': c.source.name.toUpperCase(),
         },
     ]);

@@ -60,6 +60,20 @@ void main() {
     ]);
   });
 
+  test('저장이 중지된 동안(해외 매핑 중)은 화면용 경로만 내고 영구 기록은 남기지 않는다', () async {
+    final positions = Stream.fromIterable([_positionAt(1, 1), _positionAt(2, 2)]);
+
+    final snapshots = await trackAndPersistLiveRoute(
+      positions: positions,
+      countryResolver: const _FixedCountryResolver('JP'),
+      repository: repo,
+      shouldPersist: () => false,
+    ).toList();
+
+    expect(snapshots.last, [const LatLng(1, 1), const LatLng(2, 2)]);
+    expect(await repo.routePointsForCountry('JP'), isEmpty);
+  });
+
   test('국가가 판정되는 좌표는 영구 기록으로 저장된다', () async {
     final positions = Stream.fromIterable([_positionAt(1, 1), _positionAt(2, 2)]);
 

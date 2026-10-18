@@ -8,8 +8,10 @@ import '../data/route_point.dart';
 import '../data/route_snapping_api.dart';
 // 날짜 묶음 기준을 걸음수 귀속(DailySteps)과 똑같이 맞춘다 — 여기서 따로 만들면
 // 한쪽은 UTC 플래그, 한쪽은 로컬 플래그가 되어 같은 날짜가 달라 보인다.
+import '../health/distance_step_estimator.dart';
 import '../health/step_attribution.dart' show dayKeyOf;
 import '../providers/footsteps_providers.dart';
+import '../providers/overseas_mapping_session.dart';
 import 'base_google_map.dart';
 
 final _checkinsForCountryProvider =
@@ -57,12 +59,6 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
   DateTime? _snappedForDay;
   int _snappedForPointCount = -1;
 
-  void _showTimestamp(DateTime recordedAt) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('기록 시각: ${recordedAt.toLocal()}')),
-    );
-  }
-
   LatLng? _lastOrNull(List<LatLng> points) => points.isEmpty ? null : points.last;
 
   void _snapRouteLineIfNeeded(DateTime day, List<LatLng> rawLine) {
@@ -93,10 +89,34 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
     ref.listen(liveRouteProvider, (_, next) {
       ref.invalidate(_routePointsForCountryProvider(widget.isoAlpha2));
       final last = _lastOrNull(next.asData?.value ?? const []);
-      if (last != null) {
-        _mapController?.animateCamera(CameraUpdate.newLatLngZoom(last, _tenKmZoom));
+      if (last == null) return;
+      // 실제 위치가 이 나라 안일 때만 따라간다 — 해외 매핑 중에는 실제 GPS가 한국에 있어서
+      // 일본 상세 화면을 한국으로 끌고 가면 안 된다.
+      ref
+          .read(realtimeCountryResolverProvider)
+          .resolveIso2(last.latitude, last.longitude)
+          .then((iso) {
+        if (mounted && iso == widget.isoAlpha2) {
+          _mapController?.animateCamera(CameraUpdate.newLatLngZoom(last, _tenKmZoom));
+        }
+      });
+    });
+    // 해외 매핑 세션이 이 나라에서 진행 중이면 해외 경로가 쌓이는 대로 다시 읽고, 해외
+    // 현재 위치를 따라간다.
+    ref.listen(overseasMappingProvider, (prev, next) {
+      if (!next.active || next.country != widget.isoAlpha2) return;
+      if (next.jpRoute.length != prev?.jpRoute.length) {
+        ref.invalidate(_routePointsForCountryProvider(widget.isoAlpha2));
+      }
+      final anchor = next.anchor;
+      if (anchor != null && anchor != prev?.anchor) {
+        _mapController?.animateCamera(CameraUpdate.newLatLngZoom(anchor, _tenKmZoom));
       }
     });
+    final session = ref.watch(overseasMappingProvider);
+    final overseasAnchor =
+        session.active && session.country == widget.isoAlpha2 ? session.anchor : null;
+    final liveCountry = ref.watch(liveCountryProvider).asData?.value;
 
     final checkinsAsync = ref.watch(_checkinsForCountryProvider(widget.isoAlpha2));
     final routePoints =
@@ -144,7 +164,11 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
           // 지금 실시간으로 들어오고 있는 위치가 있으면 그걸 최우선으로 화면
           // 가운데에 놓는다 — "발걸음 상세 지도는 언제나 현재 위치 중심"이라는
           // 요구사항. 아직 GPS fix가 없으면(화면 진입 직후) 과거 기록으로 대체한다.
-          final livePosition = _lastOrNull(ref.watch(liveRouteProvider).asData?.value ?? const []);
+          // 해외 매핑 중인 나라면 해외 현재 위치가, 아니면 실제 위치가 이 나라 안일 때만 실제 위치가 쓰인다.
+          final livePosition = overseasAnchor ??
+              (liveCountry == widget.isoAlpha2
+                  ? _lastOrNull(ref.watch(liveRouteProvider).asData?.value ?? const [])
+                  : null);
           // dates가 비어 있지 않으면 선택된 날짜에는 체크인이나 경로 좌표가 반드시
           // 하나는 있다. 스냅 결과(routeLine)가 아니라 원본 좌표를 폴백으로 쓴다.
           final initialCameraTarget = livePosition ??
@@ -170,32 +194,20 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
                 ),
               ),
               Expanded(
+                flex: 3,
                 child: BaseGoogleMap(
                   initialCamera: CameraPosition(target: initialCameraTarget, zoom: _tenKmZoom),
                   onMapCreated: (controller) => _mapController = controller,
-                  circles: {
-                    // 실선 위에 각 기록 갱신 시점을 작은 점으로 구분 표시한다.
-                    // 탭하면 그 지점이 언제 기록됐는지 스낵바로 보여준다. 도로 스냅
-                    // 결과(routeLine)는 보간되며 개수·순서가 원본과 달라질 수 있어
-                    // 구분점은 항상 원본 좌표(rawRouteLine)에 찍는다.
-                    for (var i = 0; i < dayRoutePoints.length; i++)
-                      Circle(
-                        circleId: CircleId('route_point_$i'),
-                        center: rawRouteLine[i],
-                        // 10km 뷰(_tenKmZoom) 기준으로 화면에서 알아볼 수 있는 크기.
-                        // Circle 반경은 실제 미터 단위라 다른 줌에서는 커 보이거나
-                        // 작아 보일 수 있다 — 기본 줌에 맞춘 근사치다.
-                        // 실선과 같은 주황 계열로 채우면 선 위에서 묻혀 안 보이므로
-                        // 흰 배경 + 진한 테두리로 확실히 도드라지게 한다.
-                        radius: 80,
-                        fillColor: Colors.white,
-                        strokeWidth: 3,
-                        strokeColor: const Color(0xFF9A3412),
-                        consumeTapEvents: true,
-                        onTap: () => _showTimestamp(dayRoutePoints[i].recordedAt),
-                      ),
-                  },
+                  // 해외 매핑 중에는 기본 파란 점이 한국 위치를 가리키므로 끄고 해외 위치를 직접 그린다.
+                  myLocationEnabled: overseasAnchor == null,
                   markers: {
+                    if (overseasAnchor != null)
+                      Marker(
+                        markerId: const MarkerId('overseas_current'),
+                        position: overseasAnchor,
+                        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+                        zIndexInt: 1,
+                      ),
                     for (var i = 0; i < dayCheckins.length; i++)
                       Marker(
                         markerId: MarkerId('checkin_$i'),
@@ -227,10 +239,63 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
                   },
                 ),
               ),
+              Expanded(flex: 2, child: _MovementHistory(points: dayRoutePoints)),
             ],
           );
         },
       ),
+    );
+  }
+}
+
+/// 선택한 날짜의 이동 기록 — 요약(총 이동 거리·추정 걸음)과 최신순 좌표 목록.
+class _MovementHistory extends StatelessWidget {
+  const _MovementHistory({required this.points});
+
+  final List<RoutePoint> points;
+
+  static String _hms(DateTime t) {
+    final l = t.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(l.hour)}:${two(l.minute)}:${two(l.second)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (points.isEmpty) {
+      return const Center(child: Text('이 날짜의 이동 기록이 없습니다'));
+    }
+    final latLngs = [for (final p in points) LatLng(p.lat, p.lng)];
+    // 같은 날이라도 세션이 나뉘면 그 사이 공백은 빼고 더한다 — 세계지도의 추정 걸음 수와 같은 계산.
+    final totalMeters = walkingDistanceMeters([for (final p in points) (LatLng(p.lat, p.lng), p.recordedAt)]);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: Text(
+            '이동 기록 ${points.length}건 · ${totalMeters.round()}m · 추정 ${estimateStepsFromDistance(totalMeters)}걸음',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            itemCount: points.length,
+            itemBuilder: (_, row) {
+              final i = points.length - 1 - row; // 최신순
+              final gap = i == 0 ? 0.0 : totalDistanceMeters([latLngs[i - 1], latLngs[i]]);
+              return ListTile(
+                dense: true,
+                leading: Text('${i + 1}'),
+                title: Text(_hms(points[i].recordedAt)),
+                subtitle: Text('${points[i].lat.toStringAsFixed(5)}, ${points[i].lng.toStringAsFixed(5)}'),
+                trailing: Text(i == 0 ? '출발' : '+${gap.round()}m'),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

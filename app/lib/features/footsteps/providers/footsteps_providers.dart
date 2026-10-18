@@ -7,6 +7,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/db/app_database.dart';
 import '../../../core/network/api_client.dart';
+import '../data/checkin.dart';
 import '../data/country_resolver.dart';
 import '../data/footsteps_api.dart';
 import '../data/footsteps_repository.dart';
@@ -35,9 +36,8 @@ final realtimeCountryResolverProvider = Provider<CountryResolver>((ref) {
   return PolygonCountryResolver(polygons);
 });
 
-/// 발걸음 탭이 화면에 떠 있을 때만 켜는 실시간 추적 스위치. 앱이 백그라운드로
-/// 가면 false로 내려 GPS 스트림을 끊는다(배터리 방어) — 다시 true가 되면
-/// autoDispose provider가 재빌드되며 스트림을 새로 연다.
+/// 실시간 추적 스위치. 앱이 백그라운드로 가면 탭 셸(router.dart의 _TabScaffold)이 false로 내려
+/// GPS 스트림을 끊는다(배터리 방어) — 다시 true가 되면 autoDispose provider가 재빌드되며 스트림을 새로 연다.
 ///
 /// 국가 판정(체크인)은 원래 설계대로 WorkManager 1시간 주기(footstep_workmanager.dart)와
 /// 포그라운드 수동 "여기 저장"만 쓴다 — 국경 이동을 실시간으로 자동 체크인하는
@@ -50,6 +50,14 @@ final realtimeTrackingEnabledProvider = StateProvider<bool>((ref) => true);
 /// 경로가 뚝뚝 끊기지 않도록 촘촘한(10m) distanceFilter로 구독한다. 반환하는
 /// 좌표 목록 자체는 이번 구독 동안만 유효한 화면 표시용 캐시이고(화면을 벗어나면 autoDispose로 사라짐),
 /// DB에 쌓인 기록은 앱을 껐다 켜도 남는다 — CountryDetailMapPage가 그 기록을 다시 읽는다.
+/// 해외 매핑이 진행 중인지. 진행 중에는 한국에서의 실제 이동을 RoutePoints에 저장하지
+/// 않는다(해외 매핑 화면이 대신 해외 경로를 저장한다).
+final overseasMappingActiveProvider = StateProvider<bool>((ref) => false);
+
+/// 해외 매핑 중 투영된 해외 현재 위치(도로 위). 해외 매핑이 아닐 때는 null이다.
+/// 주변 정보가 "지금 있는 곳"을 해외 위치로 삼는 데 쓴다.
+final overseasPositionProvider = StateProvider<LatLng?>((ref) => null);
+
 final liveRouteProvider = StreamProvider.autoDispose<List<LatLng>>((ref) {
   final enabled = ref.watch(realtimeTrackingEnabledProvider);
   if (!enabled) return const Stream.empty();
@@ -65,7 +73,19 @@ final liveRouteProvider = StreamProvider.autoDispose<List<LatLng>>((ref) {
     positions: positions,
     countryResolver: ref.watch(realtimeCountryResolverProvider),
     repository: ref.watch(footstepsRepositoryProvider),
+    shouldPersist: () => !ref.read(overseasMappingActiveProvider),
   );
+});
+
+/// 앱 전체 위치 스트림의 최신 좌표가 속한 국가(ISO2). 아직 위치가 없거나 판정할 수 없으면 null.
+/// 국가 상세 화면이 "지금 실제로 있는 나라"인지 가를 때 쓴다.
+final liveCountryProvider = FutureProvider.autoDispose<String?>((ref) async {
+  final live = ref.watch(liveRouteProvider).asData?.value;
+  if (live == null || live.isEmpty) return null;
+  final iso = await ref
+      .watch(realtimeCountryResolverProvider)
+      .resolveIso2(live.last.latitude, live.last.longitude);
+  return iso == Checkin.unknownCountry ? null : iso;
 });
 
 final footstepsRepositoryProvider = Provider<FootstepsRepository>((ref) {

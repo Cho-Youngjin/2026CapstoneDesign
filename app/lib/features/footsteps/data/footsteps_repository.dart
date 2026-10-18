@@ -45,6 +45,23 @@ class FootstepsRepository {
     );
   }
 
+  /// 국가를 이미 아는 경우(해외 매핑)의 체크인 저장. 좌표가 해외 매핑으로 투영된 가상 위치라
+  /// 실제 위치로 역지오코딩하면 안 되고, 네트워크 지오코딩 실패로 미확인(XX)이 되는 것도 막는다.
+  Future<void> recordCheckinWithCountry(
+    double lat,
+    double lng,
+    String countryIso,
+    DateTime at,
+    CheckinSource source,
+  ) =>
+      _db.insertCheckin(
+        lat: lat,
+        lng: lng,
+        countryIso: countryIso,
+        recordedAt: at,
+        source: source,
+      );
+
   /// 실시간 이동 중 좌표 하나를 영구 기록한다. 국경 이동 확정과 무관하게
   /// 촘촘히 쌓여 나중에 "지나온 길"을 다시 그릴 수 있게 한다.
   Future<void> recordRoutePoint(double lat, double lng, String countryIso, DateTime at) =>

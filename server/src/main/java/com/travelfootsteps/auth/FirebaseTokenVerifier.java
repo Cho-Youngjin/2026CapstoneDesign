@@ -9,10 +9,10 @@ import org.springframework.stereotype.Component;
 // TokenVerifier 인터페이스의 "진짜" 구현체. 실제로 Firebase 서버와 통신해서 토큰을 검증한다.
 // @Component: 스프링에게 "이 클래스의 인스턴스를 빈으로 관리해줘"라고 알리는 애너테이션이다.
 // (@Service, @Repository, @RestController도 전부 @Component의 특수한 형태다.)
-// @Profile("!test")로 FirebaseConfig와 마찬가지로 테스트 환경에서는 이 빈이 아예 생기지 않는다 —
-// 그 자리는 테스트 코드가 직접 등록하는 StubTokenVerifier가 대신 채운다.
+// @Profile("!test & !local")로 FirebaseConfig와 마찬가지로 테스트·local 프로필에서는 이 빈이 아예 생기지 않는다 —
+// 그 자리는 테스트에서는 테스트 코드가 직접 등록하는 StubTokenVerifier가, local에서는 LocalDevTokenVerifier가 채운다.
 @Component
-@Profile("!test")
+@Profile("!test & !local")
 @RequiredArgsConstructor
 public class FirebaseTokenVerifier implements TokenVerifier {
 

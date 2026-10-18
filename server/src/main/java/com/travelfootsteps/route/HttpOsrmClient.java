@@ -27,6 +27,10 @@ public class HttpOsrmClient implements OsrmClient {
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
     // OSRM /match는 좌표가 너무 많으면 거부한다. mock 서버와 같은 상한.
     private static final int MAX_MATCH_POINTS = 100;
+    // 점마다 도로를 찾는 반경(m). OSRM 기본값(약 5m)에서는 도로에서 조금만 벗어난 점이 하나만 있어도
+    // NoMatch가 되어 원본 좌표가 그대로 돌아간다. 휴대폰 GPS 오차(보통 5~20m)보다 넉넉하게 잡되,
+    // 너무 크면 나란한 옆 도로로 잘못 붙을 수 있어 30m로 한다.
+    private static final int MATCH_RADIUS_METERS = 30;
 
     private final RestClient restClient;
     private final OsrmProperties properties;
@@ -106,11 +110,19 @@ public class HttpOsrmClient implements OsrmClient {
     private List<GeoPoint> matchChunk(String baseUrl, List<GeoPoint> chunk) {
         if (chunk.size() < 2) return List.of();
         String coords = chunk.stream().map(HttpOsrmClient::lngLat).collect(Collectors.joining(";"));
+        String radiuses = chunk.stream().map(p -> String.valueOf(MATCH_RADIUS_METERS))
+                .collect(Collectors.joining(";"));
         JsonNode data = get(baseUrl + "/match/v1/" + properties.profile() + "/" + coords
-                + "?overview=full&geometries=geojson");
+                + "?overview=full&geometries=geojson&radiuses=" + radiuses);
         if (data == null || !"Ok".equals(data.path("code").asText())) return List.of();
 
-        return geometry(data.path("matchings").path(0).path("geometry"));
+        // GPS가 끊기거나 튀는 구간이 있으면 OSRM은 궤적을 matching 여러 개로 쪼개 돌려준다.
+        // 첫 번째만 쓰면 그 뒤의 경로가 통째로 사라지므로 전부 순서대로 이어 붙인다.
+        List<GeoPoint> out = new ArrayList<>();
+        for (JsonNode matching : data.path("matchings")) {
+            out.addAll(geometry(matching.path("geometry")));
+        }
+        return out;
     }
 
     // 실패(연결 거부, 타임아웃, 4xx/5xx, JSON 아님)는 전부 null로 바꾼다 — OsrmClient 주석 참고.
