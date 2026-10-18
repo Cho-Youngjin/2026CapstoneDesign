@@ -66,7 +66,10 @@ typedef PendingAlarm = ({int id, String? payload});
 /// 플러그인 호출만 모은 얇은 경계. 테스트는 가짜로 바꿔 무엇이 예약·취소됐는지 본다.
 abstract interface class AlarmBackend {
   Future<void> schedule(ScheduledAlarm alarm);
-  Future<List<PendingAlarm>> pending();
+
+  /// 예약 대기 중인 알람과 이미 울려 알림창에 남은 알림. 둘 다 [cancel]로 지운다.
+  Future<List<PendingAlarm>> existing();
+
   Future<void> cancel(int id);
 }
 
@@ -118,10 +121,18 @@ class LocalAlarmBackend implements AlarmBackend {
   }
 
   @override
-  Future<List<PendingAlarm>> pending() async {
+  Future<List<PendingAlarm>> existing() async {
     await _ensureInitialized();
-    final requests = await _plugin.pendingNotificationRequests();
-    return [for (final r in requests) (id: r.id, payload: r.payload)];
+    final byId = <int, PendingAlarm>{};
+    for (final r in await _plugin.pendingNotificationRequests()) {
+      byId[r.id] = (id: r.id, payload: r.payload);
+    }
+    // 이미 울린 알람은 예약 목록에서 빠지지만 알림창에는 남아 이전 계정의 일정이 보일 수 있다.
+    for (final a in await _plugin.getActiveNotifications()) {
+      final id = a.id;
+      if (id != null) byId.putIfAbsent(id, () => (id: id, payload: a.payload));
+    }
+    return byId.values.toList();
   }
 
   @override
@@ -191,7 +202,7 @@ class AlarmScheduler {
   Future<void> cancelAll() => _serial(() => _cancelWhere((_) => true));
 
   Future<void> _cancelWhere(bool Function(int tripId) test) async {
-    for (final alarm in await _backend.pending()) {
+    for (final alarm in await _backend.existing()) {
       final tripId = _tripIdOf(alarm.payload);
       if (tripId != null && test(tripId)) await _backend.cancel(alarm.id);
     }

@@ -13,7 +13,7 @@ class FakeAlarmBackend implements AlarmBackend {
   final Map<int, ScheduledAlarm> scheduled = {};
   final List<int> cancelled = [];
 
-  /// 정해 두면 [pending]이 이 Completer가 끝날 때까지 기다린다 — 작업이 겹치는 순간을 만든다.
+  /// 정해 두면 [existing]이 이 Completer가 끝날 때까지 기다린다 — 작업이 겹치는 순간을 만든다.
   Completer<void>? holdPending;
 
   void _check() {
@@ -27,7 +27,7 @@ class FakeAlarmBackend implements AlarmBackend {
   }
 
   @override
-  Future<List<PendingAlarm>> pending() async {
+  Future<List<PendingAlarm>> existing() async {
     _check();
     final hold = holdPending;
     if (hold != null) await hold.future;
