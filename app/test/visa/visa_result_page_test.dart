@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:app/core/auth/auth_providers.dart';
@@ -65,6 +66,7 @@ Future<
   bool deleteFails = false,
   bool watchTripList = false,
   FakeAlarmBackend? alarms,
+  AlarmScheduler? scheduler,
   NotificationPermission? permission,
 }) async {
   SharedPreferences.setMockInitialValues(stored);
@@ -105,7 +107,7 @@ Future<
         tripApiProvider.overrideWithValue(api),
         tripDeleterProvider.overrideWithValue(deleter),
         alarmSchedulerProvider.overrideWithValue(
-            AlarmScheduler(alarmBackend, now: () => seoulTime(2026, 9, 7, 12))),
+            scheduler ?? AlarmScheduler(alarmBackend, now: () => seoulTime(2026, 9, 7, 12))),
         notificationPermissionProvider.overrideWithValue(permission ?? FakePermission()),
       ],
       // 목록 provider를 누군가 보고 있어야 invalidate가 다시 조회로 이어진다(여행 목록 탭 역할).
@@ -296,7 +298,7 @@ void main() {
 
       final alarms = (await pumpResultPage(tester, trip: trip)).alarms;
 
-      expect(alarms.scheduled.keys, [notificationIdFor(7, 3)]);
+      expect(alarms.scheduled.keys, [notificationIdFor(3)]);
     });
 
     testWidgets('울릴 일정이 있으면 알림 권한을 요청한다 (이미 있던 여행도)', (tester) async {
@@ -329,7 +331,7 @@ void main() {
               permission: FakePermission(fails: true)))
           .alarms;
 
-      expect(alarms.scheduled.keys, [notificationIdFor(7, 3)]);
+      expect(alarms.scheduled.keys, [notificationIdFor(3)]);
     });
 
     testWidgets('다른 기기에서 지운 여행(404)이면 이 기기의 알람도 지운다', (tester) async {
@@ -339,7 +341,7 @@ void main() {
         task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
       ]));
 
-      await pumpResultPage(tester, getTripStatusCode: 404, alarms: alarms);
+      await pumpResultPage(tester, getTripStatusCode: 404, alarms: alarms, scheduler: scheduler);
 
       expect(alarms.scheduled, isEmpty);
     });
@@ -354,7 +356,26 @@ void main() {
       await tester.tap(find.text('여행자보험 가입'));
       await tester.pumpAndSettle();
 
-      expect(alarms.scheduled.keys, [notificationIdFor(7, 5)]);
+      expect(alarms.scheduled.keys, [notificationIdFor(5)]);
+    });
+
+    testWidgets('완료 응답이 오기 전에 화면을 나가도 그 일정의 알람은 취소한다', (tester) async {
+      final trip = sampleTrip(id: 7, tasks: [
+        task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+      ]);
+      final r = await pumpResultPage(tester, trip: trip);
+      r.api.holdMarkTaskDone = Completer<void>();
+
+      await tester.tap(find.text('여행자보험 가입'));
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.arrow_back)); // 응답 전에 목록으로 나간다
+      await tester.pumpAndSettle();
+      expect(find.text('여행 목록'), findsOneWidget);
+
+      r.api.holdMarkTaskDone!.complete();
+      await tester.pumpAndSettle();
+
+      expect(r.alarms.scheduled, isEmpty);
     });
 
     testWidgets('다시 판정하면 새 일정으로 알람을 다시 맞춘다', (tester) async {
@@ -372,7 +393,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(alarms.scheduled.keys,
-          unorderedEquals([notificationIdFor(7, 13), notificationIdFor(7, 14)]));
+          unorderedEquals([notificationIdFor(13), notificationIdFor(14)]));
     });
 
     testWidgets('알람 예약이 실패해도 화면은 그대로 쓸 수 있다', (tester) async {

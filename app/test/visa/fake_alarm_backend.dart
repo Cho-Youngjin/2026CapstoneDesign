@@ -13,8 +13,8 @@ class FakeAlarmBackend implements AlarmBackend {
   final Map<int, ScheduledAlarm> scheduled = {};
   final List<int> cancelled = [];
 
-  /// 정해 두면 [existing]이 이 Completer가 끝날 때까지 기다린다 — 작업이 겹치는 순간을 만든다.
-  Completer<void>? holdPending;
+  /// 정해 두면 [schedule]이 이 Completer가 끝날 때까지 기다린다 — 작업이 겹치는 순간을 만든다.
+  Completer<void>? holdSchedule;
 
   void _check() {
     if (failing) throw Exception('alarm backend failed');
@@ -23,16 +23,9 @@ class FakeAlarmBackend implements AlarmBackend {
   @override
   Future<void> schedule(ScheduledAlarm alarm) async {
     _check();
-    scheduled[alarm.id] = alarm;
-  }
-
-  @override
-  Future<List<int>> existing() async {
-    _check();
-    final hold = holdPending;
+    final hold = holdSchedule;
     if (hold != null) await hold.future;
-    // 가려내는 일은 실제 백엔드가 하지만, 스케줄러가 id 구간을 한 번 더 보는지 확인하려고 전부 돌려준다.
-    return scheduled.keys.toList();
+    scheduled[alarm.id] = alarm;
   }
 
   @override
@@ -43,6 +36,6 @@ class FakeAlarmBackend implements AlarmBackend {
   }
 }
 
-/// 테스트에서 서울 시각을 만든다. 시간대 데이터는 [AlarmScheduler]가 처음 쓸 때 불러온다.
+/// 테스트에서 서울 시각을 만든다. 시간대 데이터는 [seoulLocation]이 처음 쓸 때 불러온다.
 tz.TZDateTime seoulTime(int year, int month, int day, [int hour = 0, int minute = 0]) =>
     tz.TZDateTime(seoulLocation(), year, month, day, hour, minute);

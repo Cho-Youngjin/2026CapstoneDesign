@@ -210,7 +210,7 @@ void main() {
         await container.read(tripListProvider.future);
         await scheduler.keepOnlyTrips({7, 9}); // 앞선 정리가 끝날 때까지 기다린다(순서대로 처리)
 
-        expect(backend.scheduled.keys, [notificationIdFor(7, 70)]);
+        expect(backend.scheduled.keys, [notificationIdFor(70)]);
       });
 
       test('오프라인 캐시를 보여줄 때는 알람을 건드리지 않는다', () async {
@@ -223,7 +223,7 @@ void main() {
         await scheduler.keepOnlyTrips({7, 9});
 
         expect(backend.scheduled.keys,
-            unorderedEquals([notificationIdFor(7, 70), notificationIdFor(9, 90)]));
+            unorderedEquals([notificationIdFor(70), notificationIdFor(90)]));
       });
     });
   });

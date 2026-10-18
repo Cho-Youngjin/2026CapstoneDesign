@@ -60,7 +60,7 @@ void main() {
     expect(s.prefs.getBool('checklist_powerbank_7'), isNull);
     expect(s.prefs.getBool('checklist_powerbank_8'), isTrue);
     expect(s.container.read(selectedTripIdProvider), isNull);
-    expect(s.alarms.scheduled.keys, [notificationIdFor(8, 80)]);
+    expect(s.alarms.scheduled.keys, [notificationIdFor(80)]);
   });
 
   test('알람 취소가 실패해도 삭제는 성공으로 끝난다', () async {
@@ -90,6 +90,6 @@ void main() {
     expect(s.prefs.getBool('checklist_powerbank_7'), isTrue);
     expect(s.container.read(selectedTripIdProvider), 7);
     expect(s.alarms.scheduled.keys,
-        unorderedEquals([notificationIdFor(7, 70), notificationIdFor(8, 80)]));
+        unorderedEquals([notificationIdFor(70), notificationIdFor(80)]));
   });
 }

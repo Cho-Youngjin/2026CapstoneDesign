@@ -6,6 +6,7 @@ import 'package:app/features/visa/models/trip.dart';
 import 'package:app/features/visa/notifications/alarm_scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fake_alarm_backend.dart';
 import 'fake_trip_api.dart';
@@ -15,18 +16,17 @@ TripTask _task(int id, DateTime due, {bool done = false, String title = '항공�
 
 void main() {
   group('notificationIdFor', () {
-    test('tripId와 taskId가 다르면 다른 id를 낸다', () {
-      expect(notificationIdFor(1, 101), isNot(notificationIdFor(1, 102)));
-      expect(notificationIdFor(1, 101), isNot(notificationIdFor(2, 101)));
+    test('일정 id가 다르면 다른 id를 낸다 (일정 id는 모든 여행에 걸쳐 하나씩 늘어난다)', () {
+      expect(notificationIdFor(101), isNot(notificationIdFor(102)));
     });
 
     test('같은 입력이면 항상 같은 id를 낸다 (재예약/취소 시 필요)', () {
-      expect(notificationIdFor(7, 101), notificationIdFor(7, 101));
+      expect(notificationIdFor(101), notificationIdFor(101));
     });
 
     test('환율 알림 id(10억 9만대까지)와 겹치지 않고 32비트 정수 범위 안에 있다', () {
-      for (final (tripId, taskId) in [(0, 0), (1, 1), (9999, 99999), (123456, 7654321)]) {
-        final id = notificationIdFor(tripId, taskId);
+      for (final taskId in [0, 1, 99999, 123456789, 999999999, 1000000000]) {
+        final id = notificationIdFor(taskId);
         expect(id, greaterThanOrEqualTo(1100000000));
         expect(id, lessThan(1 << 31));
       }
@@ -71,8 +71,8 @@ void main() {
 
       await scheduler.syncTrip(trip);
 
-      expect(backend.scheduled.keys, [notificationIdFor(7, 101)]);
-      final alarm = backend.scheduled[notificationIdFor(7, 101)]!;
+      expect(backend.scheduled.keys, [notificationIdFor(101)]);
+      final alarm = backend.scheduled[notificationIdFor(101)]!;
       expect(alarm.at, seoulTime(2026, 9, 21, 9));
       expect(alarm.at.location.name, 'Asia/Seoul');
       expect(alarm.title, contains('항공권·숙소 확정'));
@@ -85,8 +85,16 @@ void main() {
 
       await scheduler.syncTrip(sampleTrip(id: 7, tasks: [_task(301, DateTime(2026, 9, 30))]));
 
-      expect(backend.scheduled.keys,
-          unorderedEquals([notificationIdFor(8, 201), notificationIdFor(7, 301)]));
+      expect(backend.scheduled.keys, unorderedEquals([notificationIdFor(201), notificationIdFor(301)]));
+    });
+
+    test('id가 1만 차이 나는 두 여행도 서로의 알람을 지우지 않는다', () async {
+      await scheduler.syncTrip(sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
+      await scheduler.syncTrip(sampleTrip(id: 10007, tasks: [_task(50101, DateTime(2026, 9, 21))]));
+
+      await scheduler.cancelForTrip(7);
+
+      expect(backend.scheduled.keys, [notificationIdFor(50101)]);
     });
 
     test('일정 하나를 완료하면 그 알람만 취소한다', () async {
@@ -95,9 +103,9 @@ void main() {
         _task(102, DateTime(2026, 9, 22)),
       ]));
 
-      await scheduler.cancelForTask(tripId: 7, taskId: 101);
+      await scheduler.cancelForTask(101);
 
-      expect(backend.scheduled.keys, [notificationIdFor(7, 102)]);
+      expect(backend.scheduled.keys, [notificationIdFor(102)]);
     });
 
     test('여행을 지우면 그 여행의 알람만 모두 취소한다', () async {
@@ -109,31 +117,32 @@ void main() {
 
       await scheduler.cancelForTrip(7);
 
-      expect(backend.scheduled.keys, [notificationIdFor(8, 201)]);
+      expect(backend.scheduled.keys, [notificationIdFor(201)]);
     });
 
     test('열 때 시작한 예약이 늦게 끝나도 그 사이 완료한 일정의 알람은 되살아나지 않는다', () async {
       final trip = sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]);
-      backend.holdPending = Completer<void>();
+      backend.holdSchedule = Completer<void>();
 
-      final opening = scheduler.syncTrip(trip); // 기존 알람 조회에서 멈춰 있다
-      final completing = scheduler.cancelForTask(tripId: 7, taskId: 101);
-      backend.holdPending!.complete();
+      final opening = scheduler.syncTrip(trip); // 예약 도중에 멈춰 있다
+      final completing = scheduler.cancelForTask(101);
+      backend.holdSchedule!.complete();
       await Future.wait([opening, completing]);
 
       expect(backend.scheduled, isEmpty);
     });
 
     test('한 작업이 실패해도 다음 작업은 처리한다', () async {
-      backend.holdPending = Completer<void>();
+      backend.holdSchedule = Completer<void>();
       final failed = scheduler.syncTrip(sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
-      backend.holdPending!.completeError(Exception('boom'));
+      await pumpEventQueue(); // 예약 도중에 멈출 때까지
+      backend.holdSchedule!.completeError(Exception('boom'));
       await expectLater(failed, throwsException);
-      backend.holdPending = null;
+      backend.holdSchedule = null;
 
       await scheduler.syncTrip(sampleTrip(id: 8, tasks: [_task(201, DateTime(2026, 9, 21))]));
 
-      expect(backend.scheduled.keys, [notificationIdFor(8, 201)]);
+      expect(backend.scheduled.keys, [notificationIdFor(201)]);
     });
 
     test('서버 목록에 없는 여행의 알람만 지운다', () async {
@@ -142,13 +151,12 @@ void main() {
 
       await scheduler.keepOnlyTrips({7, 8});
 
-      expect(backend.scheduled.keys, [notificationIdFor(7, 101)]);
+      expect(backend.scheduled.keys, [notificationIdFor(101)]);
     });
 
     test('모두 지워도 비자 알람이 아닌 알림은 건드리지 않는다', () async {
       await scheduler.syncTrip(sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
-      backend.scheduled[42] = ScheduledAlarm(
-          id: 42, title: '환율', body: '', at: seoulTime(2026, 9, 8), payload: 'rate');
+      backend.scheduled[42] = ScheduledAlarm(id: 42, title: '환율', body: '', at: seoulTime(2026, 9, 8));
 
       await scheduler.cancelAll();
 
@@ -163,6 +171,28 @@ void main() {
             _task(2, DateTime(2026, 9, 21), done: true),
           ])),
           isFalse);
+    });
+  });
+
+  group('PrefsAlarmRegistry', () {
+    test('앱을 다시 켜도(새 스케줄러) 이전에 예약한 여행의 알람을 지울 수 있다', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final backend = FakeAlarmBackend();
+      AlarmScheduler start() => AlarmScheduler(backend,
+          registry: PrefsAlarmRegistry(prefs), now: () => seoulTime(2026, 9, 7, 12));
+
+      await start().syncTrip(sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
+      await start().cancelForTrip(7);
+
+      expect(backend.scheduled, isEmpty);
+    });
+
+    test('저장값이 깨졌으면 빈 표로 본다', () async {
+      SharedPreferences.setMockInitialValues({'visa_alarms.v1': 'not json'});
+      final prefs = await SharedPreferences.getInstance();
+
+      expect(PrefsAlarmRegistry(prefs).read(), isEmpty);
     });
   });
 
@@ -189,7 +219,7 @@ void main() {
       await pumpEventQueue();
       await scheduler.cancelAll(); // 순서대로 처리되므로 이 호출이 끝나면 앞선 정리도 끝났다
 
-      expect(backend.cancelled, contains(notificationIdFor(7, 101)));
+      expect(backend.cancelled, contains(notificationIdFor(101)));
       expect(backend.scheduled, isEmpty);
     });
   });
