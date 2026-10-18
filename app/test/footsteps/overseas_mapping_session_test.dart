@@ -133,6 +133,29 @@ void main() {
     expect(saved.map((p) => (p.lat, p.lng)), [(35.6810, 139.7610), (35.6820, 139.7620)]);
   });
 
+  test('시작과 멈춤 때 해외 체크인을 남겨 방문 국가와 이동 기록 목록에 나타나게 한다', () async {
+    final notifier = container.read(overseasMappingProvider.notifier);
+    notifier.start('JP', anchor);
+    await settle();
+
+    var checkins = await db.allCheckins();
+    expect(checkins, hasLength(1));
+    expect(checkins.single.countryIso, 'JP');
+    expect((checkins.single.lat, checkins.single.lng), (anchor.latitude, anchor.longitude));
+
+    // 걸어서 해외 현재 위치가 옮겨진 뒤 멈추면, 마지막 해외 위치로 한 번 더 남긴다.
+    gps.add(_positionAt(37.5000, 127.0000));
+    gps.add(_positionAt(37.5010, 127.0000));
+    await settle();
+    notifier.stop();
+    await settle();
+
+    checkins = await db.allCheckins();
+    expect(checkins, hasLength(2));
+    expect(checkins.map((c) => c.countryIso), ['JP', 'JP']);
+    expect((checkins.last.lat, checkins.last.lng), (35.6820, 139.7620));
+  });
+
   test('기준 거리보다 적게 움직이면 서버를 부르지 않는다', () async {
     container.read(overseasMappingProvider.notifier).start('JP', anchor);
 

@@ -7,6 +7,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/db/app_database.dart';
 import '../../../core/network/api_client.dart';
+import '../data/checkin.dart';
 import '../data/country_resolver.dart';
 import '../data/footsteps_api.dart';
 import '../data/footsteps_repository.dart';
@@ -75,6 +76,17 @@ final liveRouteProvider = StreamProvider.autoDispose<List<LatLng>>((ref) {
     repository: ref.watch(footstepsRepositoryProvider),
     shouldPersist: () => !ref.read(overseasMappingActiveProvider),
   );
+});
+
+/// 앱 전체 위치 스트림의 최신 좌표가 속한 국가(ISO2). 아직 위치가 없거나 판정할 수 없으면 null.
+/// 국가 상세 화면이 "지금 실제로 있는 나라"인지 가를 때 쓴다.
+final liveCountryProvider = FutureProvider.autoDispose<String?>((ref) async {
+  final live = ref.watch(liveRouteProvider).asData?.value;
+  if (live == null || live.isEmpty) return null;
+  final iso = await ref
+      .watch(realtimeCountryResolverProvider)
+      .resolveIso2(live.last.latitude, live.last.longitude);
+  return iso == Checkin.unknownCountry ? null : iso;
 });
 
 final footstepsRepositoryProvider = Provider<FootstepsRepository>((ref) {

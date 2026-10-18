@@ -11,6 +11,7 @@ import '../data/route_snapping_api.dart';
 import '../health/distance_step_estimator.dart';
 import '../health/step_attribution.dart' show dayKeyOf;
 import '../providers/footsteps_providers.dart';
+import '../providers/overseas_mapping_session.dart';
 import 'base_google_map.dart';
 
 final _checkinsForCountryProvider =
@@ -88,10 +89,34 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
     ref.listen(liveRouteProvider, (_, next) {
       ref.invalidate(_routePointsForCountryProvider(widget.isoAlpha2));
       final last = _lastOrNull(next.asData?.value ?? const []);
-      if (last != null) {
-        _mapController?.animateCamera(CameraUpdate.newLatLngZoom(last, _tenKmZoom));
+      if (last == null) return;
+      // 실제 위치가 이 나라 안일 때만 따라간다 — 해외 매핑 중에는 실제 GPS가 한국에 있어서
+      // 일본 상세 화면을 한국으로 끌고 가면 안 된다.
+      ref
+          .read(realtimeCountryResolverProvider)
+          .resolveIso2(last.latitude, last.longitude)
+          .then((iso) {
+        if (mounted && iso == widget.isoAlpha2) {
+          _mapController?.animateCamera(CameraUpdate.newLatLngZoom(last, _tenKmZoom));
+        }
+      });
+    });
+    // 해외 매핑 세션이 이 나라에서 진행 중이면 해외 경로가 쌓이는 대로 다시 읽고, 해외
+    // 현재 위치를 따라간다.
+    ref.listen(overseasMappingProvider, (prev, next) {
+      if (!next.active || next.country != widget.isoAlpha2) return;
+      if (next.jpRoute.length != prev?.jpRoute.length) {
+        ref.invalidate(_routePointsForCountryProvider(widget.isoAlpha2));
+      }
+      final anchor = next.anchor;
+      if (anchor != null && anchor != prev?.anchor) {
+        _mapController?.animateCamera(CameraUpdate.newLatLngZoom(anchor, _tenKmZoom));
       }
     });
+    final session = ref.watch(overseasMappingProvider);
+    final overseasAnchor =
+        session.active && session.country == widget.isoAlpha2 ? session.anchor : null;
+    final liveCountry = ref.watch(liveCountryProvider).asData?.value;
 
     final checkinsAsync = ref.watch(_checkinsForCountryProvider(widget.isoAlpha2));
     final routePoints =
@@ -139,7 +164,11 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
           // 지금 실시간으로 들어오고 있는 위치가 있으면 그걸 최우선으로 화면
           // 가운데에 놓는다 — "발걸음 상세 지도는 언제나 현재 위치 중심"이라는
           // 요구사항. 아직 GPS fix가 없으면(화면 진입 직후) 과거 기록으로 대체한다.
-          final livePosition = _lastOrNull(ref.watch(liveRouteProvider).asData?.value ?? const []);
+          // 해외 매핑 중인 나라면 해외 현재 위치가, 아니면 실제 위치가 이 나라 안일 때만 실제 위치가 쓰인다.
+          final livePosition = overseasAnchor ??
+              (liveCountry == widget.isoAlpha2
+                  ? _lastOrNull(ref.watch(liveRouteProvider).asData?.value ?? const [])
+                  : null);
           // dates가 비어 있지 않으면 선택된 날짜에는 체크인이나 경로 좌표가 반드시
           // 하나는 있다. 스냅 결과(routeLine)가 아니라 원본 좌표를 폴백으로 쓴다.
           final initialCameraTarget = livePosition ??
@@ -169,7 +198,16 @@ class _CountryDetailMapPageState extends ConsumerState<CountryDetailMapPage> {
                 child: BaseGoogleMap(
                   initialCamera: CameraPosition(target: initialCameraTarget, zoom: _tenKmZoom),
                   onMapCreated: (controller) => _mapController = controller,
+                  // 해외 매핑 중에는 기본 파란 점이 한국 위치를 가리키므로 끄고 해외 위치를 직접 그린다.
+                  myLocationEnabled: overseasAnchor == null,
                   markers: {
+                    if (overseasAnchor != null)
+                      Marker(
+                        markerId: const MarkerId('overseas_current'),
+                        position: overseasAnchor,
+                        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+                        zIndexInt: 1,
+                      ),
                     for (var i = 0; i < dayCheckins.length; i++)
                       Marker(
                         markerId: MarkerId('checkin_$i'),

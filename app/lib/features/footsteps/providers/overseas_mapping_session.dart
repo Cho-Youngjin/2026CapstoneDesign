@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/network/api_client.dart';
+import '../data/checkin.dart';
 import '../data/overseas_mapping_api.dart';
 import 'footsteps_providers.dart';
 
@@ -108,11 +109,17 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
     ref.read(overseasMappingActiveProvider.notifier).state = true;
     ref.read(overseasPositionProvider.notifier).state = anchor;
     _sub = ref.read(overseasMappingPositionStreamProvider).listen(_onPosition);
+    // 시작 지점을 체크인으로 남겨, 이 나라가 방문 국가로 잡히고 이동 기록 목록을 볼 수 있게 한다.
+    _recordCheckin(country, anchor);
   }
 
   void stop() {
     _sub?.cancel();
     _sub = null;
+    // 마지막 해외 위치를 체크인으로 남겨 이번 해외 이동 기록의 끝을 표시한다.
+    final country = state.country;
+    final last = state.anchor;
+    if (state.active && last != null) _recordCheckin(country, last);
     state = const OverseasMappingState();
     ref.read(overseasMappingActiveProvider.notifier).state = false;
     ref.read(overseasPositionProvider.notifier).state = null;
@@ -184,6 +191,21 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
     } finally {
       _busy = false;
     }
+  }
+
+  // 체크인 저장 실패가 매핑 진행이나 종료를 막지 않도록 기다리지 않고, 실패해도 조용히 넘긴다 —
+  // 이동 좌표(RoutePoints)는 별도로 저장되고 있다.
+  void _recordCheckin(String country, LatLng at) {
+    ref
+        .read(footstepsRepositoryProvider)
+        .recordCheckinWithCountry(
+          at.latitude,
+          at.longitude,
+          country,
+          DateTime.now().toUtc(),
+          CheckinSource.auto,
+        )
+        .catchError((_) {});
   }
 
   // 같은 시각에 쌓인 점들의 순서가 유지되도록 1ms씩 늘려 저장한다(경로는 recordedAt 순으로 읽는다).
