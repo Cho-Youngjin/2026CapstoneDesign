@@ -17,6 +17,9 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
     /** 새 초대 코드가 이미 쓰이고 있는지 — RoomService가 저장 전에 확인한다. */
     boolean existsByInviteCode(String inviteCode);
 
+    /** 두 사람의 DM 방 — 열쇠는 {@link ChatRoom#dmKeyOf}. 메서드 이름 규칙으로 "WHERE dm_key = ?"가 된다. */
+    Optional<ChatRoom> findByDmKey(String dmKey);
+
     /**
      * 내가 멤버인 방 목록, 최근 활동순. "최근 활동"은 마지막 메시지 시각이고, 메시지가 아직
      * 없는 방은 만든 시각으로 대신한다 — 그래서 방금 만든 빈 방도 목록 맨 위에 보인다.

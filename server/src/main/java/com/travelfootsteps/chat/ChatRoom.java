@@ -42,6 +42,10 @@ public class ChatRoom {
     @Column(name = "invite_code", length = 6, unique = true)
     private String inviteCode;
 
+    /** DM만 값이 있다. 두 사람 uid를 정렬해 이은 값({@link #dmKeyOf}) — 같은 두 사람의 DM을 하나로 묶는 열쇠. */
+    @Column(name = "dm_key", length = 270, unique = true)
+    private String dmKey;
+
     @Column(name = "last_message_id")
     private Long lastMessageId;
 
@@ -64,6 +68,29 @@ public class ChatRoom {
         room.inviteCode = inviteCode;
         room.createdAt = OffsetDateTime.now();
         return room;
+    }
+
+    /** 1:1 DM 방을 만든다(Plan D Task 5). 이름·초대 코드는 없다 — 앱이 상대 이름으로 표시하고, 코드로는 참여할 수 없다. */
+    public static ChatRoom createDm(String dmKey) {
+        ChatRoom room = new ChatRoom();
+        room.type = RoomType.DM;
+        room.dmKey = dmKey;
+        room.createdAt = OffsetDateTime.now();
+        return room;
+    }
+
+    /**
+     * 두 사람의 DM 열쇠. uid를 정렬해 이으므로 A가 B에게 열든 B가 A에게 열든 같은 값이 된다.
+     *
+     * <p>앞쪽 uid의 길이를 맨 앞에 붙인다({@code "길이:앞uid|뒤uid"}). Firebase는 관리자가 uid를 직접 정할 수 있어
+     * {@code |}가 들어갈 수 있는데, 그냥 이으면 ({@code a}, {@code b|c})와 ({@code a|b}, {@code c})가 둘 다
+     * {@code a|b|c}가 되어 남의 DM 방을 열게 된다. 길이를 붙이면 어디서 끊어야 하는지가 정해져 겹치지 않는다.
+     */
+    static String dmKeyOf(String uidA, String uidB) {
+        boolean aFirst = uidA.compareTo(uidB) <= 0;
+        String first = aFirst ? uidA : uidB;
+        String second = aFirst ? uidB : uidA;
+        return first.length() + ":" + first + "|" + second;
     }
 
     /** 미리보기 최대 길이 — chat_room.last_message_preview 컬럼 크기와 같다. */

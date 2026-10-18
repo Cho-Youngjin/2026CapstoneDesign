@@ -1,9 +1,12 @@
 package com.travelfootsteps.chat;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -28,6 +31,50 @@ public class RoomService {
     private final ChatRoomMemberRepository memberRepository;
     private final AppUserRepository userRepository;
     private final InviteCodeGenerator inviteCodeGenerator;
+    private final DmRoomCreator dmRoomCreator;
+
+    /**
+     * 1:1 DM을 연다(Plan D Task 5). 이미 있으면 그 방을, 없으면 새로 만들어 돌려준다.
+     *
+     * <ul>
+     *     <li>자기 자신 → {@link SelfDmException}(400)</li>
+     *     <li>같은 그룹 멤버가 아님(없는 사용자 포함) → {@link RoomNotFoundException}(404). 스펙 §6-④의 "낯선 사용자
+     *     연락 제외" — uid만 알면 아무에게나 DM을 걸 수 있으면 그게 곧 낯선 사람 연락이다.</li>
+     * </ul>
+     *
+     * <p>{@code @Transactional(propagation = NOT_SUPPORTED)}: 이 메서드는 트랜잭션 없이 돈다(클래스에 붙은
+     * readOnly 트랜잭션을 쓰지 않는다). 방 만들기는 {@link DmRoomCreator}가 자기 트랜잭션에서 하는데, 바깥에도
+     * 트랜잭션이 있으면 요청 하나가 DB 연결을 두 개 붙잡는다. 동시에 여러 요청이 오면 연결 풀이 바닥나 서로
+     * 기다리다 멈출 수 있어서, 조회는 각각 짧게 끝내고 연결을 바로 돌려준다.
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public RoomDetailResponse openDm(String uid, String peerUid) {
+        if (uid.equals(peerUid)) {
+            throw new SelfDmException();
+        }
+        if (!memberRepository.shareGroup(uid, peerUid)) {
+            throw new RoomNotFoundException();
+        }
+        String dmKey = ChatRoom.dmKeyOf(uid, peerUid);
+        ChatRoom room = roomRepository.findByDmKey(dmKey)
+                .orElseGet(() -> createDmOrFindExisting(dmKey, uid, peerUid));
+        // 열쇠가 겹치지 않게 만들었지만, 찾은 방이 정말 내 방인지 한 번 더 확인한다 — 어긋나면 남의 DM 멤버를
+        // 그대로 보여 주게 되므로 마지막 안전장치로 둔다.
+        requireMember(room.getId(), uid);
+        return detailOf(room);
+    }
+
+    /**
+     * 두 사람이 동시에 열어 상대 요청이 먼저 방을 만들었으면 UNIQUE(dm_key) 위반이 난다. 그때는 그 방을 다시 찾아
+     * 돌려준다 — 사용자에게는 오류가 아니라 같은 DM에 들어가는 것이다.
+     */
+    private ChatRoom createDmOrFindExisting(String dmKey, String uid, String peerUid) {
+        try {
+            return dmRoomCreator.create(dmKey, uid, peerUid);
+        } catch (DataIntegrityViolationException e) {
+            return roomRepository.findByDmKey(dmKey).orElseThrow(() -> e);
+        }
+    }
 
     @Transactional
     public RoomDetailResponse createGroup(String uid, String name) {
@@ -62,9 +109,32 @@ public class RoomService {
                 .collect(Collectors.toMap(
                         ChatRoomMemberRepository.RoomMemberCount::getRoomId,
                         ChatRoomMemberRepository.RoomMemberCount::getMemberCount));
+        Map<Long, MemberResponse> dmPeers = dmPeersOf(uid,
+                rooms.stream().filter(r -> r.getType() == RoomType.DM).map(ChatRoom::getId).toList());
         return rooms.stream()
-                .map(room -> RoomSummaryResponse.of(room, memberCounts.getOrDefault(room.getId(), 0L)))
+                .map(room -> RoomSummaryResponse.of(room, memberCounts.getOrDefault(room.getId(), 0L),
+                        dmPeers.get(room.getId())))
                 .toList();
+    }
+
+    /**
+     * DM 방마다 "나 아닌 쪽" 멤버와 그 프로필. 앱이 DM을 상대 이름·사진으로 보여 주려고 쓴다.
+     * 방이 몇 개든 멤버 조회 한 번, 프로필 조회 한 번으로 끝낸다(N+1을 피한다).
+     */
+    private Map<Long, MemberResponse> dmPeersOf(String uid, Collection<Long> dmRoomIds) {
+        if (dmRoomIds.isEmpty()) {
+            return Map.of();
+        }
+        List<ChatRoomMember> peers = memberRepository.findByRoomIdIn(dmRoomIds).stream()
+                .filter(m -> !m.getFirebaseUid().equals(uid))
+                .toList();
+        Map<String, AppUser> profiles = userRepository
+                .findByFirebaseUidIn(peers.stream().map(ChatRoomMember::getFirebaseUid).toList()).stream()
+                .collect(Collectors.toMap(AppUser::getFirebaseUid, Function.identity()));
+        return peers.stream().collect(Collectors.toMap(
+                ChatRoomMember::getRoomId,
+                m -> MemberResponse.of(m, profiles.get(m.getFirebaseUid())),
+                (first, second) -> first)); // DM은 두 사람뿐이라 겹치지 않지만, 혹시 몰라 먼저 것을 쓴다
     }
 
     public RoomDetailResponse detail(String uid, Long roomId) {

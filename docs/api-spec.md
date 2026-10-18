@@ -397,7 +397,7 @@ SUBSCRIBE /topic/group/{roomId}/location
 
 ## 10. 채팅 (Plan D)
 
-> **설계 핵심: 보내기는 REST, 받기는 STOMP.** 메시지 전송은 REST로 하고(응답으로 저장 성공과 메시지 id를 확실히 받는다), 실시간 수신은 9절과 같은 `/ws` 연결의 STOMP 구독으로 한다. 이 절은 Plan D Task 단위로 채워진다 — 현재 **Task 2(메시지·실시간 수신)**까지 반영.
+> **설계 핵심: 보내기는 REST, 받기는 STOMP.** 메시지 전송은 REST로 하고(응답으로 저장 성공과 메시지 id를 확실히 받는다), 실시간 수신은 9절과 같은 `/ws` 연결의 STOMP 구독으로 한다. 이 절은 Plan D Task 단위로 채워진다 — 현재 **Task 5(1:1 DM)**까지 반영.
 >
 > **권한 원칙**: 내가 멤버가 아닌 방에 대한 요청은 전부 **404**다(방이 없을 때와 구분하지 않음 — 방의 존재 여부를 흘리지 않는다).
 
@@ -441,6 +441,23 @@ SUBSCRIBE /topic/group/{roomId}/location
 **응답 200** — RoomDetail.
 **404** — 없는 초대 코드.
 
+### `POST /api/rooms/dm`
+같은 그룹 멤버와 1:1 DM을 연다(Plan D Task 5). **이미 있으면 그 방을 그대로 돌려준다** — 누가 먼저 열든, 몇 번을 열든, 두 사람이 동시에 열든 같은 두 사람의 DM은 하나다. 앱은 "처음인지"를 따지지 않고 매번 이것을 부르면 된다.
+
+**요청**
+```json
+{ "peerUid": "firebase-uid-b" }
+```
+| 필드 | 검증 |
+|---|---|
+| `peerUid` | 필수, 앞뒤 공백 제거 |
+
+**응답 200** — RoomDetail. DM은 `type: "DM"`, `name`·`inviteCode`가 `null`이고(코드로 참여할 수 없다) 멤버는 두 사람뿐이다. 두 사람이 같은 순간에 들어가므로 멤버 순서는 정해져 있지 않다.
+**400** — 자기 자신에게 열거나 `peerUid`가 비어 있음.
+**404** — 같은 **그룹** 방에 함께 있지 않은 상대(없는 사용자 포함). 스펙 §6-④의 "낯선 사용자 연락 제외" 규칙이다. 이미 DM을 튼 사이라는 것만으로는 새 DM 권한이 생기지 않는다.
+
+DM 방의 메시지·실시간 수신은 그룹과 똑같다(`/api/rooms/{id}/messages`, `/topic/rooms/{id}/messages`). 위치공유(9절)는 그룹 방 기능이라 앱이 DM에서는 열지 않는다.
+
 ### `GET /api/rooms`
 내가 멤버인 방 목록, **최근 활동순**. 마지막 메시지가 최근인 방이 위로 오고, 메시지가 아직 없는 방은 만든 시각을 기준으로 한다(방금 만든 빈 방도 맨 위에 보인다).
 
@@ -464,7 +481,7 @@ SUBSCRIBE /topic/group/{roomId}/location
 |---|---|
 | `lastMessagePreview`, `lastMessageAt` | 마지막 메시지(미리보기는 최대 100자). 메시지가 없는 방은 `null` |
 | `unreadCount` | 읽음 표시(Task 7) 전까지 항상 `0` |
-| `dmPeer` | DM(Task 5) 전까지 항상 `null`. DM 방이면 상대방 `{uid, displayName, photoUrl}` |
+| `dmPeer` | 그룹 방은 `null`. DM 방이면 상대(나 아닌 쪽) `{uid, displayName, photoUrl, lastReadMessageId}` — 앱은 DM을 이 이름·사진으로 표시한다. DM의 `name`·`inviteCode`는 `null` |
 
 ### `GET /api/rooms/{id}`
 방 상세. 멤버는 **참여한 순서**(만든 사람이 맨 앞).

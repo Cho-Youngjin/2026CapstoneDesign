@@ -45,6 +45,49 @@ void main() {
     expect(adapter.lastRequest!.data, {'inviteCode': 'ABC234'});
   });
 
+  test('openDm이 상대 uid를 POST /api/rooms/dm으로 보내고 DM 방을 파싱한다', () async {
+    final adapter = StubHttpClientAdapter(
+      path: '/api/rooms/dm',
+      statusCode: 200,
+      body: '''
+{"id": 30, "type": "DM", "name": null, "inviteCode": null,
+ "members": [{"uid": "uid-a", "displayName": "성주"}, {"uid": "uid-b", "displayName": "민준"}]}
+''',
+    );
+
+    final room = await _api(adapter).openDm('uid-b');
+
+    expect(room.id, 30);
+    expect(room.type, RoomType.dm);
+    expect(room.members.map((m) => m.uid), ['uid-a', 'uid-b']);
+    expect(adapter.lastRequest!.method, 'POST');
+    expect(adapter.lastRequest!.data, {'peerUid': 'uid-b'});
+  });
+
+  test('같은 그룹이 아닌 상대(404)에게 DM을 열면 RoomNotFoundException으로 바꾼다', () async {
+    final adapter = StubHttpClientAdapter(path: '/api/rooms/dm', statusCode: 404, body: '');
+
+    expect(() => _api(adapter).openDm('uid-x'), throwsA(isA<RoomNotFoundException>()));
+  });
+
+  test('방 목록의 DM은 상대를 dmPeer로 읽고 제목도 상대 이름이다', () async {
+    final adapter = StubHttpClientAdapter(
+      path: '/api/rooms',
+      statusCode: 200,
+      body: '''
+[{"id": 30, "type": "DM", "name": null, "inviteCode": null, "memberCount": 2,
+  "lastMessagePreview": null, "lastMessageAt": null, "unreadCount": 0,
+  "dmPeer": {"uid": "uid-b", "displayName": "민준", "photoUrl": null, "lastReadMessageId": null}}]
+''',
+    );
+
+    final room = (await _api(adapter).myRooms()).single;
+
+    expect(room.type, RoomType.dm);
+    expect(room.dmPeer!.uid, 'uid-b');
+    expect(room.title, '민준');
+  });
+
   test('없는 초대 코드(404)는 RoomNotFoundException으로 바꾼다', () async {
     final adapter = StubHttpClientAdapter(path: '/api/rooms/join', statusCode: 404, body: '');
 

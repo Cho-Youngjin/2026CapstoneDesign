@@ -9,6 +9,8 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
 import 'data/chat_api.dart';
 import 'data/chat_room_controller.dart';
+import 'data/room_providers.dart';
+import 'members_sheet.dart';
 import 'models/chat_message.dart';
 import 'models/room.dart';
 
@@ -124,6 +126,8 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
           onOpenLocation: room == null || room.type != RoomType.group
               ? null
               : () => context.push(AppRoutes.groupLocationOf(widget.roomId)),
+          // DM은 같은 그룹 멤버끼리 연다(Plan D Task 5) — 그룹 방의 멤버 목록에서 시작한다.
+          onOpenMembers: room == null || room.type != RoomType.group ? null : () => _openMembers(room, myUid),
         ),
         Expanded(
           child: Container(
@@ -139,6 +143,18 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
         ),
       ],
     );
+  }
+
+  /// 멤버 목록을 띄우고, 거기서 DM을 열었으면 그 방으로 간다. 방 목록에 새 DM이 보이도록 목록도 새로 받는다.
+  Future<void> _openMembers(RoomDetail room, String? myUid) async {
+    final dm = await showModalBottomSheet<RoomDetail>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => MembersSheet(members: room.members, myUid: myUid),
+    );
+    if (dm == null || !mounted) return;
+    ref.invalidate(myRoomsProvider);
+    context.push(AppRoutes.groupChatOf(dm.id));
   }
 
   String _titleOf(RoomDetail room, String? myUid) {
@@ -217,10 +233,13 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.title, required this.subtitle, this.onOpenLocation});
+  const _Header({required this.title, required this.subtitle, this.onOpenLocation, this.onOpenMembers});
 
   final String title;
   final String? subtitle;
+
+  /// 있으면 오른쪽에 멤버 목록 버튼을 둔다(그룹 방만). 멤버 목록에서 1:1 DM을 연다.
+  final VoidCallback? onOpenMembers;
 
   /// 있으면 오른쪽에 위치공유 버튼을 둔다. 방 정보를 받아 멤버임이 확인된 뒤에만 준다 — 위치공유 화면은
   /// 같은 소켓 연결로 그 방의 위치를 구독하므로, 멤버가 아닌 방으로는 들어가지 않게 한다.
@@ -274,6 +293,16 @@ class _Header extends StatelessWidget {
               ],
             ),
           ),
+          if (onOpenMembers != null) ...[
+            IconButton(
+              key: const Key('openMembers'),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              icon: const Icon(Icons.people_outline, color: AppColors.textSecondary),
+              onPressed: onOpenMembers,
+            ),
+            const SizedBox(width: 14),
+          ],
           if (onOpenLocation != null)
             IconButton(
               key: const Key('openLocationShare'),
