@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/auth_providers.dart';
 import '../models/chat_message.dart';
 import '../models/room.dart';
 import 'chat_api.dart';
@@ -50,8 +51,9 @@ class ChatRoomState {
   /// 아직 서버 메시지가 되지 않은 내 사진, 보낸 순서. 화면은 목록 맨 아래(가장 최신 자리)에 둔다.
   final List<PendingImage> pendingImages;
 
-  /// 이 방에 들어온 뒤 실시간으로 받은 멤버별 읽음 위치(Plan D Task 7). 들어오기 전 값은 방 상세의
-  /// `RoomMember.lastReadMessageId`에 있다 — 화면은 둘 중 큰 값을 쓴다.
+  /// 멤버별 읽음 위치(Plan D Task 7). 0은 아직 아무것도 안 읽음. 구독할 때·다시 연결될 때 서버 값으로 맞추고,
+  /// 그 사이에는 실시간 소식과 내 읽음 요청 성공으로 앞으로만 옮긴다. 화면은 방 상세의
+  /// `RoomMember.lastReadMessageId`와 이 값 중 큰 쪽을 쓰고, 여기에만 있는 멤버(나중에 들어온 사람)도 센다.
   final Map<String, int> readPositions;
 
   /// 최신순(id 내림차순). 화면은 `ListView(reverse: true)`라 첫 항목이 맨 아래에 온다.
@@ -168,9 +170,15 @@ class ChatRoomController extends Notifier<ChatRoomState> {
   void _startRealtime() {
     if (_messageSub != null) return; // 이미 구독 중(재시도로 다시 불린 경우)
     final socket = ref.read(chatSocketProvider);
-    _connectedSub = socket.connected.listen((_) => _fillGap());
+    _connectedSub = socket.connected.listen((_) {
+      _fillGap();
+      _syncReads();
+    });
     _messageSub = roomMessages(socket, roomId).listen((m) => _merge([m]));
     _readSub = roomReads(socket, roomId).listen(_onRead);
+    // 읽음 소식도 메시지처럼 끊긴 동안 온 것은 다시 오지 않는다. 구독 직후와 다시 연결될 때마다 서버에 저장된
+    // 위치를 받아 맞춘다(방 상세를 처음 받은 뒤 ~ 구독 사이에 읽은 사람도 여기서 잡힌다).
+    _syncReads();
     // 연결이 이미 열려 있으면 connected 이벤트가 따로 오지 않으므로, 조회~구독 사이의 틈을 지금 메운다.
     _fillGap();
   }
@@ -349,17 +357,37 @@ class ChatRoomController extends Notifier<ChatRoomState> {
     try {
       await _api.markRead(roomId, latest);
       if (latest > _lastReadSent) _lastReadSent = latest;
+      // 내 읽음 소식도 실시간으로 오지만, 연결이 끊겼거나 구독 전이면 놓친다. 서버가 받아 줬으니 바로 옮긴다.
+      final me = ref.read(currentUidProvider);
+      if (me != null && ref.mounted) _advance(me, latest);
     } catch (e) {
       // 다음 메시지가 올 때 다시 보낸다. 읽음은 다음 기회에 맞춰져도 되는 값이다.
       debugPrint('읽음 알리기 실패: $e');
     }
   }
 
-  /// 다른 멤버(또는 다른 기기의 나)가 읽었다는 소식. 위치는 앞으로만 옮긴다 — 늦게 도착한 옛 소식은 무시한다.
-  void _onRead(ReadEvent event) {
-    final current = state.readPositions[event.uid];
-    if (current != null && current >= event.lastReadMessageId) return;
-    state = state.copyWith(readPositions: {...state.readPositions, event.uid: event.lastReadMessageId});
+  /// 다른 멤버(또는 다른 기기의 나)가 읽었다는 소식.
+  void _onRead(ReadEvent event) => _advance(event.uid, event.lastReadMessageId);
+
+  /// 위치는 앞으로만 옮긴다 — 늦게 도착한 옛 소식이나 옛 방 정보가 되돌리지 못하게.
+  void _advance(String uid, int position) {
+    final current = state.readPositions[uid];
+    if (current != null && current >= position) return;
+    state = state.copyWith(readPositions: {...state.readPositions, uid: position});
+  }
+
+  /// 서버에 저장된 멤버별 읽음 위치를 받아 맞춘다. 아직 아무것도 안 읽은 멤버는 0으로 넣는다 — 화면이 그 사람도
+  /// "안 읽은 사람"으로 세게(방 상세를 받은 뒤에 들어온 멤버 포함). 실패하면 다음 재연결 때 다시 한다.
+  Future<void> _syncReads() async {
+    try {
+      final detail = await _api.roomDetail(roomId);
+      if (!ref.mounted) return;
+      for (final m in detail.members) {
+        _advance(m.uid, m.lastReadMessageId ?? 0);
+      }
+    } catch (e) {
+      debugPrint('읽음 위치 맞추기 실패: $e');
+    }
   }
 }
 

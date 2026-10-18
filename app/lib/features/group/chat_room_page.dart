@@ -219,8 +219,10 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
     // 보낸 것이 맨 아래), 그 위로 메시지를 둔다. 각 메시지 "위"에 날짜가 바뀌면 날짜 구분선을 둔다 —
     // 즉 바로 다음(더 오래된) 메시지와 날짜가 다르거나 더 오래된 메시지가 없을 때.
     final controller = ref.read(chatRoomControllerProvider(widget.roomId).notifier);
-    // 멤버별 읽음 위치(Task 7): 들어올 때 받은 값과 그 뒤 실시간으로 받은 값 중 큰 쪽.
-    final readPositions = {
+    // 멤버별 읽음 위치(Task 7): 방 상세의 값과 컨트롤러가 맞춘 값 중 큰 쪽. 방 상세를 받은 뒤 들어와
+    // 컨트롤러만 아는 멤버도 넣는다 — 그 사람도 안 읽었으면 세야 한다.
+    final readPositions = <String, int>{
+      for (final e in chat.readPositions.entries) e.key: e.value,
       for (final member in members.values)
         member.uid: max(member.lastReadMessageId ?? 0, chat.readPositions[member.uid] ?? 0),
     };

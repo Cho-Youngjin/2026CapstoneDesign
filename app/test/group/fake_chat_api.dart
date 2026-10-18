@@ -73,6 +73,12 @@ RoomSummary sampleRoom({
   );
 }
 
+extension RoomDetailMembers on RoomDetail {
+  /// 같은 방에 멤버만 바꾼 상세.
+  RoomDetail withMembers(List<RoomMember> members) =>
+      RoomDetail(id: id, type: type, name: name, inviteCode: inviteCode, members: members);
+}
+
 RoomDetail sampleDetail({int id = 1, String name = '도쿄 여행', String inviteCode = 'ABC234'}) {
   return RoomDetail(
     id: id,

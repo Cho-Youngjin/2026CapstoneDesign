@@ -117,6 +117,20 @@ void main() {
       expect(find.byKey(const Key('unread-5')), findsNothing);
     });
 
+    testWidgets('화면을 연 뒤 들어온 멤버도 읽음 소식으로 알게 되면 안 읽은 수에 센다', (tester) async {
+      final api = FakeChatApi()
+        ..detailToReturn = threeMembers()
+        ..storedMessages.addAll([sampleMessage(id: 5, senderUid: 'uid-a'), sampleMessage(id: 20, senderUid: 'uid-a')]);
+      final (_, socket) = await _pump(tester, api: api);
+      expect(tester.widget<Text>(find.byKey(const Key('unread-20'))).data, '2', reason: '영진·민준');
+
+      // 방 정보에 없던 지훈이 들어와 5번까지 읽었다 — 20번은 아직 안 읽었다.
+      socket.emit('/topic/rooms/1/read', {'roomId': 1, 'uid': 'uid-new', 'lastReadMessageId': 5});
+      await tester.pumpAndSettle();
+
+      expect(tester.widget<Text>(find.byKey(const Key('unread-20'))).data, '3');
+    });
+
     testWidgets('채팅방을 열면 잠시 뒤 가장 최근 메시지까지 읽었다고 알린다', (tester) async {
       final api = FakeChatApi()
         ..detailToReturn = threeMembers()

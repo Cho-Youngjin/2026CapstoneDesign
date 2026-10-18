@@ -6,6 +6,7 @@ import 'package:app/features/group/data/chat_api.dart';
 import 'package:app/features/group/data/chat_room_controller.dart';
 import 'package:app/features/group/data/chat_socket.dart';
 import 'package:app/features/group/models/chat_message.dart';
+import 'package:app/features/group/models/room.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -248,8 +249,43 @@ void main() {
       socket.emit(_readTopic, {'uid': 'uid-c'}); // 형식이 틀린 소식은 무시
       await _settle();
 
-      expect(_state(c).readPositions, {'uid-b': 7});
+      expect(_state(c).readPositions['uid-b'], 7);
+      expect(_state(c).readPositions.containsKey('uid-c'), isFalse);
       expect(socket.activeSubscriptions, contains(_readTopic));
+    });
+
+    test('읽음 알리기가 성공하면 실시간 소식을 기다리지 않고 내 위치를 바로 옮긴다', () async {
+      api.storedMessages.add(sampleMessage(id: 3));
+
+      final c = await _start();
+
+      expect(_state(c).readPositions['uid-a'], 3);
+    });
+
+    test('구독을 시작할 때 방 정보로 멤버들의 읽음 위치를 맞춘다(구독 전에 읽은 사람 포함)', () async {
+      api.detailToReturn = sampleDetail().withMembers(const [
+        RoomMember(uid: 'uid-a'),
+        RoomMember(uid: 'uid-b', lastReadMessageId: 4),
+        RoomMember(uid: 'uid-c'), // 아직 아무것도 안 읽음
+      ]);
+
+      final c = await _start();
+
+      expect(_state(c).readPositions['uid-b'], 4);
+      expect(_state(c).readPositions['uid-c'], 0);
+    });
+
+    test('다시 연결되면 끊긴 동안 다른 사람이 읽은 위치를 다시 받는다', () async {
+      final c = await _start();
+      api.detailToReturn = sampleDetail().withMembers(const [
+        RoomMember(uid: 'uid-a'),
+        RoomMember(uid: 'uid-b', lastReadMessageId: 9),
+      ]);
+
+      socket.emitConnected();
+      await _settle();
+
+      expect(_state(c).readPositions['uid-b'], 9);
     });
   });
 
