@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app/features/visa/data/trip_api.dart';
 import 'package:app/features/visa/models/trip.dart';
 import 'package:app/features/visa/models/trip_checklist_item.dart';
@@ -125,9 +127,14 @@ class FakeTripApi implements TripApi {
     return tripAfterRefresh ?? tripToReturn;
   }
 
+  /// 정해 두면 markTaskDone 응답을 이 Completer가 끝날 때까지 미룬다 — 응답 전에 화면을 나가는 경우.
+  Completer<void>? holdMarkTaskDone;
+
   @override
   Future<TripTask> markTaskDone(int tripId, int taskId) async {
     markTaskDoneCalls.add((tripId: tripId, taskId: taskId));
+    final hold = holdMarkTaskDone;
+    if (hold != null) await hold.future;
     return tripToReturn.tasks.firstWhere((t) => t.id == taskId).copyWith(done: true);
   }
 

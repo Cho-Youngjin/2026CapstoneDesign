@@ -11,6 +11,7 @@ import 'core/maps/configure_google_maps.dart';
 import 'features/footsteps/background/footstep_workmanager.dart';
 import 'features/rate_alert/background/rate_alert_scheduler.dart';
 import 'features/rate_alert/data/rate_alert_store.dart';
+import 'features/visa/notifications/alarm_scheduler.dart';
 import 'router.dart';
 
 Future<void> main() async {
@@ -35,6 +36,8 @@ class _Root extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // 로그아웃·계정 전환 때 이전 계정의 비자 준비 알람을 지운다(앱이 떠 있는 동안 계속 지켜본다).
+    ref.watch(visaAlarmAccountGuardProvider);
     final authState = ref.watch(authStateProvider);
 
     return authState.when(

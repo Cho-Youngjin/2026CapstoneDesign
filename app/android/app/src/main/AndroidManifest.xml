@@ -8,7 +8,7 @@
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Android 13+ 알림 표시 권한(환율 알림). 처음 알림을 켤 때 앱에서 요청한다. -->
+    <!-- Android 13+ 알림 표시 권한(환율 알림, 비자 준비 알람). 환율 알림을 켜거나 여행을 만들 때 요청한다. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:label="travel_footsteps"
@@ -46,6 +46,21 @@
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="${MAPS_ANDROID_API_KEY}" />
+        <!-- flutter_local_notifications 예약 알림(비자 준비 알람). 첫 번째는 예약 시각에 알림을 띄우고,
+             두 번째는 재부팅·앱 업데이트 뒤 OS가 지운 예약을 다시 건다(RECEIVE_BOOT_COMPLETED 필요). -->
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

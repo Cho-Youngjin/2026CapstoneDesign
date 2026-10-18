@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/core/prefs/shared_preferences_provider.dart';
+import 'package:app/features/rate_alert/notify/notification_permission.dart';
 import 'package:app/features/visa/data/trip_api.dart';
 import 'package:app/features/visa/data/trip_deletion.dart';
 import 'package:app/features/visa/data/trip_list_providers.dart';
 import 'package:app/features/visa/models/trip.dart';
+import 'package:app/features/visa/notifications/alarm_scheduler.dart';
 import 'package:app/features/visa/visa_result_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,7 +16,26 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'fake_alarm_backend.dart';
 import 'fake_trip_api.dart';
+
+class FakePermission implements NotificationPermission {
+  FakePermission({this.fails = false, this.hold});
+
+  final bool fails;
+
+  /// 정해 두면 이 Completer가 끝날 때까지 답하지 않는다 — 권한 대화상자가 떠 있는 동안.
+  final Completer<void>? hold;
+  int calls = 0;
+
+  @override
+  Future<bool> request() async {
+    calls++;
+    if (hold != null) await hold!.future;
+    if (fails) throw Exception('permission plugin failed');
+    return true;
+  }
+}
 
 class _FakeTripDeleter implements TripDeleter {
   _FakeTripDeleter({this.fails = false});
@@ -33,22 +55,34 @@ class _FakeTripDeleter implements TripDeleter {
 
 /// 여행 상세 화면을 `/visa/trip/:id`로 띄운다. 화면이 목록·준비물 탭·지갑으로 이동하므로
 /// 그 자리 화면도 같이 둔다.
-Future<({FakeTripApi api, SharedPreferences prefs, _FakeTripDeleter deleter})> pumpResultPage(
+Future<
+    ({
+      FakeTripApi api,
+      SharedPreferences prefs,
+      _FakeTripDeleter deleter,
+      FakeAlarmBackend alarms,
+    })> pumpResultPage(
   WidgetTester tester, {
   Trip? trip,
+  Trip? tripAfterRefresh,
   int? getTripStatusCode,
   Map<String, Object> stored = const {},
   bool deleteFails = false,
   bool watchTripList = false,
+  FakeAlarmBackend? alarms,
+  AlarmScheduler? scheduler,
+  NotificationPermission? permission,
 }) async {
   SharedPreferences.setMockInitialValues(stored);
   final prefs = await SharedPreferences.getInstance();
   final api = FakeTripApi(
     tripToReturn: trip,
+    tripAfterRefresh: tripAfterRefresh,
     getTripStatusCode: getTripStatusCode,
     trips: [sampleSummary(id: 8)],
   );
   final deleter = _FakeTripDeleter(fails: deleteFails);
+  final alarmBackend = alarms ?? FakeAlarmBackend();
   final id = (trip ?? sampleTrip()).id;
 
   final router = GoRouter(
@@ -76,6 +110,9 @@ Future<({FakeTripApi api, SharedPreferences prefs, _FakeTripDeleter deleter})> p
         currentUidProvider.overrideWithValue('uid-a'),
         tripApiProvider.overrideWithValue(api),
         tripDeleterProvider.overrideWithValue(deleter),
+        alarmSchedulerProvider.overrideWithValue(
+            scheduler ?? AlarmScheduler(alarmBackend, now: () => seoulTime(2026, 9, 7, 12))),
+        notificationPermissionProvider.overrideWithValue(permission ?? FakePermission()),
       ],
       // 목록 provider를 누군가 보고 있어야 invalidate가 다시 조회로 이어진다(여행 목록 탭 역할).
       child: Consumer(builder: (context, ref, child) {
@@ -85,7 +122,7 @@ Future<({FakeTripApi api, SharedPreferences prefs, _FakeTripDeleter deleter})> p
     ),
   );
   await tester.pumpAndSettle();
-  return (api: api, prefs: prefs, deleter: deleter);
+  return (api: api, prefs: prefs, deleter: deleter, alarms: alarmBackend);
 }
 
 TripTask task({
@@ -253,6 +290,146 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.refreshTripCalls, [trip.id]);
+  });
+
+  group('준비 일정 알람', () {
+    // pumpResultPage의 알람 시계는 2026-09-07 12:00(서울)이다.
+    testWidgets('여행을 열면 남은 일정마다 알람을 예약한다', (tester) async {
+      final trip = sampleTrip(id: 7, tasks: [
+        task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+        task(id: 4, title: '여권 재발급', dueDate: DateTime(2026, 9, 1)),
+      ]);
+
+      final alarms = (await pumpResultPage(tester, trip: trip)).alarms;
+
+      expect(alarms.scheduled.keys, [notificationIdFor(3)]);
+    });
+
+    testWidgets('울릴 일정이 있으면 알림 권한을 요청한다 (이미 있던 여행도)', (tester) async {
+      final permission = FakePermission();
+      await pumpResultPage(tester,
+          trip: sampleTrip(tasks: [
+            task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+          ]),
+          permission: permission);
+
+      expect(permission.calls, 1);
+    });
+
+    testWidgets('울릴 일정이 없으면 알림 권한을 묻지 않는다', (tester) async {
+      final permission = FakePermission();
+      await pumpResultPage(tester,
+          trip: sampleTrip(tasks: [
+            task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 9, 1)),
+          ]),
+          permission: permission);
+
+      expect(permission.calls, 0);
+    });
+
+    testWidgets('알림 권한 요청이 실패해도 알람은 예약해 둔다', (tester) async {
+      final alarms = (await pumpResultPage(tester,
+              trip: sampleTrip(id: 7, tasks: [
+                task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+              ]),
+              permission: FakePermission(fails: true)))
+          .alarms;
+
+      expect(alarms.scheduled.keys, [notificationIdFor(3)]);
+    });
+
+    testWidgets('다른 기기에서 지운 여행(404)이면 이 기기의 알람도 지운다', (tester) async {
+      final alarms = FakeAlarmBackend();
+      final scheduler = AlarmScheduler(alarms, now: () => seoulTime(2026, 9, 7, 12));
+      await scheduler.syncTrip(sampleTrip(id: 7, tasks: [
+        task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+      ]));
+
+      await pumpResultPage(tester, getTripStatusCode: 404, alarms: alarms, scheduler: scheduler);
+
+      expect(alarms.scheduled, isEmpty);
+    });
+
+    testWidgets('일정을 완료하면 그 알람을 취소한다', (tester) async {
+      final trip = sampleTrip(id: 7, tasks: [
+        task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+        task(id: 5, title: '최종 서류 점검', dueDate: DateTime(2026, 12, 13)),
+      ]);
+      final alarms = (await pumpResultPage(tester, trip: trip)).alarms;
+
+      await tester.tap(find.text('여행자보험 가입'));
+      await tester.pumpAndSettle();
+
+      expect(alarms.scheduled.keys, [notificationIdFor(5)]);
+    });
+
+    testWidgets('권한 대화상자가 떠 있는 동안 완료한 일정의 알람은 되살아나지 않는다', (tester) async {
+      final dialog = Completer<void>();
+      final r = await pumpResultPage(tester,
+          trip: sampleTrip(id: 7, tasks: [
+            task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+          ]),
+          permission: FakePermission(hold: dialog));
+
+      await tester.tap(find.text('여행자보험 가입'));
+      await tester.pumpAndSettle();
+      dialog.complete();
+      await tester.pumpAndSettle();
+
+      expect(r.alarms.scheduled, isEmpty);
+    });
+
+    testWidgets('완료 응답이 오기 전에 화면을 나가도 그 일정의 알람은 취소한다', (tester) async {
+      final trip = sampleTrip(id: 7, tasks: [
+        task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+      ]);
+      final r = await pumpResultPage(tester, trip: trip);
+      r.api.holdMarkTaskDone = Completer<void>();
+
+      await tester.tap(find.text('여행자보험 가입'));
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.arrow_back)); // 응답 전에 목록으로 나간다
+      await tester.pumpAndSettle();
+      expect(find.text('여행 목록'), findsOneWidget);
+
+      r.api.holdMarkTaskDone!.complete();
+      await tester.pumpAndSettle();
+
+      expect(r.alarms.scheduled, isEmpty);
+    });
+
+    testWidgets('다시 판정하면 새 일정으로 알람을 다시 맞춘다', (tester) async {
+      final before = sampleTrip(id: 7, judgementStale: true, tasks: [
+        task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+      ]);
+      final after = sampleTrip(id: 7, tasks: [
+        task(id: 13, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+        task(id: 14, title: '비자 신청', dueDate: DateTime(2026, 11, 5)),
+      ]);
+      final alarms =
+          (await pumpResultPage(tester, trip: before, tripAfterRefresh: after)).alarms;
+
+      await tester.tap(find.text('다시 판정'));
+      await tester.pumpAndSettle();
+
+      expect(alarms.scheduled.keys,
+          unorderedEquals([notificationIdFor(13), notificationIdFor(14)]));
+    });
+
+    testWidgets('알람 예약이 실패해도 화면은 그대로 쓸 수 있다', (tester) async {
+      final trip = sampleTrip(tasks: [
+        task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+      ]);
+
+      final api =
+          (await pumpResultPage(tester, trip: trip, alarms: FakeAlarmBackend(failing: true))).api;
+      await tester.tap(find.text('여행자보험 가입'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(api.markTaskDoneCalls, hasLength(1));
+      expect(find.text('완료'), findsOneWidget);
+    });
   });
   // 테스트 기본 화면(800x600)은 실기기보다 넓어서 2단 배지가 넘치는 걸 못 잡는다.
   // 가장 문구가 긴 조합(여권 재발급 + 초과)을 폰 폭에서 그려본다 — 위젯 테스트는
