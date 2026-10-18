@@ -1,5 +1,6 @@
 package com.travelfootsteps.country;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.travelfootsteps.auth.TokenVerifier;
 import com.travelfootsteps.support.StubTokenVerifier;
 import org.junit.jupiter.api.Test;
@@ -17,6 +18,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -45,6 +50,9 @@ class CountryControllerTest {
 
     @Autowired
     MockMvc mockMvc;
+
+    @Autowired
+    ObjectMapper objectMapper;
 
     @Test
     void without_token_returns_401() throws Exception {
@@ -85,14 +93,31 @@ class CountryControllerTest {
 
     @Test
     void 준비물_체크리스트는_공통_템플릿에_국가별_항목을_더해_우선순위순으로_반환한다() throws Exception {
-        // 공통 템플릿 8개(V5) + 베트남 결제 특이사항 1개(V9) = 9개.
-        // 국가별 항목은 priority 90이라 공통 항목들보다 뒤에 온다.
+        // 공통 템플릿 14개(V5 8개 + V12 6개) + 베트남 결제 특이사항 1개(V9) = 15개.
+        // 국가별 항목은 priority 90이라 공통 항목들(최대 89)보다 뒤에 온다.
         mockMvc.perform(get("/api/countries/VN/checklist").header("Authorization", "Bearer valid-token"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(9))
+                .andExpect(jsonPath("$.length()").value(15))
                 .andExpect(jsonPath("$[0].title").value("플러그 어댑터 준비"))
                 .andExpect(jsonPath("$[0].category").value("POWER"))
-                .andExpect(jsonPath("$[8].title").value("소액권 현지통화 사전 환전"))
-                .andExpect(jsonPath("$[8].category").value("PAYMENT"));
+                .andExpect(jsonPath("$[14].title").value("소액권 현지통화 사전 환전"))
+                .andExpect(jsonPath("$[14].category").value("PAYMENT"));
+    }
+
+    @Test
+    void 공통_템플릿은_우선순위순으로_정렬해도_같은_카테고리끼리_이어진다() throws Exception {
+        // 앱(checklist_page.dart)은 카테고리가 이어지는 구간마다 섹션을 만든다. 사이에 다른 카테고리가
+        // 끼면 같은 섹션 제목과 환율 알림 행이 두 번 나온다. 베트남 목록의 마지막 1개는 국가별 항목이라 뺀다.
+        String body = mockMvc.perform(get("/api/countries/VN/checklist").header("Authorization", "Bearer valid-token"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<String> categories = objectMapper.readTree(body).findValuesAsText("category");
+        List<String> common = categories.subList(0, categories.size() - 1);
+
+        List<String> runs = new ArrayList<>();
+        for (String category : common) {
+            if (runs.isEmpty() || !runs.get(runs.size() - 1).equals(category)) runs.add(category);
+        }
+        assertThat(runs).doesNotHaveDuplicates();
     }
 }

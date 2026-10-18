@@ -285,12 +285,12 @@ class TripControllerTest {
 
         mockMvc.perform(get("/api/trips/" + tripId + "/checklist").header("Authorization", "Bearer token-a"))
                 .andExpect(status().isOk())
-                // 공통 8개(V5) + 베트남 결제 특이사항 1개(V9).
-                .andExpect(jsonPath("$.length()").value(9))
+                // 공통 14개(V5 8개 + V12 6개) + 베트남 결제 특이사항 1개(V9).
+                .andExpect(jsonPath("$.length()").value(15))
                 .andExpect(jsonPath("$[0].title").value("플러그 어댑터 준비"))
                 .andExpect(jsonPath("$[0].category").value("POWER"))
                 .andExpect(jsonPath("$[0].checked").value(false))
-                .andExpect(jsonPath("$[8].title").value("소액권 현지통화 사전 환전"));
+                .andExpect(jsonPath("$[14].title").value("소액권 현지통화 사전 환전"));
     }
 
     /**
@@ -299,7 +299,7 @@ class TripControllerTest {
      * 검증하는 {@code 조회는_생성_시점의_스냅샷을...} 테스트와 같은 원칙이다.
      *
      * <p>이 테스트만 메서드 단위 {@code @Transactional}을 붙여서, checklist_template에 대한
-     * 변경(UPDATE/INSERT)이 테스트가 끝나면 롤백되어 다른 테스트(공통 템플릿이 정확히 8개라고
+     * 변경(UPDATE/INSERT)이 테스트가 끝나면 롤백되어 다른 테스트(공통 템플릿이 정확히 14개라고
      * 가정하는 테스트들 포함)를 오염시키지 않게 한다. MockMvc 호출은 같은 스레드에서 실행되므로
      * 컨트롤러의 @Transactional(REQUIRED 전파)이 이 테스트의 트랜잭션에 그대로 합류한다.
      */
@@ -313,7 +313,7 @@ class TripControllerTest {
         // 생성 직후 스냅샷을 미리 확인해 둔다.
         mockMvc.perform(get("/api/trips/" + tripId + "/checklist").header("Authorization", "Bearer token-a"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(9))
+                .andExpect(jsonPath("$.length()").value(15))
                 .andExpect(jsonPath("$[0].title").value("플러그 어댑터 준비"));
 
         // 공통 템플릿을 바꾼다: 기존 항목 제목 변경 + 새 공통 항목 추가(실제로는 관리자가 R4
@@ -329,7 +329,7 @@ class TripControllerTest {
         // 새 공통 항목이 섞여 들어오면 안 된다.
         mockMvc.perform(get("/api/trips/" + tripId + "/checklist").header("Authorization", "Bearer token-a"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(9))
+                .andExpect(jsonPath("$.length()").value(15))
                 .andExpect(jsonPath("$[0].title").value("플러그 어댑터 준비"))
                 .andExpect(jsonPath("$[?(@.title=='나중에_추가된_공통_항목')]").doesNotExist());
 
@@ -339,7 +339,7 @@ class TripControllerTest {
                 LocalDate.of(2026, 12, 21), LocalDate.of(2027, 1, 10), LocalDate.of(2028, 1, 1));
         mockMvc.perform(get("/api/trips/" + newTripId + "/checklist").header("Authorization", "Bearer token-a"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(10))
+                .andExpect(jsonPath("$.length()").value(16))
                 .andExpect(jsonPath("$[?(@.title=='나중에_추가된_공통_항목')]").exists());
     }
 
