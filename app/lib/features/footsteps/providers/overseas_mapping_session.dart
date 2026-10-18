@@ -129,6 +129,13 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
       _sub = null;
       final pending = _inFlight;
       if (pending != null) await pending;
+      // 기다리는 동안 들어와 남아 있는 좌표가 이미 기준 거리를 넘었다면, 다음 GPS를 기다리지 않고
+      // 마지막으로 한 번 더 보낸다 — 멈추고 나면 그 구간을 보낼 기회가 없다.
+      if (state.active &&
+          _segmentBuffer.length >= 2 &&
+          _segmentDistance >= overseasTriggerDistanceMeters) {
+        await _trySnap();
+      }
 
       // 마지막 해외 위치를 체크인으로 남겨 이번 해외 이동 기록의 끝을 표시한다.
       final wasActive = state.active;

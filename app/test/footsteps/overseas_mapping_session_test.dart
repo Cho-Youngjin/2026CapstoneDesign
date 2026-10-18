@@ -242,4 +242,23 @@ void main() {
 
     expect(await container.read(visitedCountriesProvider.future), {'JP'});
   });
+
+  test('요청을 기다리는 동안 기준 거리 넘게 더 걸었다면, 멈출 때 남은 구간도 마저 보낸다', () async {
+    final notifier = container.read(overseasMappingProvider.notifier);
+    notifier.start('JP', anchor);
+    adapter.gate = Completer<void>();
+
+    gps.add(_positionAt(37.5000, 127.0000));
+    gps.add(_positionAt(37.5010, 127.0000)); // 첫 요청(응답 대기)
+    await settle();
+    gps.add(_positionAt(37.5020, 127.0000)); // 요청 중 ≈111m 더 걸었다
+    await settle();
+
+    final stopping = notifier.stop();
+    adapter.gate!.complete();
+    await stopping;
+
+    expect(adapter.requests, hasLength(2));
+    expect(sentPoints(adapter.requests[1]), [(37.5010, 127.0), (37.5020, 127.0)]);
+  });
 }
