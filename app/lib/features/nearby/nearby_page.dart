@@ -8,7 +8,7 @@ import 'api/travel_alert_api.dart';
 import 'models/embassy.dart';
 import 'models/travel_alert.dart';
 import 'providers/nearby_selection_providers.dart';
-import 'widgets/alert_badge.dart';
+import 'widgets/alert_section.dart';
 import 'widgets/category_filter_tabs.dart';
 import 'widgets/embassy_card.dart';
 import 'widgets/nearby_map_view.dart';
@@ -97,9 +97,9 @@ class _NearbyPageState extends ConsumerState<NearbyPage> {
           final iso2 = effectiveIso2(countries.asData?.value ?? const []);
 
           final places = ref.watch(nearbyPlacesProvider);
-          final AsyncValue<List<TravelAlert>> alerts = iso2 == null
-              ? const AsyncValue.data([])
-              : ref.watch(travelAlertsProvider(iso2));
+          // 국가가 아직 정해지지 않았으면(null) "경보 없음"이라고 말하지 않도록 구분해 둔다.
+          final AsyncValue<List<TravelAlert>>? alerts =
+              iso2 == null ? null : ref.watch(travelAlertsProvider(iso2));
           final AsyncValue<List<Embassy>> embassies = iso2 == null
               ? const AsyncValue.data([])
               : ref.watch(embassiesProvider(iso2));
@@ -122,18 +122,7 @@ class _NearbyPageState extends ConsumerState<NearbyPage> {
                   child: CategoryFilterTabs(),
                 ),
               ),
-              if ((alerts.asData?.value ?? const []).isNotEmpty)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    child: Wrap(
-                      spacing: 8,
-                      children: [
-                        for (final a in alerts.asData!.value) AlertBadge(level: a.level),
-                      ],
-                    ),
-                  ),
-                ),
+              SliverToBoxAdapter(child: AlertSection(alerts: alerts)),
               places.when(
                 loading: () => const SliverToBoxAdapter(
                   child: Padding(
