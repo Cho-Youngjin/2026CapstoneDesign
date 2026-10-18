@@ -73,6 +73,18 @@ void main() {
     expect(find.text('위치 1'), findsOneWidget);
   });
 
+  testWidgets('DM 방에서는 위치 아이콘을 보여주지 않는다 (위치공유는 그룹 방 기능)', (tester) async {
+    await _pump(tester,
+        api: FakeChatApi()
+          ..detailToReturn = const RoomDetail(
+            id: 1,
+            type: RoomType.dm,
+            members: [RoomMember(uid: 'uid-a', displayName: '성주'), RoomMember(uid: 'uid-b', displayName: '영진')],
+          ));
+
+    expect(find.byKey(const Key('openLocationShare')), findsNothing);
+  });
+
   testWidgets('멤버가 아닌 방에서는 위치 아이콘을 보여주지 않는다', (tester) async {
     await _pump(tester, api: FakeChatApi()..roomDetailNotFound = true);
 

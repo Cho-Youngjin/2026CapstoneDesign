@@ -11,6 +11,30 @@ import 'data/chat_api.dart';
 import 'data/location_share_session.dart';
 import 'models/room.dart';
 
+/// [points]를 모두 담는 가장 작은 범위. 경도는 날짜변경선(180°)을 넘는 쪽이 더 짧으면 그쪽으로 잡는다 —
+/// 179°E와 179°W에 있는 두 사람을 지구 반대편까지 펼쳐 보여주지 않게. 이때 남서쪽 경도가 북동쪽보다 크다
+/// (LatLngBounds가 날짜변경선을 넘는 범위를 그렇게 나타낸다).
+LatLngBounds boundsAround(List<LatLng> points) {
+  final lats = points.map((p) => p.latitude);
+  final lngs = points.map((p) => p.longitude).toList()..sort();
+  // 경도를 원 위에 늘어놓았을 때 가장 큰 빈 구간을 뺀 나머지가 가장 짧은 범위다.
+  var gapAfter = lngs.length - 1; // 기본: 마지막→처음(날짜변경선을 넘는 빈 구간)
+  var widest = lngs.first + 360 - lngs.last;
+  for (var i = 0; i < lngs.length - 1; i++) {
+    final gap = lngs[i + 1] - lngs[i];
+    if (gap > widest) {
+      widest = gap;
+      gapAfter = i;
+    }
+  }
+  final west = lngs[(gapAfter + 1) % lngs.length];
+  final east = lngs[gapAfter];
+  return LatLngBounds(
+    southwest: LatLng(lats.reduce((a, b) => a < b ? a : b), west),
+    northeast: LatLng(lats.reduce((a, b) => a > b ? a : b), east),
+  );
+}
+
 /// 그룹 실시간 위치공유(`/group/location/:roomId`, 채팅방 상단 위치 아이콘에서 들어온다).
 /// 와이어프레임: "해외여행 발걸음 - 와이어프레임" Plan D, 위치 공유 화면.
 ///
@@ -38,15 +62,7 @@ class _LocationSharePageState extends ConsumerState<LocationSharePage> {
   void _showAll(List<LatLng> points) {
     if (points.isEmpty) return;
     if (points.length == 1) return _moveTo(points.single);
-    final lats = points.map((p) => p.latitude);
-    final lngs = points.map((p) => p.longitude);
-    _map?.animateCamera(CameraUpdate.newLatLngBounds(
-      LatLngBounds(
-        southwest: LatLng(lats.reduce((a, b) => a < b ? a : b), lngs.reduce((a, b) => a < b ? a : b)),
-        northeast: LatLng(lats.reduce((a, b) => a > b ? a : b), lngs.reduce((a, b) => a > b ? a : b)),
-      ),
-      60,
-    ));
+    _map?.animateCamera(CameraUpdate.newLatLngBounds(boundsAround(points), 60));
   }
 
   @override
@@ -65,7 +81,9 @@ class _LocationSharePageState extends ConsumerState<LocationSharePage> {
     });
 
     final Widget body;
-    if (s.loadError is RoomNotFoundException) {
+    if (s.loadError is LocationShareGroupOnly) {
+      body = const _Notice(message: '위치 공유는 그룹 채팅방에서만 쓸 수 있어요.');
+    } else if (s.loadError is RoomNotFoundException) {
       body = const _Notice(message: '이 그룹을 찾을 수 없어요.\n그룹원만 위치를 볼 수 있습니다.');
     } else if (s.loadError != null) {
       body = _Notice(

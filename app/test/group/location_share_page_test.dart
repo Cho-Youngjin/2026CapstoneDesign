@@ -174,6 +174,35 @@ void main() {
     expect(page.socket.activeSubscriptions, isEmpty);
   });
 
+  testWidgets('DM 방이면 그룹 방에서만 쓸 수 있다고 안내한다', (tester) async {
+    final page = _Page();
+    page.api.detailToReturn = const RoomDetail(
+      id: 7,
+      type: RoomType.dm,
+      members: [RoomMember(uid: 'uid-a'), RoomMember(uid: 'uid-b')],
+    );
+    await page.pump(tester);
+
+    expect(find.textContaining('그룹 채팅방에서만'), findsOneWidget);
+    expect(find.byType(BaseGoogleMap), findsNothing);
+  });
+
+  group('boundsAround', () {
+    test('보통은 위도·경도의 최소·최대로 감싼다', () {
+      final b = boundsAround(const [LatLng(35.6, 139.7), LatLng(35.7, 139.8), LatLng(35.65, 139.6)]);
+
+      expect(b.southwest, const LatLng(35.6, 139.6));
+      expect(b.northeast, const LatLng(35.7, 139.8));
+    });
+
+    test('날짜변경선을 넘는 쪽이 짧으면 그쪽으로 감싼다', () {
+      final b = boundsAround(const [LatLng(-17, 179), LatLng(-16, -179)]);
+
+      expect(b.southwest, const LatLng(-17, 179));
+      expect(b.northeast, const LatLng(-16, -179));
+    });
+  });
+
   testWidgets('폰 폭(360)에서도 넘치지 않는다', (tester) async {
     tester.view.physicalSize = const Size(360, 740);
     tester.view.devicePixelRatio = 1;

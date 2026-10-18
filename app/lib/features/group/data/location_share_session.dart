@@ -126,7 +126,9 @@ class LocationShareSession extends Notifier<LocationShareState> {
   StreamSubscription<void>? _tickSub;
   AppLifecycleListener? _lifecycle;
   bool _foreground = true;
-  bool _reading = false;
+
+  /// 진행 중인 GPS 읽기. 끝나면 null.
+  Future<void>? _inFlight;
 
   DateTime _now() => ref.read(locationShareClockProvider)();
 
@@ -146,6 +148,11 @@ class LocationShareSession extends Notifier<LocationShareState> {
     try {
       final room = await ref.read(chatApiProvider).roomDetail(roomId);
       if (!ref.mounted) return;
+      // 위치공유는 그룹 방 기능이다(Plan D Task 9). 서버 중계는 멤버 여부만 보므로 DM은 여기서 막는다.
+      if (room.type != RoomType.group) {
+        state = state.copyWith(loading: false, loadError: const LocationShareGroupOnly());
+        return;
+      }
       state = state.copyWith(loading: false, clearLoadError: true, room: room);
       _startRealtime();
     } catch (e) {
@@ -207,10 +214,16 @@ class LocationShareSession extends Notifier<LocationShareState> {
     state = state.copyWith(starting: false, sharing: ok);
   }
 
-  /// 위치를 읽어 보낸다. 앞선 읽기가 끝나지 않았으면(GPS가 늦게 잡힘) 건너뛴다 — 읽기가 겹쳐 쌓이지 않게.
+  /// 위치를 읽어 보낸다. 앞선 읽기가 끝나지 않았으면(GPS가 늦게 잡힘) 틱은 건너뛴다 — 읽기가 겹쳐 쌓이지
+  /// 않게. 켜기는 건너뛰면 요청이 사라지므로(끈 사이 끝난 앞선 읽기는 결과를 버린다) 끝나길 기다렸다 새로 읽는다.
   Future<bool> _readAndSend({bool starting = false}) async {
-    if (_reading) return false;
-    _reading = true;
+    while (_inFlight != null) {
+      if (!starting) return false;
+      await _inFlight;
+      if (!ref.mounted) return false;
+    }
+    final done = Completer<void>();
+    _inFlight = done.future;
     try {
       final position = await ref.read(locationShareReaderProvider)();
       if (!ref.mounted) return false;
@@ -241,9 +254,15 @@ class LocationShareSession extends Notifier<LocationShareState> {
       }
       return false;
     } finally {
-      _reading = false;
+      _inFlight = null;
+      done.complete();
     }
   }
+}
+
+/// 그룹 방이 아니라서(DM) 위치공유를 열지 않는다.
+class LocationShareGroupOnly implements Exception {
+  const LocationShareGroupOnly();
 }
 
 final locationShareSessionProvider =

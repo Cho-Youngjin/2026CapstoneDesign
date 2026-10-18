@@ -115,6 +115,39 @@ void main() {
     expect(h.socket.activeSubscriptions, isEmpty);
   });
 
+  test('DM 방이면 위치공유를 열지 않고 구독하지 않는다 (그룹 방 기능)', () async {
+    final h = _Harness();
+    h.api.detailToReturn = const RoomDetail(
+      id: 7,
+      type: RoomType.dm,
+      members: [RoomMember(uid: 'uid-a'), RoomMember(uid: 'uid-b')],
+    );
+    await h.start();
+
+    expect(h.state.loadError, isA<LocationShareGroupOnly>());
+    expect(h.socket.activeSubscriptions, isEmpty);
+  });
+
+  test('GPS를 읽는 중에 껐다 다시 켜도 켜진 상태가 유지된다', () async {
+    final h = _Harness();
+    await h.start();
+    await h.session.setSharing(true);
+    h.position.hold = Completer<void>();
+    await h.tick(); // 틱의 읽기가 멈춰 있다
+
+    await h.session.setSharing(false);
+    final turningOn = h.session.setSharing(true); // 앞선 읽기가 끝나길 기다린다
+    h.position.hold!.complete();
+    await turningOn;
+
+    expect(h.state.sharing, isTrue);
+    expect(h.sentLocations, hasLength(2), reason: '처음 켤 때 + 다시 켤 때(끈 사이 끝난 틱 읽기는 버린다)');
+
+    h.position.hold = null;
+    await h.tick();
+    expect(h.sentLocations, hasLength(3), reason: '다시 켠 뒤로 틱마다 보낸다');
+  });
+
   test('공유는 꺼진 채로 시작하고, 꺼져 있으면 틱이 와도 보내지 않는다', () async {
     final h = _Harness();
     await h.start();

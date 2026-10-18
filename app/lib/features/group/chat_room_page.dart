@@ -120,8 +120,10 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
         _Header(
           title: room == null ? '' : _titleOf(room, myUid),
           subtitle: room == null ? null : '${room.members.length}명',
-          onOpenLocation:
-              room == null ? null : () => context.push(AppRoutes.groupLocationOf(widget.roomId)),
+          // 위치공유는 그룹 방 기능이라 DM에서는 버튼을 두지 않는다.
+          onOpenLocation: room == null || room.type != RoomType.group
+              ? null
+              : () => context.push(AppRoutes.groupLocationOf(widget.roomId)),
         ),
         Expanded(
           child: Container(
