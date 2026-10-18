@@ -6,7 +6,7 @@
 -- 1) 기존 공통 항목 문구 보강
 UPDATE checklist_template
 SET title = '보조배터리 확인 (1인 2개)',
-    description = '1인 최대 2개. 100Wh 이하 가능, 100~160Wh는 항공사 승인 필요, 160Wh 초과 불가. 위탁·선반 보관·기내 충전 금지'
+    description = '1인 최대 2개. 100Wh 이하 가능, 100~160Wh는 항공사 승인 필요, 160Wh 초과 불가. 단자에 절연테이프를 붙이거나 하나씩 비닐봉투에 넣는다. 위탁·선반 보관·기내 충전 금지'
 WHERE country_id IS NULL AND category = 'POWER' AND title = '보조배터리 용량 확인';
 
 -- 2) 새 공통 항목
@@ -19,4 +19,4 @@ INSERT INTO checklist_template (country_id, category, title, description, priori
 (NULL, 'DOCUMENT', '귀국 시 식품·동식물 신고',      '육류·과일·채소류는 신고 대상', 72),
 (NULL, 'DOCUMENT', '영사콜센터 번호 저장',          '+82-2-3210-0404 (24시간, 유료)', 73),
 (NULL, 'DOCUMENT', '기내 액체류 확인',             '100ml 이하 용기를 1L 지퍼백 1개에. 큰 용량은 위탁', 74),
-(NULL, 'MONEY',    '외화 1만 달러 초과 신고',       '미화 1만 달러 초과는 세관 신고', 81);
+(NULL, 'MONEY',    '1만 달러 초과 휴대 시 신고',    '외화·원화·수표 등을 합쳐 미화 1만 달러 상당액을 넘으면 세관 신고', 81);
