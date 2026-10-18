@@ -131,6 +131,43 @@ void main() {
       expect(tester.widget<Text>(find.byKey(const Key('unread-20'))).data, '3');
     });
 
+    testWidgets('다른 화면이 위를 덮고 있는 동안 온 메시지는 읽음으로 치지 않고, 돌아오면 알린다', (tester) async {
+      final api = FakeChatApi()
+        ..detailToReturn = threeMembers()
+        ..storedMessages.add(sampleMessage(id: 4));
+      final socket = FakeChatSocket();
+      addTearDown(socket.dispose);
+      final router = GoRouter(
+        initialLocation: '/group/chat/1',
+        routes: [
+          GoRoute(path: '/group/chat/:roomId', builder: (_, _) => const Scaffold(body: ChatRoomPage(roomId: 1))),
+          GoRoute(path: '/cover', builder: (_, _) => const Scaffold(body: Text('위를 덮은 화면'))),
+        ],
+      );
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          chatApiProvider.overrideWithValue(api),
+          chatSocketProvider.overrideWithValue(socket),
+          currentUidProvider.overrideWithValue('uid-a'),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 1));
+      expect(api.readMarks, [4]);
+
+      router.push('/cover'); // 위치공유·다른 DM처럼 채팅방 위에 화면을 연다
+      await tester.pumpAndSettle();
+      socket.emit('/topic/rooms/1/messages', messageJson(sampleMessage(id: 8)));
+      await tester.pump(const Duration(seconds: 2));
+      expect(api.readMarks, [4], reason: '보지 않은 메시지를 읽음으로 보내면 안 된다');
+
+      router.pop();
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 1));
+      expect(api.readMarks, [4, 8]);
+    });
+
     testWidgets('채팅방을 열면 잠시 뒤 가장 최근 메시지까지 읽었다고 알린다', (tester) async {
       final api = FakeChatApi()
         ..detailToReturn = threeMembers()

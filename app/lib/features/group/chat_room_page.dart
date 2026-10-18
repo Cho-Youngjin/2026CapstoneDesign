@@ -122,8 +122,24 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
     }
   }
 
+  /// 마지막으로 컨트롤러에 알린 "맨 위 화면인가".
+  bool _reportedVisible = true;
+
+  /// 위에 다른 화면(위치공유, 다른 DM)이 열리거나 닫히면 컨트롤러에 알린다 — 가려진 동안 온 메시지를 읽음으로
+  /// 치지 않게(Task 7). `ModalRoute.isCurrentOf`에 기대면 라우트가 바뀔 때마다 이 build가 다시 불린다.
+  void _reportVisibility(BuildContext context) {
+    final visible = ModalRoute.isCurrentOf(context) ?? true;
+    if (visible == _reportedVisible) return;
+    _reportedVisible = visible;
+    // build 중에는 provider 상태를 바꿀 수 없으므로 프레임이 끝난 뒤에 알린다.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(chatRoomControllerProvider(widget.roomId).notifier).setVisible(visible);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    _reportVisibility(context);
     final detail = ref.watch(roomDetailProvider(widget.roomId));
     final chat = ref.watch(chatRoomControllerProvider(widget.roomId));
     final myUid = ref.watch(currentUidProvider);

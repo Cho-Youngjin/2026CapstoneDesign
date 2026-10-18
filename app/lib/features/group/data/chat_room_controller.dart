@@ -345,13 +345,28 @@ class ChatRoomController extends Notifier<ChatRoomState> {
   /// 동안만 살아 있으므로 "화면에 보이는 동안"이 된다. 앱이 뒤로 가면 소켓이 끊겨 새 메시지가 오지 않고, 돌아오면 빈
   /// 구간을 채우면서 다시 알린다.
   void _scheduleRead() {
-    if (!_confirmed || state.messages.isEmpty) return;
+    if (!_confirmed || !_visible || state.messages.isEmpty) return;
     _readTimer?.cancel();
     _readTimer = Timer(ref.read(chatReadDebounceProvider), _sendRead);
   }
 
+  /// 채팅방이 맨 위 화면인가. 위치공유나 다른 DM을 위에 열어도 이 화면은 살아 있어 메시지를 계속 받는데,
+  /// 그동안 온 메시지는 사용자가 보지 않았으므로 읽음으로 치면 안 된다. 화면이 [setVisible]로 알려 준다.
+  bool _visible = true;
+
+  /// 화면이 맨 위로 돌아오면 그사이 온 메시지까지 읽었다고 알리고, 가려지면 대기 중인 알림을 거둔다.
+  void setVisible(bool visible) {
+    if (_visible == visible) return;
+    _visible = visible;
+    if (visible) {
+      _scheduleRead();
+    } else {
+      _readTimer?.cancel();
+    }
+  }
+
   Future<void> _sendRead() async {
-    if (!ref.mounted || state.messages.isEmpty) return;
+    if (!ref.mounted || !_visible || state.messages.isEmpty) return;
     final latest = state.messages.first.id;
     if (latest <= _lastReadSent) return;
     try {
