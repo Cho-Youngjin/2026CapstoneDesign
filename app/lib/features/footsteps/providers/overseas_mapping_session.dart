@@ -92,6 +92,9 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
   Future<void>? _inFlight;
   bool _stopping = false;
 
+  // 가장 최근 구간 요청이 성공했는지. 실패하면 버퍼를 그대로 두므로, 멈출 때 같은 요청을 다시 보내지 않으려고 쓴다.
+  bool _lastSnapOk = false;
+
   @override
   OverseasMappingState build() {
     ref.onDispose(() => _sub?.cancel());
@@ -131,7 +134,11 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
       if (pending != null) await pending;
       // 기다리는 동안 들어와 남아 있는 좌표가 이미 기준 거리를 넘었다면, 다음 GPS를 기다리지 않고
       // 마지막으로 한 번 더 보낸다 — 멈추고 나면 그 구간을 보낼 기회가 없다.
-      if (state.active &&
+      // 앞선 요청이 실패했다면 버퍼가 그대로라 같은 요청을 또 보내게 되므로(장애 중이면 타임아웃만큼 멈춤이 늦어진다)
+      // 성공한 요청 뒤에 남은 좌표가 있을 때만 보낸다.
+      if (pending != null &&
+          _lastSnapOk &&
+          state.active &&
           _segmentBuffer.length >= 2 &&
           _segmentDistance >= overseasTriggerDistanceMeters) {
         await _trySnap();
@@ -179,6 +186,7 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
 
   Future<void> _trySnap() async {
     _busy = true;
+    _lastSnapOk = false;
     final krPoints = List<LatLng>.unmodifiable(_segmentBuffer);
     try {
       final result = await walkOverseasSegment(
@@ -214,6 +222,7 @@ class OverseasMappingNotifier extends Notifier<OverseasMappingState> {
         jpHeading: _headingOf(result.matched) ?? state.jpHeading,
       );
       ref.read(overseasPositionProvider.notifier).state = newAnchor;
+      _lastSnapOk = true;
 
       await _persistOverseasPoints(state.country, newPoints);
     } catch (_) {

@@ -44,6 +44,9 @@ class _FakeWalkAdapter implements HttpClientAdapter {
   /// 설정하면 응답을 이 completer가 끝날 때까지 붙잡아 둔다(느린 네트워크 흉내).
   Completer<void>? gate;
 
+  /// true면 서버가 매칭에 실패했다고 답한다.
+  bool fail = false;
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -54,6 +57,11 @@ class _FakeWalkAdapter implements HttpClientAdapter {
     requests.add(options.data as Map<String, dynamic>);
     final hold = gate;
     if (hold != null) await hold.future;
+    if (fail) {
+      return ResponseBody.fromString(jsonEncode({'ok': false}), 200, headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      });
+    }
 
     final json = jsonEncode({
       'ok': true,
@@ -260,5 +268,24 @@ void main() {
 
     expect(adapter.requests, hasLength(2));
     expect(sentPoints(adapter.requests[1]), [(37.5010, 127.0), (37.5020, 127.0)]);
+  });
+
+  test('기다리던 요청이 실패했다면 멈출 때 같은 요청을 다시 보내지 않는다 — 장애 중 멈춤이 늦어지지 않게', () async {
+    final notifier = container.read(overseasMappingProvider.notifier);
+    notifier.start('JP', anchor);
+    adapter
+      ..fail = true
+      ..gate = Completer<void>();
+
+    gps.add(_positionAt(37.5000, 127.0000));
+    gps.add(_positionAt(37.5010, 127.0000)); // 요청(실패할 예정)
+    await settle();
+
+    final stopping = notifier.stop();
+    adapter.gate!.complete();
+    await stopping;
+
+    expect(adapter.requests, hasLength(1));
+    expect(container.read(overseasMappingProvider).active, isFalse);
   });
 }
