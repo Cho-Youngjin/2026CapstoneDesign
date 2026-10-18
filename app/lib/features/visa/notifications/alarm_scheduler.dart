@@ -77,7 +77,9 @@ class LocalAlarmBackend implements AlarmBackend {
   final FlutterLocalNotificationsPlugin _plugin;
   bool _initialized = false;
 
-  static const channelId = 'visa_alarms';
+  /// Plan B 전역 제약에서 정한 채널 id. Android는 채널 id를 영구 식별자로 다뤄 나중에 바꾸면
+  /// 사용자가 설정한 이전 채널이 기기에 남는다.
+  static const channelId = 'com.travelfootsteps.visa_alarms';
 
   static const _details = NotificationDetails(
     android: AndroidNotificationDetails(
@@ -126,9 +128,15 @@ class LocalAlarmBackend implements AlarmBackend {
 /// 플러그인에 묻지 않는 이유: Android는 이미 울려 알림창에 남은 알림에 대해 payload를 돌려주지 않고,
 /// 예약 알림을 띄울 때 tag도 붙이지 않아, 알림만 보고는 어느 여행 것인지 알 수 없다.
 /// 그래서 예약할 때 적어 두고 취소할 때 지운다. 울린 뒤에도 남아 있으므로 알림창의 알림도 지울 수 있다.
+///
+/// 알람의 주인(계정 uid)도 함께 적는다. 계정이 바뀐 직후 정리가 끝나기 전에 앱이 꺼져도, 다음 실행에서
+/// 로그인한 계정과 주인을 비교해 이전 계정의 알람을 지울 수 있게 하려는 것이다.
 abstract interface class AlarmRegistry {
   Map<int, int> read();
   Future<void> write(Map<int, int> entries);
+
+  String? readOwner();
+  Future<void> writeOwner(String? uid);
 }
 
 class PrefsAlarmRegistry implements AlarmRegistry {
@@ -137,6 +145,14 @@ class PrefsAlarmRegistry implements AlarmRegistry {
   final SharedPreferences _prefs;
 
   static const _key = 'visa_alarms.v1';
+  static const _ownerKey = 'visa_alarms.owner.v1';
+
+  @override
+  String? readOwner() => _prefs.getString(_ownerKey);
+
+  @override
+  Future<void> writeOwner(String? uid) =>
+      uid == null ? _prefs.remove(_ownerKey) : _prefs.setString(_ownerKey, uid);
 
   @override
   Map<int, int> read() {
@@ -159,13 +175,23 @@ class PrefsAlarmRegistry implements AlarmRegistry {
 
 /// 테스트용으로 메모리에만 두는 표.
 class MemoryAlarmRegistry implements AlarmRegistry {
+  /// [_owner]는 이전 실행에서 저장해 둔 알람 주인(테스트에서 흉내 낼 때).
+  MemoryAlarmRegistry([this._owner]);
+
   Map<int, int> _entries = {};
+  String? _owner;
 
   @override
   Map<int, int> read() => {..._entries};
 
   @override
   Future<void> write(Map<int, int> entries) async => _entries = {...entries};
+
+  @override
+  String? readOwner() => _owner;
+
+  @override
+  Future<void> writeOwner(String? uid) async => _owner = uid;
 }
 
 class AlarmScheduler {
@@ -228,6 +254,17 @@ class AlarmScheduler {
   /// 비자 알람을 모두 지운다(로그아웃·계정 전환). 환율 알림 같은 다른 알림은 건드리지 않는다.
   Future<void> cancelAll() => _serial(() => _cancelWhere((_) => true));
 
+  /// 지금 로그인한 계정([uid], 로그아웃이면 null)을 알람의 주인으로 정한다. 로그아웃이거나 적어 둔
+  /// 주인과 다른 계정이면 먼저 알람을 모두 지운다. 다 지운 뒤에만 주인을 바꾸므로, 도중에 실패하거나
+  /// 앱이 꺼지면 다음에 다시 비교해 지운다. 주인이 적혀 있지 않으면(이 기능 이전 예약) 그대로 둔다.
+  Future<void> claimFor(String? uid) => _serial(() async {
+        final owner = _registry.readOwner();
+        if (uid == null || (owner != null && owner != uid)) {
+          await _cancelWhere((_) => true);
+        }
+        if (owner != uid) await _registry.writeOwner(uid);
+      });
+
   /// [test]는 표에 적힌 여행 id를 받는다. 취소에 성공한 것만 표에서 뺀다.
   Future<void> _cancelWhere(bool Function(int tripId) test) async {
     final entries = _registry.read();
@@ -252,16 +289,13 @@ final alarmSchedulerProvider = Provider<AlarmScheduler>((ref) => AlarmScheduler(
 /// 국가·일정이 뜨면 안 된다. 새 계정의 알람은 그 계정의 여행 상세를 열 때 다시 예약된다.
 /// 앱 최상단(main.dart의 _Root)이 watch해서 앱이 떠 있는 동안 계속 지켜본다.
 ///
-/// 로그아웃 "순간"만이 아니라 로그아웃 "상태"를 볼 때마다 지운다. 로그아웃 때 정리가 실패했거나
-/// 중간에 앱이 꺼졌어도, 다음에 로그아웃 상태로 켜면 다시 지운다. 지울 게 없으면 플러그인을 부르지 않는다.
+/// 바뀌는 "순간"만이 아니라 인증 상태를 알 때마다 저장해 둔 주인과 비교한다([AlarmScheduler.claimFor]).
+/// 그래서 정리 도중 앱이 꺼졌어도 다음 실행에서 다시 지운다. 지울 게 없으면 플러그인을 부르지 않는다.
 /// 인증 상태를 아직 모를 때(로딩)는 아무것도 하지 않는다 — 로그인한 사용자의 알람을 지우면 안 된다.
 final visaAlarmAccountGuardProvider = Provider<void>((ref) {
   ref.listen<AsyncValue<AppUser?>>(authStateProvider, (previous, next) {
     if (!next.hasValue) return;
-    final uid = next.value?.uid;
-    final previousUid = previous?.value?.uid;
-    if (uid != null && (previousUid == null || previousUid == uid)) return;
-    unawaited(ref.read(alarmSchedulerProvider).cancelAll().catchError((Object e) {
+    unawaited(ref.read(alarmSchedulerProvider).claimFor(next.value?.uid).catchError((Object e) {
       debugPrint('이전 계정의 비자 준비 알람 정리 실패: $e');
     }));
   }, fireImmediately: true);

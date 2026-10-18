@@ -202,11 +202,13 @@ void main() {
     late AlarmScheduler scheduler;
 
     /// 이전 실행에서 예약해 둔 알람이 남아 있는 상태로 앱을 켠다(인증 상태는 아직 모른다).
-    Future<void> launch() async {
+    /// [owner]는 이전 실행에서 저장해 둔 알람 주인.
+    Future<void> launch({String? owner}) async {
       auth = StreamController<AppUser?>();
       addTearDown(auth.close);
       backend = FakeAlarmBackend();
-      scheduler = AlarmScheduler(backend, now: () => seoulTime(2026, 9, 7, 12));
+      scheduler = AlarmScheduler(backend,
+          registry: MemoryAlarmRegistry(owner), now: () => seoulTime(2026, 9, 7, 12));
       await scheduler.syncTrip(sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
       final container = ProviderContainer(overrides: [
         authStateProvider.overrideWith((ref) => auth.stream),
@@ -254,6 +256,38 @@ void main() {
       await settle();
 
       expect(backend.scheduled, isEmpty);
+    });
+
+    test('같은 계정으로 다시 켜면 알람을 그대로 둔다', () async {
+      await launch(owner: 'uid-a');
+
+      auth.add(const AppUser(uid: 'uid-a'));
+      await settle();
+
+      expect(backend.scheduled.keys, [notificationIdFor(101)]);
+    });
+
+    test('계정이 바뀐 뒤 정리 전에 앱이 꺼졌어도 다음 실행에서 이전 계정의 알람을 지운다', () async {
+      // Firebase에는 B가 저장됐지만 A의 알람·주인 기록이 남은 채로 다시 켜진 상황.
+      await launch(owner: 'uid-a');
+
+      auth.add(const AppUser(uid: 'uid-b'));
+      await settle();
+
+      expect(backend.scheduled, isEmpty);
+    });
+
+    test('정리가 실패하면 주인을 바꾸지 않아 다음에 다시 지운다', () async {
+      final registry = MemoryAlarmRegistry('uid-a');
+      await AlarmScheduler(FakeAlarmBackend(), registry: registry, now: () => seoulTime(2026, 9, 7, 12))
+          .syncTrip(sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
+
+      await expectLater(
+          AlarmScheduler(FakeAlarmBackend(failing: true), registry: registry).claimFor('uid-b'),
+          throwsException);
+
+      expect(registry.readOwner(), 'uid-a');
+      expect(registry.read(), isNotEmpty);
     });
 
     test('로그아웃 때 정리하지 못했어도 로그아웃 상태로 다시 켜면 지운다', () async {
