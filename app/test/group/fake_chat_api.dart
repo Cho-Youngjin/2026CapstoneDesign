@@ -117,6 +117,19 @@ class FakeChatApi implements ChatApi {
   /// roomDetail이 RoomNotFoundException을 던지게 한다(멤버가 아닌 방).
   bool roomDetailNotFound = false;
 
+  /// openDm이 돌려줄 DM 방. null이면 RoomNotFoundException(같은 그룹이 아님)을 던진다.
+  RoomDetail? dmToReturn;
+
+  final List<String> openedDmPeers = [];
+
+  @override
+  Future<RoomDetail> openDm(String peerUid) async {
+    openedDmPeers.add(peerUid);
+    final dm = dmToReturn;
+    if (dm == null) throw const RoomNotFoundException();
+    return dm;
+  }
+
   @override
   Future<RoomDetail> roomDetail(int roomId) async {
     if (roomDetailNotFound) throw const RoomNotFoundException();

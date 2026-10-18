@@ -43,7 +43,79 @@ Future<(FakeChatApi, FakeChatSocket)> _pump(WidgetTester tester, {FakeChatApi? a
   return (chatApi, socket);
 }
 
+/// 채팅방 1을 라우터로 띄운다. 다른 방(DM 등)으로 이동하면 그 자리에는 "채팅 {id}" 글자만 그린다.
+Future<FakeChatApi> _pumpRouted(WidgetTester tester, FakeChatApi api) async {
+  final socket = FakeChatSocket();
+  addTearDown(socket.dispose);
+  final router = GoRouter(
+    initialLocation: '/group/chat/1',
+    routes: [
+      GoRoute(
+        path: '/group/chat/:roomId',
+        builder: (_, state) => state.pathParameters['roomId'] == '1'
+            ? const Scaffold(body: ChatRoomPage(roomId: 1))
+            : Scaffold(body: Text('채팅 ${state.pathParameters['roomId']}')),
+      ),
+    ],
+  );
+  await tester.pumpWidget(ProviderScope(
+    overrides: [
+      chatApiProvider.overrideWithValue(api),
+      chatSocketProvider.overrideWithValue(socket),
+      currentUidProvider.overrideWithValue('uid-a'),
+    ],
+    child: MaterialApp.router(routerConfig: router),
+  ));
+  await tester.pumpAndSettle();
+  return api;
+}
+
+const _dm = RoomDetail(
+  id: 30,
+  type: RoomType.dm,
+  members: [RoomMember(uid: 'uid-a', displayName: '성주'), RoomMember(uid: 'uid-b', displayName: '영진')],
+);
+
 void main() {
+  group('멤버 목록과 1:1 DM', () {
+    testWidgets('멤버 목록에서 [메시지]를 누르면 그 사람과의 DM 방으로 간다', (tester) async {
+      final api = await _pumpRouted(tester, FakeChatApi()
+        ..detailToReturn = _room()
+        ..dmToReturn = _dm);
+
+      await tester.tap(find.byKey(const Key('openMembers')));
+      await tester.pumpAndSettle();
+      expect(find.text('성주 (나)'), findsOneWidget);
+      expect(find.byKey(const Key('dm-uid-a')), findsNothing, reason: '나에게는 메시지 버튼이 없다');
+
+      await tester.tap(find.byKey(const Key('dm-uid-b')));
+      await tester.pumpAndSettle();
+
+      expect(api.openedDmPeers, ['uid-b']);
+      expect(find.text('채팅 30'), findsOneWidget);
+    });
+
+    testWidgets('같은 그룹이 아니라며 거절되면 시트에 이유를 보여주고 남는다', (tester) async {
+      await _pumpRouted(tester, FakeChatApi()..detailToReturn = _room()); // dmToReturn 없음 → 404
+
+      await tester.tap(find.byKey(const Key('openMembers')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('dm-uid-b')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('membersSheetError')), findsOneWidget);
+      expect(find.textContaining('같은 그룹 멤버에게만'), findsOneWidget);
+      expect(find.text('채팅 30'), findsNothing);
+    });
+
+    testWidgets('DM 방에는 멤버 목록 버튼이 없고 제목은 상대 이름이다', (tester) async {
+      await _pump(tester, api: FakeChatApi()..detailToReturn = _dm);
+
+      expect(find.byKey(const Key('openMembers')), findsNothing);
+      expect(find.text('영진'), findsOneWidget);
+    });
+  });
+
   testWidgets('위치 아이콘은 이 방의 위치공유 화면으로 간다', (tester) async {
     final socket = FakeChatSocket();
     addTearDown(socket.dispose);

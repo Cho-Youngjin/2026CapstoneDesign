@@ -38,4 +38,21 @@ public interface ChatRoomMemberRepository extends JpaRepository<ChatRoomMember, 
 
         long getMemberCount();
     }
+
+    /**
+     * 두 사람이 같은 <b>그룹</b> 방에 함께 있는가(Plan D Task 5 — DM은 같은 그룹 멤버끼리만 연다).
+     * 멤버 행을 방 id로 두 번 이어 붙여(self join) 한쪽은 A, 다른 쪽은 B인 방이 하나라도 있는지 본다.
+     * DM 방은 빼야 한다 — 이미 DM을 튼 사이라는 이유로 새 DM 권한이 생기면 안 되므로.
+     */
+    @Query("""
+            select count(a) > 0
+            from ChatRoomMember a, ChatRoomMember b, ChatRoom r
+            where a.roomId = b.roomId and r.id = a.roomId
+              and r.type = com.travelfootsteps.chat.RoomType.GROUP
+              and a.firebaseUid = :uidA and b.firebaseUid = :uidB
+            """)
+    boolean shareGroup(@Param("uidA") String uidA, @Param("uidB") String uidB);
+
+    /** 여러 방의 멤버를 한 번에 — 방 목록에서 DM 상대를 찾을 때 방마다 조회하지 않으려고 쓴다. */
+    List<ChatRoomMember> findByRoomIdIn(Collection<Long> roomIds);
 }

@@ -36,6 +36,15 @@ public class RoomController {
         return roomService.join(authentication.getName(), request.inviteCode());
     }
 
+    /**
+     * 같은 그룹 멤버와 1:1 DM을 연다(Plan D Task 5). 이미 있으면 그 방을 돌려주므로 앱은 "처음인지"를
+     * 따질 필요 없이 매번 이것을 부르면 된다. 같은 그룹이 아니면 404, 자기 자신이면 400.
+     */
+    @PostMapping("/dm")
+    public RoomDetailResponse openDm(@Valid @RequestBody OpenDmRequest request, Authentication authentication) {
+        return roomService.openDm(authentication.getName(), request.peerUid());
+    }
+
     @GetMapping
     public List<RoomSummaryResponse> myRooms(Authentication authentication) {
         return roomService.myRooms(authentication.getName());

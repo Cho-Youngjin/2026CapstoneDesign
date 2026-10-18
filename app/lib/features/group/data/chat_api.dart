@@ -35,6 +35,12 @@ class ChatApi {
   Future<RoomDetail> roomDetail(int roomId) =>
       _detail(() => _dio.get<Map<String, dynamic>>('/api/rooms/$roomId'));
 
+  /// 같은 그룹 멤버와 1:1 DM을 연다(Plan D Task 5). 이미 있으면 그 방을 돌려주므로 매번 불러도 된다.
+  /// 같은 그룹이 아니면 서버가 404로 답해 [RoomNotFoundException]이 된다.
+  Future<RoomDetail> openDm(String peerUid) => _detail(
+        () => _dio.post<Map<String, dynamic>>('/api/rooms/dm', data: {'peerUid': peerUid}),
+      );
+
   /// 내가 속한 방 목록, 최근 활동순.
   Future<List<RoomSummary>> myRooms() async {
     final response = await _dio.get<List<dynamic>>('/api/rooms');
