@@ -17,12 +17,13 @@ import java.io.InputStream;
 // 스프링 컨테이너가 관리하는 빈으로 등록한다. 다른 클래스에서 생성자로 FirebaseApp/FirebaseAuth를
 // 요청하면(의존성 주입) 스프링이 여기서 만든 인스턴스를 넣어준다.
 //
-// @Profile("!test"): "test 프로필이 아닐 때만" 이 설정을 활성화한다는 뜻이다. test 프로필은
+// @Profile("!test & !local"): "test 프로필도 local 프로필도 아닐 때만" 이 설정을 활성화한다는 뜻이다. test 프로필은
 // application.yml이 아니라 테스트 클래스마다 @ActiveProfiles("test")를 붙여서 켠다
 // (CountryControllerTest, HealthControllerTest 참고). 이 클래스가 실제
 // firebase-service-account.json 파일(진짜 비밀키)이 있어야만 동작하는데, 테스트 환경에는
 // 그 파일이 없으므로(팀원 각자 로컬에만 둠), 프로필로 아예 꺼버려서
-// "파일이 없어서 테스트가 실패하는" 상황을 막는다.
+// "파일이 없어서 테스트가 실패하는" 상황을 막는다. local 프로필(키 없이 로컬에서 서버를 띄우는 개발용)도
+// 같은 이유로 끄고, 그때는 LocalDevTokenVerifier가 인증을 맡는다.
 @Configuration
 @Profile("!test & !local")
 public class FirebaseConfig {
