@@ -229,5 +229,30 @@ void main() {
       expect(_ids(c).first, 70);
       expect(_ids(c).last, 1);
     });
+    test('빈 구간이 보충 한도보다 길면, 위로 스크롤할 때 중간을 건너뛰지 않고 이어서 불러온다', () async {
+      api.storedMessages.addAll([for (var i = 1; i <= 10; i++) sampleMessage(id: i)]);
+      final c = await _start();
+
+      // 끊긴 동안 한도(5페이지 × 30개 = 150개)보다 많이 쌓였다.
+      api.storedMessages.addAll([for (var i = 11; i <= 400; i++) sampleMessage(id: i)]);
+      socket.emitConnected();
+      for (var i = 0; i < 8; i++) {
+        await _settle();
+      }
+
+      // 가장 최근 150개(400~251)까지만 채웠다. 그 아래는 251과 이어지지 않으므로 목록에 두지 않는다.
+      expect(_ids(c).first, 400);
+      expect(_ids(c).last, 251);
+      expect(_state(c).hasMore, isTrue);
+
+      await _controller(c).loadOlder();
+
+      // 이어서 250부터 불러와야 한다 — 예전 꼬리(1) 아래를 물어 중간(11~250)을 영영 못 보게 되면 안 된다.
+      expect(_ids(c).last, 221);
+      final ids = _ids(c);
+      for (var i = 1; i < ids.length; i++) {
+        expect(ids[i - 1] - ids[i], 1, reason: '${ids[i - 1]}와 ${ids[i]} 사이가 비었다');
+      }
+    });
   });
 }

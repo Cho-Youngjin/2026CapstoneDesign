@@ -171,7 +171,7 @@ class StompChatSocket implements ChatSocket {
           reconnectDelay: Duration.zero, // 재연결은 여기서 직접 한다(클래스 주석 참고)
           onConnect: (_) => _onConnected(client),
           onWebSocketDone: () => _onClosed(client),
-          onWebSocketError: (error) => debugPrint('채팅 소켓 오류: $error'),
+          onWebSocketError: (error) => _onError(client, error),
           // 비멤버 방 구독 등으로 서버가 ERROR를 보내면 곧이어 연결이 닫히고 _onClosed가 불린다.
           onStompError: (frame) =>
               debugPrint('채팅 소켓 STOMP 오류: ${frame.headers['message'] ?? frame.body}'),
@@ -202,6 +202,17 @@ class StompChatSocket implements ChatSocket {
       sub.unsubscribe = null;
     }
     if (!_disposed && !_paused && _subscriptions.isNotEmpty) _scheduleRetry();
+  }
+
+  /// 웹소켓 오류. 처음 접속 자체가 실패하면(서버 꺼짐, 네트워크 없음) 라이브러리는 이 콜백만 부르고
+  /// onWebSocketDone은 부르지 않는다(reconnectDelay가 0일 때의 stomp_dart_client 3.0.1 동작). 그래서 여기서도
+  /// '닫힘'으로 처리해 재시도를 예약한다 — 그러지 않으면 _connecting이 true로 남아 다시는 접속하지 않는다.
+  /// 접속 중 오류 뒤에 onWebSocketDone이 또 오더라도, [_onClosed]가 이미 버린 클라이언트의 콜백으로 보고 무시한다.
+  void _onError(StompClient client, Object? error) {
+    debugPrint('채팅 소켓 오류: $error');
+    if (!identical(client, _client)) return;
+    _onClosed(client);
+    client.deactivate(); // 남아 있을지 모르는 소켓을 확실히 닫는다
   }
 
   void _scheduleRetry() {

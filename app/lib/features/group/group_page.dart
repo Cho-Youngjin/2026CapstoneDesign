@@ -32,17 +32,24 @@ String formatRoomTime(DateTime at, DateTime now) {
 class GroupPage extends ConsumerWidget {
   const GroupPage({super.key});
 
-  Future<void> _create(BuildContext context) async {
+  /// 채팅방으로 들어가고, 돌아오면 목록을 다시 불러온다. 방 안에서 주고받은 메시지로 미리보기·시각·
+  /// 정렬 순서가 바뀌었을 수 있는데, 목록 provider는 그룹 탭이 계속 보고 있어 저절로 새로 받지 않는다.
+  Future<void> _openRoom(BuildContext context, WidgetRef ref, int roomId) async {
+    await context.push(AppRoutes.groupChatOf(roomId));
+    if (context.mounted) ref.invalidate(myRoomsProvider);
+  }
+
+  Future<void> _create(BuildContext context, WidgetRef ref) async {
     final room = await showCreateGroupSheet(context);
     if (room == null || !context.mounted) return;
     final goToRoom = await showInviteCodeDialog(context, room);
-    if (goToRoom && context.mounted) context.push(AppRoutes.groupChatOf(room.id));
+    if (goToRoom && context.mounted) await _openRoom(context, ref, room.id);
   }
 
-  Future<void> _join(BuildContext context) async {
+  Future<void> _join(BuildContext context, WidgetRef ref) async {
     final room = await showJoinGroupSheet(context);
     if (room == null || !context.mounted) return;
-    context.push(AppRoutes.groupChatOf(room.id));
+    await _openRoom(context, ref, room.id);
   }
 
   @override
@@ -50,7 +57,7 @@ class GroupPage extends ConsumerWidget {
     final rooms = ref.watch(myRoomsProvider);
     return Column(
       children: [
-        _Header(onJoin: () => _join(context), onCreate: () => _create(context)),
+        _Header(onJoin: () => _join(context, ref), onCreate: () => _create(context, ref)),
         Expanded(
           child: rooms.when(
             loading: () => const Center(child: CircularProgressIndicator()),
@@ -66,16 +73,16 @@ class GroupPage extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(18, 6, 18, 14),
                 children: [
                   if (list.isEmpty)
-                    _EmptyRooms(onCreate: () => _create(context))
+                    _EmptyRooms(onCreate: () => _create(context, ref))
                   else
                     for (final room in list)
                       _ChatListRow(
                         room: room,
                         now: DateTime.now(),
-                        onTap: () => context.push(AppRoutes.groupChatOf(room.id)),
+                        onTap: () => _openRoom(context, ref, room.id),
                       ),
                   const SizedBox(height: 12),
-                  _InviteCodeCard(onTap: () => _join(context)),
+                  _InviteCodeCard(onTap: () => _join(context, ref)),
                 ],
               ),
             ),

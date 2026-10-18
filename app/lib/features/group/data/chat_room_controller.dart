@@ -162,7 +162,8 @@ class ChatRoomController extends Notifier<ChatRoomState> {
   }
 
   /// 연결이 끊겼던 동안의 메시지를 REST로 받아 채운다. 최신 페이지부터 거슬러 올라가며,
-  /// 이미 가진 메시지를 만나면 멈춘다(그 앞은 빈 구간이 아니다).
+  /// 이미 가진 메시지를 만나면 멈춘다(그 앞은 빈 구간이 아니다). [maxGapPages]까지 가도 못 만나면
+  /// 목록을 이번에 받은 구간으로 줄여, 목록 중간에 구멍이 남지 않게 한다.
   Future<void> _fillGap() async {
     final knownIds = {for (final m in state.messages) m.id};
     if (knownIds.isEmpty) {
@@ -178,6 +179,16 @@ class ChatRoomController extends Notifier<ChatRoomState> {
         final reachedKnown = page.any((m) => knownIds.contains(m.id));
         if (reachedKnown || page.length < pageSize) return;
         before = page.last.id;
+      }
+      // 한도까지 거슬러 올라가도 이미 가진 메시지에 닿지 못했다 — 그 아래에 아직 못 받은 구간이 남아 있다.
+      // 그 구간보다 오래된(원래 갖고 있던) 메시지를 목록에서 빼서, 위로 스크롤하면 [loadOlder]가 이번에 받은
+      // 가장 오래된 메시지 바로 아래부터 이어서 불러오게 한다. 뺀 메시지는 스크롤하면 다시 받는다.
+      final oldestFetched = before;
+      if (oldestFetched != null) {
+        state = state.copyWith(
+          messages: [for (final m in state.messages) if (m.id >= oldestFetched) m],
+          hasMore: true,
+        );
       }
     } catch (e) {
       debugPrint('재연결 후 메시지 보충 실패: $e');
