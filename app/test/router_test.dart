@@ -1,4 +1,5 @@
 import 'package:app/app.dart';
+import 'package:app/features/footsteps/providers/footsteps_providers.dart';
 import 'package:app/features/visa/data/trip_list_providers.dart';
 import 'package:app/router.dart';
 import 'package:flutter/material.dart';
@@ -60,6 +61,22 @@ void main() {
     test('탭 라벨과 아이콘 개수가 탭 개수와 같다', () {
       expect(AppRoutes.tabLabels, hasLength(AppRoutes.tabs.length));
       expect(AppRoutes.tabIcons, hasLength(AppRoutes.tabs.length));
+    });
+  });
+
+  group('앱 생명주기', () {
+    testWidgets('발걸음 탭이 아닌 탭에서 백그라운드로 가도 실시간 GPS를 끄고, 돌아오면 다시 켠다', (tester) async {
+      await pumpApp(tester, isLoggedIn: true); // 첫 탭(여행 목록) — 발걸음 탭은 떠 있지 않다
+      final container = ProviderScope.containerOf(tester.element(find.byType(TravelFootstepsApp)));
+      expect(container.read(realtimeTrackingEnabledProvider), isTrue);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      expect(container.read(realtimeTrackingEnabledProvider), isFalse);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(container.read(realtimeTrackingEnabledProvider), isTrue);
     });
   });
 

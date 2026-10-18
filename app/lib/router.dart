@@ -154,10 +154,11 @@ class _TabScaffold extends ConsumerStatefulWidget {
   ConsumerState<_TabScaffold> createState() => _TabScaffoldState();
 }
 
-class _TabScaffoldState extends ConsumerState<_TabScaffold> {
+class _TabScaffoldState extends ConsumerState<_TabScaffold> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // 앱 실행 직후(로그인 후 탭 화면 진입 시) 위치 권한을 받고 이동 기록 저장을 시작한다.
     // 권한이 없을 때 이미 구독된 스트림은 에러로 끝나므로, 응답을 받은 뒤 다시 구독한다.
     Future.microtask(() async {
@@ -166,6 +167,19 @@ class _TabScaffoldState extends ConsumerState<_TabScaffold> {
       } catch (_) {}
       if (mounted) ref.invalidate(liveRouteProvider);
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // 이동 좌표 구독(liveRouteProvider)을 이 셸이 앱 전체에서 유지하므로, 백그라운드 전환 처리도 여기서 한다 —
+  // 어느 탭에 있든 앱이 백그라운드로 가면 고정밀 GPS 스트림을 끊고(배터리 방어), 돌아오면 다시 연다.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    ref.read(realtimeTrackingEnabledProvider.notifier).state = state == AppLifecycleState.resumed;
   }
 
   int get _activeTabIndex {

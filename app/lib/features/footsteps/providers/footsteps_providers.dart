@@ -36,9 +36,8 @@ final realtimeCountryResolverProvider = Provider<CountryResolver>((ref) {
   return PolygonCountryResolver(polygons);
 });
 
-/// 발걸음 탭이 화면에 떠 있을 때만 켜는 실시간 추적 스위치. 앱이 백그라운드로
-/// 가면 false로 내려 GPS 스트림을 끊는다(배터리 방어) — 다시 true가 되면
-/// autoDispose provider가 재빌드되며 스트림을 새로 연다.
+/// 실시간 추적 스위치. 앱이 백그라운드로 가면 탭 셸(router.dart의 _TabScaffold)이 false로 내려
+/// GPS 스트림을 끊는다(배터리 방어) — 다시 true가 되면 autoDispose provider가 재빌드되며 스트림을 새로 연다.
 ///
 /// 국가 판정(체크인)은 원래 설계대로 WorkManager 1시간 주기(footstep_workmanager.dart)와
 /// 포그라운드 수동 "여기 저장"만 쓴다 — 국경 이동을 실시간으로 자동 체크인하는

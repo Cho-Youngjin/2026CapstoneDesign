@@ -26,14 +26,13 @@ class FootstepsPage extends ConsumerStatefulWidget {
   ConsumerState<FootstepsPage> createState() => _FootstepsPageState();
 }
 
-class _FootstepsPageState extends ConsumerState<FootstepsPage> with WidgetsBindingObserver {
+class _FootstepsPageState extends ConsumerState<FootstepsPage> {
   String? _selectedCountryIso;
   bool _batteryPromptShown = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     // 화면 진입 시 최신 상태로 동기화한다. 실패해도 조용히 무시한다 —
     // 오프라인이어도 로컬 기록·조회는 계속 동작해야 한다.
     Future.microtask(() async {
@@ -55,21 +54,6 @@ class _FootstepsPageState extends ConsumerState<FootstepsPage> with WidgetsBindi
         } catch (_) {}
       }
     });
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  // 화면이 떠 있어도 앱이 백그라운드로 가면(홈 버튼, 다른 앱 전환) GPS 스트림을
-  // 끊는다 — 실시간 추적을 "발걸음 탭을 보고 있는 동안"으로 한정해 배터리를
-  // 방어하려는 설계다. 다시 앱을 열면 자동으로 재개된다.
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    ref.read(realtimeTrackingEnabledProvider.notifier).state =
-        state == AppLifecycleState.resumed;
   }
 
   Future<void> _recordManualCheckin() async {
