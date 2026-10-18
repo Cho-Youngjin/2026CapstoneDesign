@@ -78,6 +78,15 @@ public class ChatRoom {
             return "사진";
         }
         String text = message.getText();
-        return text.length() <= PREVIEW_MAX_LENGTH ? text : text.substring(0, PREVIEW_MAX_LENGTH);
+        if (text.length() <= PREVIEW_MAX_LENGTH) {
+            return text;
+        }
+        // Java 문자열 길이는 UTF-16 칸 수라, 이모지 같은 문자는 두 칸(서로게이트 쌍)을 쓴다. 자르는 자리가
+        // 쌍의 한가운데면 반쪽짜리 문자가 남아 DB에 '?'로 깨져 저장되므로 그 문자 앞에서 자른다.
+        int end = PREVIEW_MAX_LENGTH;
+        if (Character.isHighSurrogate(text.charAt(end - 1))) {
+            end--;
+        }
+        return text.substring(0, end);
     }
 }

@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_client.dart';
+import '../models/chat_message.dart';
 import '../models/room.dart';
 
 /// 방이 없거나, 있어도 내가 멤버가 아닐 때 (서버가 두 경우 모두 404로 답한다).
@@ -40,6 +41,37 @@ class ChatApi {
     return response.data!
         .map((e) => RoomSummary.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  /// 메시지 목록, 최신순(id 내림차순). [before]가 없으면 가장 최근부터, 있으면 그보다 오래된 것부터.
+  /// 서버가 [size]를 1~50으로 맞춘다.
+  Future<List<ChatMessage>> messages(int roomId, {int? before, int size = 30}) async {
+    try {
+      final response = await _dio.get<List<dynamic>>(
+        '/api/rooms/$roomId/messages',
+        queryParameters: {'size': size, 'before': ?before},
+      );
+      return response.data!
+          .map((e) => ChatMessage.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) throw const RoomNotFoundException();
+      rethrow;
+    }
+  }
+
+  /// 텍스트 메시지를 보낸다. 같은 메시지가 실시간 구독으로도 한 번 더 온다 — 화면에서 id로 걸러낸다.
+  Future<ChatMessage> sendText(int roomId, String text) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/api/rooms/$roomId/messages',
+        data: {'text': text},
+      );
+      return ChatMessage.fromJson(response.data!);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) throw const RoomNotFoundException();
+      rethrow;
+    }
   }
 
   /// 채팅 화면에 표시할 내 이름·사진을 올린다(처음이면 만들고 있으면 덮어쓴다).
