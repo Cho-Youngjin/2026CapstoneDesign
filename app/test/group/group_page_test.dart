@@ -25,7 +25,12 @@ Future<void> _pump(WidgetTester tester, FakeChatApi api, {FakeAuthRepository? au
       GoRoute(path: AppRoutes.group, builder: (_, _) => const Scaffold(body: GroupPage())),
       GoRoute(
         path: AppRoutes.groupChat,
-        builder: (_, state) => Scaffold(body: Text('채팅방 ${state.pathParameters['roomId']}')),
+        builder: (context, state) => Scaffold(
+          body: Column(children: [
+            Text('채팅방 ${state.pathParameters['roomId']}'),
+            TextButton(onPressed: () => context.pop(), child: const Text('뒤로')),
+          ]),
+        ),
       ),
     ],
   );
@@ -99,6 +104,21 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('채팅방 7'), findsOneWidget);
+    });
+
+    testWidgets('채팅방에서 돌아오면 목록을 다시 불러와 최근 메시지를 갱신한다', (tester) async {
+      final api = FakeChatApi(rooms: [sampleRoom(id: 7, name: '오사카', preview: '예전 메시지')]);
+      await _pump(tester, api);
+      await tester.tap(find.text('오사카'));
+      await tester.pumpAndSettle();
+
+      // 채팅방에서 메시지를 주고받았다
+      api.rooms = [sampleRoom(id: 7, name: '오사카', preview: '방금 보낸 메시지')];
+      await tester.tap(find.text('뒤로'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('방금 보낸 메시지'), findsOneWidget);
+      expect(find.text('예전 메시지'), findsNothing);
     });
   });
 
