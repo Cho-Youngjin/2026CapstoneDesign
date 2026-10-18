@@ -65,4 +65,19 @@ public class ChatRoom {
         room.createdAt = OffsetDateTime.now();
         return room;
     }
+
+    /** 미리보기 최대 길이 — chat_room.last_message_preview 컬럼 크기와 같다. */
+    static final int PREVIEW_MAX_LENGTH = 100;
+
+    /**
+     * 방 목록에 보여 줄 마지막 메시지 미리보기. 저장은 {@link ChatRoomRepository#recordLastMessage}가
+     * 조건부 UPDATE로 한다 — 엔티티 필드를 바꾸지 않는 이유는 그 메서드 주석 참고.
+     */
+    static String previewOf(ChatMessage message) {
+        if (message.getType() == MessageType.IMAGE) {
+            return "사진";
+        }
+        String text = message.getText();
+        return text.length() <= PREVIEW_MAX_LENGTH ? text : text.substring(0, PREVIEW_MAX_LENGTH);
+    }
 }

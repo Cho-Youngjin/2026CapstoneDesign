@@ -43,6 +43,7 @@ class ChatRepositoryTest {
     @Autowired ChatRoomRepository roomRepository;
     @Autowired ChatRoomMemberRepository memberRepository;
     @Autowired AppUserRepository userRepository;
+    @Autowired ChatMessageRepository messageRepository;
 
     @Test
     void 방과_멤버를_저장하면_멤버십을_확인할_수_있다() {
@@ -113,5 +114,23 @@ class ChatRepositoryTest {
         List<AppUser> users = userRepository.findByFirebaseUidIn(List.of("uid-p1", "uid-p2", "uid-none"));
 
         assertThat(users).extracting(AppUser::getDisplayName).containsExactlyInAnyOrder("성주", "영진");
+    }
+
+    @Test
+    void 최근_메시지_갱신은_더_새로운_메시지일_때만_반영된다() {
+        // 동시에 보낸 두 메시지의 트랜잭션이 늦게 끝나는 쪽 순서로 커밋돼도, 방 목록의
+        // 미리보기가 오래된 메시지로 되돌아가지 않아야 한다.
+        ChatRoom room = roomRepository.saveAndFlush(ChatRoom.createGroup("동시 전송", "RAC234"));
+        ChatMessage older = messageRepository.saveAndFlush(ChatMessage.text(room.getId(), "uid-a", "먼저 보낸 것"));
+        ChatMessage newer = messageRepository.saveAndFlush(ChatMessage.text(room.getId(), "uid-b", "나중에 보낸 것"));
+
+        assertThat(roomRepository.recordLastMessage(room.getId(), newer.getId(), "나중에 보낸 것", newer.getCreatedAt()))
+                .isEqualTo(1);
+        assertThat(roomRepository.recordLastMessage(room.getId(), older.getId(), "먼저 보낸 것", older.getCreatedAt()))
+                .as("더 오래된 메시지는 덮어쓰지 않는다").isZero();
+
+        ChatRoom reloaded = roomRepository.findById(room.getId()).orElseThrow();
+        assertThat(reloaded.getLastMessageId()).isEqualTo(newer.getId());
+        assertThat(reloaded.getLastMessagePreview()).isEqualTo("나중에 보낸 것");
     }
 }
