@@ -114,8 +114,14 @@ class FakeChatApi implements ChatApi {
     return detailToReturn;
   }
 
+  /// roomDetail이 RoomNotFoundException을 던지게 한다(멤버가 아닌 방).
+  bool roomDetailNotFound = false;
+
   @override
-  Future<RoomDetail> roomDetail(int roomId) async => detailToReturn;
+  Future<RoomDetail> roomDetail(int roomId) async {
+    if (roomDetailNotFound) throw const RoomNotFoundException();
+    return detailToReturn;
+  }
 
   // ───────────── 메시지 (Plan D Task 4) ─────────────
 

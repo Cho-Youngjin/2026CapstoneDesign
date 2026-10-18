@@ -66,7 +66,11 @@ class AppRoutes {
   static const groupChat = '/group/chat/:roomId';
 
   static String groupChatOf(int roomId) => '/group/chat/$roomId';
-  static const groupLocation = '/group/location';
+
+  /// 그룹 실시간 위치공유. `groupLocationOf(3)` → `/group/location/3`. (Plan D Task 9에서 방 id 경로로 바꿨다.)
+  static const groupLocation = '/group/location/:roomId';
+
+  static String groupLocationOf(int roomId) => '/group/location/$roomId';
 
   /// 여행별 지갑. 준비물 탭 아래 화면이라 경로를 /checklist로 시작해 탭바의 준비물 탭이 켜진 채로 둔다.
   static const wallet = '/checklist/wallet';
@@ -131,7 +135,8 @@ GoRouter createRouter({required bool isLoggedIn}) {
           ),
           GoRoute(
             path: AppRoutes.groupLocation,
-            builder: (_, _) => const LocationSharePage(),
+            builder: (_, state) =>
+                LocationSharePage(roomId: int.parse(state.pathParameters['roomId']!)),
           ),
           GoRoute(path: AppRoutes.translate, builder: (_, _) => const TranslatePage()),
           GoRoute(path: AppRoutes.nearby, builder: (_, _) => const NearbyPage()),

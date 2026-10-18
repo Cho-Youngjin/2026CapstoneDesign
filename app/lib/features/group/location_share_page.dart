@@ -1,32 +1,171 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../core/auth/auth_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
-import '../../core/theme/wireframe_widgets.dart';
+import '../footsteps/map/base_google_map.dart';
+import 'data/chat_api.dart';
+import 'data/location_share_session.dart';
+import 'models/room.dart';
 
-/// 위치 공유 화면 (와이어프레임 정적 UI, 실제 지도/위치 연동 없음).
-class LocationSharePage extends StatelessWidget {
-  const LocationSharePage({super.key});
+/// 그룹 실시간 위치공유(`/group/location/:roomId`, 채팅방 상단 위치 아이콘에서 들어온다).
+/// 와이어프레임: "해외여행 발걸음 - 와이어프레임" Plan D, 위치 공유 화면.
+///
+/// 공유는 꺼진 채로 시작하고, 켜면 이 화면을 보고 있는 동안 5초마다 내 위치를 보낸다. 화면을 떠나거나
+/// 앱이 뒤로 가면 보내지 않는다. 위치는 저장하지 않는다.
+class LocationSharePage extends ConsumerStatefulWidget {
+  const LocationSharePage({super.key, required this.roomId});
+
+  final int roomId;
+
+  @override
+  ConsumerState<LocationSharePage> createState() => _LocationSharePageState();
+}
+
+class _LocationSharePageState extends ConsumerState<LocationSharePage> {
+  /// 처음 열 때의 지도(서울). 누구든 첫 위치가 잡히면 그쪽으로 옮긴다.
+  static const _initialCamera = CameraPosition(target: LatLng(37.5665, 126.9780), zoom: 11);
+
+  GoogleMapController? _map;
+  bool _centered = false;
+
+  void _moveTo(LatLng target) => _map?.animateCamera(CameraUpdate.newLatLngZoom(target, 15));
+
+  /// 위치가 잡힌 사람을 모두 화면에 담는다.
+  void _showAll(List<LatLng> points) {
+    if (points.isEmpty) return;
+    if (points.length == 1) return _moveTo(points.single);
+    final lats = points.map((p) => p.latitude);
+    final lngs = points.map((p) => p.longitude);
+    _map?.animateCamera(CameraUpdate.newLatLngBounds(
+      LatLngBounds(
+        southwest: LatLng(lats.reduce((a, b) => a < b ? a : b), lngs.reduce((a, b) => a < b ? a : b)),
+        northeast: LatLng(lats.reduce((a, b) => a > b ? a : b), lngs.reduce((a, b) => a > b ? a : b)),
+      ),
+      60,
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
+    final provider = locationShareSessionProvider(widget.roomId);
+    final s = ref.watch(provider);
+    final myUid = ref.watch(currentUidProvider);
+
+    // 처음 위치가 잡히면(내 것이든 그룹원 것이든) 한 번만 그쪽으로 옮긴다. 그 뒤로는 사용자가 움직인 지도를 그대로 둔다.
+    ref.listen(provider, (_, next) {
+      if (_centered) return;
+      final first = next.me ?? next.others.values.firstOrNull?.position;
+      if (first == null || _map == null) return;
+      _centered = true;
+      _moveTo(first);
+    });
+
+    final Widget body;
+    if (s.loadError is RoomNotFoundException) {
+      body = const _Notice(message: '이 그룹을 찾을 수 없어요.\n그룹원만 위치를 볼 수 있습니다.');
+    } else if (s.loadError != null) {
+      body = _Notice(
+        message: '그룹 정보를 불러오지 못했어요.',
+        actionLabel: '다시 시도',
+        onAction: () => ref.read(provider.notifier).retry(),
+      );
+    } else if (s.loading || s.room == null) {
+      body = const Center(child: CircularProgressIndicator());
+    } else {
+      body = _content(s, s.room!, myUid);
+    }
+
+    return Column(children: [const _Header(), Expanded(child: body)]);
+  }
+
+  Widget _content(LocationShareState s, RoomDetail room, String? myUid) {
+    final notifier = ref.read(locationShareSessionProvider(widget.roomId).notifier);
+    final names = {for (final m in room.members) m.uid: m.displayName ?? '그룹원'};
+    final others = [for (final m in room.members) if (m.uid != myUid) m];
+    // 방 정보를 받은 뒤에 들어온 사람도 위치가 오면 보여준다(이름은 아직 모른다).
+    final strangers = [
+      for (final uid in s.others.keys)
+        if (!names.containsKey(uid)) RoomMember(uid: uid),
+    ];
+
+    final markers = <Marker>{
+      if (s.me != null)
+        Marker(
+          markerId: const MarkerId('me'),
+          position: s.me!,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          infoWindow: const InfoWindow(title: '나'),
+          zIndexInt: 1,
+        ),
+      for (final e in s.others.entries)
+        Marker(
+          markerId: MarkerId(e.key),
+          position: e.value.position,
+          // 소식이 끊긴 사람은 흐리게, 이름 옆에 "꺼짐"을 붙인다(마지막 위치는 남겨 둔다).
+          alpha: s.isStale(e.key) ? 0.4 : 1,
+          infoWindow: InfoWindow(
+            title: s.isStale(e.key) ? '${names[e.key] ?? '그룹원'} · 꺼짐' : names[e.key] ?? '그룹원',
+          ),
+        ),
+    };
+
     return Column(
       children: [
-        const _Header(),
         Expanded(
           child: Stack(
             children: [
-              const Positioned.fill(child: MapAreaPlaceholder()),
-              const Positioned(left: 14, right: 14, top: 14, child: _ShareToggleCard()),
-              Align(alignment: const Alignment(-0.5, -0.1), child: _MemberPin.me()),
-              Align(alignment: const Alignment(0.1, -0.4), child: _MemberPin.member('민준')),
-              Align(alignment: const Alignment(-0.2, 0.4), child: _MemberPin.member('서연')),
-              Align(alignment: const Alignment(0.4, 0.2), child: _MemberPin.off('지훈 OFF')),
+              Positioned.fill(
+                child: BaseGoogleMap(
+                  key: const Key('locationShareMap'),
+                  initialCamera: _initialCamera,
+                  markers: markers,
+                  // 내 위치는 공유할 때 보내는 좌표로 마커를 그린다. 기본 파란 점까지 켜면 같은 위치가 두 번 보인다.
+                  myLocationEnabled: false,
+                  onMapCreated: (c) => _map = c,
+                ),
+              ),
+              Positioned(
+                left: 14,
+                right: 14,
+                top: 14,
+                child: _ShareToggleCard(
+                  sharing: s.sharing,
+                  busy: s.starting,
+                  notice: s.notice,
+                  onTap: s.starting ? null : () => notifier.setSharing(!s.sharing),
+                ),
+              ),
             ],
           ),
         ),
-        const _BottomSheet(),
+        _MemberSheet(
+          memberCount: room.members.length,
+          onShowAll: () => _showAll([
+            if (s.me != null) s.me!,
+            for (final m in s.others.values) m.position,
+          ]),
+          children: [
+            _MemberChip(
+              key: const Key('memberChip-me'),
+              name: '나',
+              isMe: true,
+              live: s.sharing,
+              onTap: s.me == null ? null : () => _moveTo(s.me!),
+            ),
+            for (final m in [...others, ...strangers])
+              _MemberChip(
+                key: Key('memberChip-${m.uid}'),
+                name: m.displayName ?? '그룹원',
+                isMe: false,
+                live: !s.isStale(m.uid),
+                onTap: s.others[m.uid] == null ? null : () => _moveTo(s.others[m.uid]!.position),
+              ),
+          ],
+        ),
       ],
     );
   }
@@ -59,68 +198,139 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _ShareToggleCard extends StatelessWidget {
-  const _ShareToggleCard();
+class _Notice extends StatelessWidget {
+  const _Notice({required this.message, this.actionLabel, this.onAction});
+
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: AppColors.borderCard),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: AppTextStyles.body.copyWith(color: AppColors.textTertiary),
+            ),
+            if (actionLabel != null) ...[
+              const SizedBox(height: 16),
+              TextButton(onPressed: onAction, child: Text(actionLabel!)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ShareToggleCard extends StatelessWidget {
+  const _ShareToggleCard({
+    required this.sharing,
+    required this.busy,
+    required this.notice,
+    required this.onTap,
+  });
+
+  final bool sharing;
+  final bool busy;
+  final String? notice;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = notice ??
+        (sharing ? '5초마다 갱신 · 기록은 저장되지 않음' : '켜면 그룹원에게 5초마다 내 위치가 보여요 · 저장되지 않음');
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: AppColors.borderCard),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      child: InkWell(
+        key: const Key('locationShareToggle'),
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
+          child: Row(
             children: [
-              Text(
-                '내 위치 공유 ON',
-                style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                  color: AppColors.ink,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      sharing ? '내 위치 공유 ON' : '내 위치 공유 OFF',
+                      style: const TextStyle(
+                        fontFamily: 'Noto Sans KR',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      subtitle,
+                      key: const Key('locationShareSubtitle'),
+                      style: TextStyle(
+                        fontFamily: 'Noto Sans KR',
+                        fontWeight: FontWeight.w400,
+                        fontSize: 10.5,
+                        color: notice != null
+                            ? Theme.of(context).colorScheme.error
+                            : AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              SizedBox(height: 5),
-              Text(
-                '5초마다 갱신 · 기록은 저장되지 않음',
-                style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
-                  fontWeight: FontWeight.w400,
-                  fontSize: 10.5,
-                  color: AppColors.textSecondary,
-                ),
-              ),
+              const SizedBox(width: 12),
+              busy
+                  ? const SizedBox(
+                      width: 46,
+                      height: 27,
+                      child: Center(
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    )
+                  : _TogglePill(on: sharing),
             ],
           ),
-          const _TogglePill(),
-        ],
+        ),
       ),
     );
   }
 }
 
 class _TogglePill extends StatelessWidget {
-  const _TogglePill();
+  const _TogglePill({required this.on});
+
+  final bool on;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
       width: 46,
       height: 27,
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: AppColors.accent,
+        color: on ? AppColors.accent : AppColors.placeholderSecondary,
         borderRadius: BorderRadius.circular(980),
       ),
-      child: const Align(
-        alignment: Alignment.centerRight,
-        child: SizedBox(
+      child: AnimatedAlign(
+        duration: const Duration(milliseconds: 150),
+        alignment: on ? Alignment.centerRight : Alignment.centerLeft,
+        child: const SizedBox(
           width: 21,
           height: 21,
           child: DecoratedBox(
@@ -132,87 +342,12 @@ class _TogglePill extends StatelessWidget {
   }
 }
 
-/// 지도 위에 표시되는 그룹원 마커 (아바타 원 + 이름 라벨).
-class _MemberPin extends StatelessWidget {
-  const _MemberPin({
-    required this.label,
-    required this.size,
-    required this.fillColor,
-    required this.labelStyle,
-  });
+class _MemberSheet extends StatelessWidget {
+  const _MemberSheet({required this.memberCount, required this.onShowAll, required this.children});
 
-  factory _MemberPin.me() => _MemberPin(
-        label: '나',
-        size: 34,
-        fillColor: AppColors.accent,
-        labelStyle: const TextStyle(
-          fontFamily: 'Noto Sans KR',
-          fontWeight: FontWeight.w600,
-          fontSize: 9.5,
-          color: AppColors.ink,
-        ),
-      );
-
-  factory _MemberPin.member(String name) => _MemberPin(
-        label: name,
-        size: 32,
-        fillColor: AppColors.placeholderPrimary,
-        labelStyle: const TextStyle(
-          fontFamily: 'Noto Sans KR',
-          fontWeight: FontWeight.w500,
-          fontSize: 9.5,
-          color: AppColors.textBody,
-        ),
-      );
-
-  factory _MemberPin.off(String name) => _MemberPin(
-        label: name,
-        size: 32,
-        fillColor: AppColors.placeholderSecondary,
-        labelStyle: const TextStyle(
-          fontFamily: 'Noto Sans KR',
-          fontWeight: FontWeight.w400,
-          fontSize: 9.5,
-          color: AppColors.textTertiary,
-        ),
-      );
-
-  final String label;
-  final double size;
-  final Color fillColor;
-  final TextStyle labelStyle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            color: fillColor,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 3),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(980),
-            border: Border.all(color: AppColors.borderCard),
-          ),
-          child: Text(label, style: labelStyle),
-        ),
-      ],
-    );
-  }
-}
-
-class _BottomSheet extends StatelessWidget {
-  const _BottomSheet();
+  final int memberCount;
+  final VoidCallback onShowAll;
+  final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
@@ -243,9 +378,10 @@ class _BottomSheet extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('그룹원 4', style: AppTextStyles.cardTitle),
+              Text('그룹원 $memberCount', style: AppTextStyles.cardTitle),
               GestureDetector(
-                onTap: () {},
+                key: const Key('showAllMembers'),
+                onTap: onShowAll,
                 child: Text(
                   '전체 보기',
                   style: AppTextStyles.caption.copyWith(color: AppColors.accent),
@@ -254,16 +390,14 @@ class _BottomSheet extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            children: const [
-              _MemberSummary.me(),
-              SizedBox(width: 14),
-              _MemberSummary.other(),
-              SizedBox(width: 14),
-              _MemberSummary.other(),
-              SizedBox(width: 14),
-              _MemberSummary.add(),
-            ],
+          SizedBox(
+            height: 92, // 칩(원 48 + 이름 + 상태) 높이. 글자 크기 설정이 커져도 잘리지 않게 여유를 둔다.
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: children.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 14),
+              itemBuilder: (_, i) => children[i],
+            ),
           ),
         ],
       ),
@@ -271,112 +405,71 @@ class _BottomSheet extends StatelessWidget {
   }
 }
 
-/// 하단 시트의 그룹원 아바타 요약(원 + 이름/placeholder 라벨).
-class _MemberSummary extends StatelessWidget {
-  const _MemberSummary.me()
-      : _variant = _MemberSummaryVariant.me;
+/// 하단 시트의 그룹원 한 명. 공유 중이면 테두리를 강조하고, 누르면 지도를 그 사람에게 옮긴다.
+class _MemberChip extends StatelessWidget {
+  const _MemberChip({
+    super.key,
+    required this.name,
+    required this.isMe,
+    required this.live,
+    required this.onTap,
+  });
 
-  const _MemberSummary.other()
-      : _variant = _MemberSummaryVariant.other;
-
-  const _MemberSummary.add()
-      : _variant = _MemberSummaryVariant.add;
-
-  final _MemberSummaryVariant _variant;
+  final String name;
+  final bool isMe;
+  final bool live;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    switch (_variant) {
-      case _MemberSummaryVariant.me:
-        return const Column(
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 56,
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
+            Container(
               width: 48,
               height: 48,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  shape: BoxShape.circle,
-                  border: Border.fromBorderSide(
-                    BorderSide(color: AppColors.accent, width: 2),
-                  ),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: live ? AppColors.accent : AppColors.borderCard,
+                  width: live ? 2 : 1,
+                ),
+              ),
+              child: Text(
+                name.isEmpty ? '?' : name.characters.first,
+                style: AppTextStyles.body.copyWith(
+                  color: live ? AppColors.ink : AppColors.textTertiary,
                 ),
               ),
             ),
-            SizedBox(height: 6),
+            const SizedBox(height: 6),
             Text(
-              '나',
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontFamily: 'Noto Sans KR',
-                fontWeight: FontWeight.w500,
+                fontWeight: isMe ? FontWeight.w500 : FontWeight.w400,
                 fontSize: 10,
                 color: AppColors.ink,
               ),
             ),
-          ],
-        );
-      case _MemberSummaryVariant.other:
-        return const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 48,
-              height: 48,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  shape: BoxShape.circle,
-                  border: Border.fromBorderSide(
-                    BorderSide(color: AppColors.borderCard),
-                  ),
-                ),
+            Text(
+              live ? '공유 중' : '꺼짐',
+              style: TextStyle(
+                fontFamily: 'Noto Sans KR',
+                fontSize: 9,
+                color: live ? AppColors.accent : AppColors.textTertiary,
               ),
             ),
-            SizedBox(height: 6),
-            _NameBar(color: AppColors.placeholderSecondary),
           ],
-        );
-      case _MemberSummaryVariant.add:
-        return const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 48,
-              height: 48,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  border: Border.fromBorderSide(
-                    BorderSide(color: AppColors.borderMedium),
-                  ),
-                ),
-              ),
-            ),
-            SizedBox(height: 6),
-            _NameBar(color: AppColors.dividerFaint),
-          ],
-        );
-    }
-  }
-}
-
-enum _MemberSummaryVariant { me, other, add }
-
-class _NameBar extends StatelessWidget {
-  const _NameBar({required this.color});
-
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 6,
-      width: 26,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(3),
+        ),
       ),
     );
   }
