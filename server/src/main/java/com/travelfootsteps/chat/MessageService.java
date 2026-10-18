@@ -3,10 +3,13 @@ package com.travelfootsteps.chat;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.regex.Pattern;
@@ -40,6 +43,9 @@ public class MessageService {
     private final ApplicationEventPublisher eventPublisher;
     private final ChatImageStorage imageStorage;
 
+    /** 스프링 부트가 미리 만들어 두는 빈. {@link #sendImage}가 저장을 별도 트랜잭션으로 열 때 쓴다. */
+    private final TransactionTemplate transactionTemplate;
+
     @Transactional
     public MessageResponse sendText(Long roomId, String uid, String text) {
         roomService.requireMember(roomId, uid); // 멤버 행이 있으면 방도 있다(FK)
@@ -53,8 +59,15 @@ public class MessageService {
      * 모두) 방금 저장한 파일을 지운다. "커밋되지 못하면"을 아는 방법이 아래의 트랜잭션 동기화 콜백이다 — 메서드 안의
      * try/catch로는 메서드가 끝난 뒤 커밋 단계에서 나는 실패를 잡을 수 없다. 거꾸로 메시지를 먼저 저장하면, 파일 저장이
      * 실패했을 때 열리지 않는 사진 메시지가 실시간으로 먼저 퍼질 수 있다.
+     *
+     * <p><b>같은 업로드 id가 동시에 오면</b>(첫 요청이 커밋되기 전에 다시 보내기가 들어옴) 둘 다 "아직 없음"을 보고 저장하려
+     * 하고, 늦은 쪽은 UNIQUE 인덱스(V14)에 걸린다. 그때는 먼저 저장된 메시지를 찾아 돌려준다 — 진 쪽이 저장한 파일은 위의
+     * 콜백이 롤백 때 지운다. PostgreSQL은 제약 위반이 난 트랜잭션에서 더 조회할 수 없으므로(DmRoomCreator 주석 참고)
+     * 저장은 {@link TransactionTemplate}으로 연 별도 트랜잭션에서 하고, 이 메서드 자체는 트랜잭션 없이 돈다
+     * ({@code NOT_SUPPORTED}). TransactionTemplate은 {@code @Transactional}을 코드로 쓰는 방법이다 —
+     * {@code execute} 안의 코드가 한 트랜잭션에서 돌고, 끝나면 커밋(예외면 롤백)한다.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public MessageResponse sendImage(Long roomId, String uid, byte[] bytes, String clientId) {
         roomService.requireMember(roomId, uid);
         if (clientId != null) {
@@ -76,6 +89,20 @@ public class MessageService {
         }
         ChatImageFormat format = ChatImageFormat.detect(bytes).orElseThrow(UnsupportedChatImageException::new);
 
+        try {
+            return transactionTemplate.execute(status -> storeImage(roomId, uid, bytes, format, clientId));
+        } catch (DataIntegrityViolationException e) {
+            if (clientId == null) {
+                throw e;
+            }
+            return messageRepository.findByRoomIdAndSenderUidAndClientId(roomId, uid, clientId)
+                    .map(MessageResponse::of)
+                    .orElseThrow(() -> e);
+        }
+    }
+
+    /** 파일 저장 → 메시지 저장. {@link #sendImage}가 연 트랜잭션 안에서 돈다. */
+    private MessageResponse storeImage(Long roomId, String uid, byte[] bytes, ChatImageFormat format, String clientId) {
         String path = imageStorage.save(bytes, format);
         // TransactionSynchronization: 지금 진행 중인 트랜잭션이 끝날 때(커밋이든 롤백이든) 스프링이 불러 주는 콜백.
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -108,7 +135,8 @@ public class MessageService {
     }
 
     private MessageResponse saveAndAnnounce(ChatMessage unsaved) {
-        ChatMessage message = messageRepository.save(unsaved);
+        // saveAndFlush: INSERT를 바로 보내 UNIQUE 위반(같은 업로드 id)이 커밋 단계가 아니라 여기서 드러나게 한다.
+        ChatMessage message = messageRepository.saveAndFlush(unsaved);
         // 같은 트랜잭션 안의 UPDATE라 메시지 저장이 롤백되면 이 갱신도 함께 롤백된다.
         // 더 새로운 메시지가 이미 기록돼 있으면 아무것도 바꾸지 않는다(동시 전송 대비).
         roomRepository.recordLastMessage(message.getRoomId(), message.getId(), ChatRoom.previewOf(message),

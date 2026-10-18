@@ -510,6 +510,12 @@ class _ChatImageView extends ConsumerWidget {
 
   static const _size = Size(220, 165);
 
+  /// 받기는 됐는데 그림으로 풀리지 않을 때(앞부분만 그림 형식이고 뒤가 잘린 파일 등). 서버는 앞부분 바이트로만
+  /// 형식을 보므로 이런 파일도 올라올 수 있다 — 오류를 내는 대신 깨진 그림 표시로 대신한다.
+  static Widget _broken(BuildContext context, Object error, StackTrace? stackTrace) => const _ImageSlot(
+        child: Icon(Icons.broken_image_outlined, key: Key('brokenImage'), color: AppColors.textTertiary),
+      );
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final bytes = ref.watch(chatImageBytesProvider(imageUrl));
@@ -526,10 +532,18 @@ class _ChatImageView extends ConsumerWidget {
             context: context,
             builder: (dialogContext) => GestureDetector(
               onTap: () => Navigator.of(dialogContext).pop(),
-              child: InteractiveViewer(child: Image.memory(data, key: const Key('imageFullScreen'))),
+              child: InteractiveViewer(
+                child: Image.memory(data, key: const Key('imageFullScreen'), errorBuilder: _broken),
+              ),
             ),
           ),
-          child: Image.memory(data, width: _size.width, height: _size.height, fit: BoxFit.cover),
+          child: Image.memory(
+            data,
+            width: _size.width,
+            height: _size.height,
+            fit: BoxFit.cover,
+            errorBuilder: _broken,
+          ),
         ),
       ),
     );

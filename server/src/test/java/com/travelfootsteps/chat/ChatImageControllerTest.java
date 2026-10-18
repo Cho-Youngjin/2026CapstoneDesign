@@ -31,9 +31,17 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -267,6 +275,37 @@ class ChatImageControllerTest {
         assertThat(storedFileCount()).isEqualTo(before + 1);
         mockMvc.perform(get("/api/rooms/{id}/messages", roomId).header("Authorization", "Bearer " + A))
                 .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
+    void 같은_clientId_요청이_동시에_와도_모두_같은_메시지를_받고_사진은_하나만_남는다() throws Exception {
+        // 첫 요청이 커밋되기 전에 다시 보내기가 들어오는 경우 — 둘 다 "아직 없음"을 보고 저장하려 한다.
+        long roomId = givenRoomWithAAndB();
+        long before = storedFileCount();
+        int requests = 6;
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(requests);
+        try {
+            List<Future<MvcResult>> results = new ArrayList<>();
+            for (int i = 0; i < requests; i++) {
+                results.add(pool.submit(() -> {
+                    start.await();
+                    return uploadWithClientId(A, roomId, "race-0001").andReturn();
+                }));
+            }
+            start.countDown();
+
+            Set<Long> ids = new HashSet<>();
+            for (Future<MvcResult> result : results) {
+                MvcResult r = result.get(30, TimeUnit.SECONDS);
+                assertThat(r.getResponse().getStatus()).isEqualTo(201);
+                ids.add(json(r).get("id").asLong());
+            }
+            assertThat(ids).hasSize(1);
+            assertThat(storedFileCount()).isEqualTo(before + 1);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test

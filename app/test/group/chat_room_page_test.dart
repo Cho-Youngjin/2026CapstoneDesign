@@ -98,6 +98,22 @@ void main() {
       expect(find.descendant(of: find.byKey(const Key('image-5')), matching: find.byType(Image)), findsOneWidget);
     });
 
+    testWidgets('받은 바이트가 깨진 그림이면 깨진 그림 표시로 대신한다', (tester) async {
+      final api = FakeChatApi()
+        ..detailToReturn = _room()
+        ..storedMessages.addAll([sampleImageMessage(id: 5, senderUid: 'uid-b')])
+        // 앞부분은 JPEG처럼 보이지만 뒤가 잘린 바이트 — 서버의 형식 판정은 통과한다.
+        ..imagesByUrl['/api/rooms/1/images/5'] = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]);
+
+      await _pump(tester, api: api);
+      // 그림 해독은 엔진에서 따로 돌므로 실제 시간을 조금 흘려 결과가 돌아오게 한다.
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('brokenImage')), findsOneWidget);
+    });
+
     testWidgets('사진을 고르면 올리고, 끝나면 내 사진 말풍선으로 보인다', (tester) async {
       final (api, _) = await _pump(tester, picker: () async => onePixelPng);
 
