@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:app/features/group/data/chat_api.dart';
 import 'package:app/features/group/data/chat_room_controller.dart';
 import 'package:app/features/group/data/chat_socket.dart';
+import 'package:app/features/group/models/chat_message.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -175,6 +177,75 @@ void main() {
       expect(await _controller(c).send('안녕'), isFalse);
       expect(_state(c).messages, isEmpty);
       expect(_state(c).sending, isFalse);
+    });
+  });
+
+  group('사진 보내기 (Plan D Task 6)', () {
+    final photo = Uint8List.fromList([0xFF, 0xD8, 0xFF, 1]);
+
+    test('올리는 동안 자리표시를 두고, 끝나면 사진 메시지로 바꾼다', () async {
+      api.holdImage = Completer<void>();
+      final c = await _start();
+
+      final sending = _controller(c).sendImage(photo);
+      await _settle();
+      expect(_state(c).pendingImages.single.bytes, photo);
+      expect(_state(c).pendingImages.single.failed, isFalse);
+      expect(_state(c).messages, isEmpty);
+
+      api.holdImage!.complete();
+      await sending;
+
+      expect(_state(c).pendingImages, isEmpty);
+      expect(_state(c).messages.single.type, MessageType.image);
+    });
+
+    test('브로드캐스트로 같은 사진이 또 와도 하나만 남는다', () async {
+      final c = await _start();
+
+      await _controller(c).sendImage(photo);
+      socket.emit(_topic, messageJson(_state(c).messages.single));
+      await _settle();
+
+      expect(_state(c).messages, hasLength(1));
+    });
+
+    test('실패하면 자리표시를 실패로 남기고, 다시 시도하면 같은 사진을 다시 올린다', () async {
+      api.nextImageError = DioException.connectionError(
+        requestOptions: RequestOptions(path: '/api/rooms/1/images'),
+        reason: 'offline',
+      );
+      final c = await _start();
+
+      await _controller(c).sendImage(photo);
+      final pending = _state(c).pendingImages.single;
+      expect(pending.failed, isTrue);
+      expect(pending.error, isNull, reason: '연결 오류는 다시 시도하면 될 수 있다');
+
+      await _controller(c).retryImage(pending.localId);
+
+      expect(api.sentImages, [photo, photo]);
+      expect(_state(c).pendingImages, isEmpty);
+      expect(_state(c).messages.single.type, MessageType.image);
+    });
+
+    test('너무 크거나 지원하지 않는 형식이면 이유를 남긴다', () async {
+      api.nextImageError = const UnsupportedChatImageException();
+      final c = await _start();
+
+      await _controller(c).sendImage(photo);
+
+      expect(_state(c).pendingImages.single.error, contains('형식'));
+    });
+
+    test('실패한 자리표시는 지울 수 있다', () async {
+      api.nextImageError = const ChatImageTooLargeException();
+      final c = await _start();
+      await _controller(c).sendImage(photo);
+
+      _controller(c).discardImage(_state(c).pendingImages.single.localId);
+
+      expect(_state(c).pendingImages, isEmpty);
     });
   });
 

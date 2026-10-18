@@ -15,6 +15,16 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+  # 채팅 사진 업로드 한도(Plan D Task 6). 파일 하나 5MB, 요청 전체 6MB(파일 외 부분 여유). 넘으면 413.
+  # 배포 때 앞단 Nginx의 client_max_body_size(기본 1MB)도 6m 이상으로 올려야 한다.
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+
+# 채팅 사진을 저장할 디렉터리(LocalDiskChatImageStorage). 배포 때는 VM의 영구 디스크 경로를 넣는다.
+chat:
+  image-dir: ${CHAT_IMAGE_DIR:./data/chat-images}
 
 firebase:
   service-account-path: classpath:firebase-service-account.json

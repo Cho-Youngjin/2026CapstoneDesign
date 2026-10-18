@@ -524,8 +524,28 @@ DM 방의 메시지·실시간 수신은 그룹과 똑같다(`/api/rooms/{id}/me
   "createdAt": "2026-10-14T19:40:12.345+09:00"
 }
 ```
-`imageUrl`은 사진 메시지(Task 6) 전까지 항상 `null`.
+`imageUrl`은 사진 메시지(`type: "IMAGE"`)의 내려받기 주소(아래 `GET .../images/{messageId}`, 서버 기준 상대 경로)이고, 글자 메시지는 `null`. 사진 메시지는 `text`가 `null`이다.
 **400** — 빈 메시지 또는 1000자 초과. **404** — 없는 방 또는 멤버가 아닌 방.
+
+### `POST /api/rooms/{roomId}/images`
+사진을 보낸다(Plan D Task 6). `multipart/form-data`의 `file` 부분에 그림 바이트를 넣는다. 저장되면 글자 메시지와 똑같이 `/topic/rooms/{roomId}/messages`로 실시간 전달되고, 방 목록 미리보기는 `"사진"`이 된다.
+
+| 검사 | 실패 시 |
+|---|---|
+| JPEG·PNG·WEBP만. **파일 앞부분 바이트(매직 넘버)로 판정**한다 — 파일 이름·`Content-Type`은 보지 않는다 | **415** |
+| 5MB 이하 (요청 전체 6MB) | **413** |
+| `file`이 없거나 빈 파일 | **400** |
+| 방 멤버 | **404** |
+
+**응답 201** — Message (`type: "IMAGE"`, `imageUrl` 채워짐).
+
+서버는 파일을 `chat.image-dir`(환경변수 `CHAT_IMAGE_DIR`, 기본 `./data/chat-images`)에 **서버가 만든 UUID 이름**으로 저장한다. 보낸 파일 이름은 쓰지 않는다. 앱은 고를 때 긴 변 1600px·품질 80으로 줄여 올린다. **배포 메모**: Nginx 기본 `client_max_body_size`가 1MB라 그대로면 413으로 막힌다 — 6m 이상으로 올린다.
+
+### `GET /api/rooms/{roomId}/images/{messageId}`
+사진 바이트를 내려받는다. 멤버만 받을 수 있어 **로그인 토큰이 필요하다**(앱은 API 클라이언트로 받아 그린다).
+
+**응답 200** — 그림 바이트, `Content-Type: image/jpeg|png|webp`, `Cache-Control: max-age=86400, private`(이 기기에만 하루 보관, 공용 캐시 금지).
+**404** — 멤버가 아님, 다른 방의 메시지 id, 사진이 아닌 메시지, 없는 메시지(내가 두 방 모두의 멤버여도 경로의 방과 메시지의 방이 다르면 404).
 
 ### `GET /api/rooms/{roomId}/messages?before={messageId}&size={n}`
 메시지 목록, **최신순(id 내림차순)**. 페이지 번호 대신 **커서(`before`)** 방식이다.

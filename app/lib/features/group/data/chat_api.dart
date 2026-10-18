@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,6 +14,16 @@ class RoomNotFoundException implements Exception {
 
   @override
   String toString() => 'RoomNotFoundException';
+}
+
+/// 사진이 서버 한도(5MB)를 넘는다(413). 앱이 줄여서 올리므로 드물다.
+class ChatImageTooLargeException implements Exception {
+  const ChatImageTooLargeException();
+}
+
+/// JPEG·PNG·WEBP가 아니다(415). 서버는 파일 앞부분 바이트로 판정한다.
+class UnsupportedChatImageException implements Exception {
+  const UnsupportedChatImageException();
 }
 
 /// 서버 채팅 API의 앱 쪽 클라이언트 (docs/api-spec.md 10절).
@@ -78,6 +90,38 @@ class ChatApi {
       if (e.response?.statusCode == 404) throw const RoomNotFoundException();
       rethrow;
     }
+  }
+
+  /// 사진을 보낸다(Plan D Task 6). 같은 메시지가 실시간 구독으로도 한 번 더 온다 — 글자 메시지와 같다.
+  /// 파일 이름은 서버가 쓰지 않으므로(서버가 UUID로 저장) 아무 값이나 보낸다.
+  Future<ChatMessage> sendImage(int roomId, Uint8List bytes) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/api/rooms/$roomId/images',
+        data: FormData.fromMap({'file': MultipartFile.fromBytes(bytes, filename: 'photo')}),
+      );
+      return ChatMessage.fromJson(response.data!);
+    } on DioException catch (e) {
+      switch (e.response?.statusCode) {
+        case 404:
+          throw const RoomNotFoundException();
+        case 413:
+          throw const ChatImageTooLargeException();
+        case 415:
+          throw const UnsupportedChatImageException();
+      }
+      rethrow;
+    }
+  }
+
+  /// 사진 메시지의 [imageUrl](`/api/rooms/{id}/images/{messageId}`)을 내려받는다. 서버는 멤버에게만 주므로
+  /// 로그인 토큰이 필요하다 — 토큰은 [apiClientProvider]의 인터셉터가 붙이고, 만료되면 새로 받아 붙인다.
+  Future<Uint8List> imageBytes(String imageUrl) async {
+    final response = await _dio.get<List<int>>(
+      imageUrl,
+      options: Options(responseType: ResponseType.bytes),
+    );
+    return Uint8List.fromList(response.data!);
   }
 
   /// 채팅 화면에 표시할 내 이름·사진을 올린다(처음이면 만들고 있으면 덮어쓴다).

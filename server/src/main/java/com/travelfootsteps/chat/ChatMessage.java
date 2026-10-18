@@ -41,6 +41,13 @@ public class ChatMessage {
     @Column(length = 1000)
     private String text;
 
+    /**
+     * 사진 메시지만 값이 있다(Plan D Task 6). {@link ChatImageStorage}의 저장 디렉터리 안 상대 경로 —
+     * 서버 안에서만 쓰고 응답에는 내보내지 않는다(응답은 내려받기 주소 {@code imageUrl}을 준다).
+     */
+    @Column(name = "image_path", length = 300)
+    private String imagePath;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -51,6 +58,17 @@ public class ChatMessage {
         message.senderUid = senderUid;
         message.type = MessageType.TEXT;
         message.text = text;
+        message.createdAt = OffsetDateTime.now();
+        return message;
+    }
+
+    /** 사진 메시지. 파일은 이미 저장소에 저장된 뒤이고, [imagePath]는 그 상대 경로다. */
+    public static ChatMessage image(Long roomId, String senderUid, String imagePath) {
+        ChatMessage message = new ChatMessage();
+        message.roomId = roomId;
+        message.senderUid = senderUid;
+        message.type = MessageType.IMAGE;
+        message.imagePath = imagePath;
         message.createdAt = OffsetDateTime.now();
         return message;
     }

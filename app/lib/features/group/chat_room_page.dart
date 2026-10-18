@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:app/router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +10,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
 import 'data/chat_api.dart';
+import 'data/chat_images.dart';
 import 'data/chat_room_controller.dart';
 import 'data/room_providers.dart';
 import 'members_sheet.dart';
@@ -36,7 +39,7 @@ bool _sameDay(DateTime a, DateTime b) {
 /// 채팅방 화면 (Plan D Task 4). 와이어프레임의 말풍선 모양·색은 그대로 두고 실제 메시지로 채운다.
 ///
 /// 메시지 목록·실시간 수신·전송 규칙은 [ChatRoomController]에 있고, 이 화면은 그리기만 한다.
-/// 사진 첨부(Task 6)와 읽음 표시(Task 7)는 아직 없다.
+/// 사진은 입력창 왼쪽 버튼으로 보낸다(Task 6). 읽음 표시(Task 7)는 아직 없다.
 class ChatRoomPage extends ConsumerStatefulWidget {
   const ChatRoomPage({super.key, required this.roomId});
 
@@ -86,6 +89,24 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
       ScaffoldMessenger.maybeOf(context)
           ?.showSnackBar(const SnackBar(content: Text('전송하지 못했어요. 다시 시도해 주세요.')));
     }
+  }
+
+  /// 사진을 골라 보낸다. 고르기를 취소하면 아무것도 하지 않는다.
+  Future<void> _attachImage() async {
+    final Uint8List? bytes;
+    try {
+      bytes = await ref.read(chatImagePickerProvider)();
+    } catch (e) {
+      // 갤러리 권한을 거부했거나 기기에서 고르기가 실패한 경우.
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(const SnackBar(content: Text('사진을 불러오지 못했어요.')));
+      }
+      return;
+    }
+    if (bytes == null || !mounted) return;
+    if (_scroll.hasClients) _scroll.jumpTo(0); // 맨 아래(올리는 사진 자리)로
+    await ref.read(chatRoomControllerProvider(widget.roomId).notifier).sendImage(bytes);
   }
 
   void _refreshIfUnknownSenders(List<ChatMessage> messages, Map<String, RoomMember> members) {
@@ -140,6 +161,7 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
           sending: chat.sending,
           onChanged: () => setState(() {}),
           onSend: _send,
+          onAttach: room == null ? null : _attachImage,
         ),
       ],
     );
@@ -181,7 +203,8 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
       );
     }
     final messages = chat.messages;
-    if (messages.isEmpty) {
+    final pending = chat.pendingImages;
+    if (messages.isEmpty && pending.isEmpty) {
       return Center(
         key: const Key('emptyChat'),
         child: Text(
@@ -191,15 +214,30 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
       );
     }
 
-    // reverse 목록이라 index 0이 맨 아래(가장 최신)다. 각 메시지 "위"에 날짜가 바뀌면 날짜 구분선을 둔다 —
+    // reverse 목록이라 index 0이 맨 아래(가장 최신)다. 맨 아래에는 아직 올리는 중인 내 사진을 두고(가장 최근에
+    // 보낸 것이 맨 아래), 그 위로 메시지를 둔다. 각 메시지 "위"에 날짜가 바뀌면 날짜 구분선을 둔다 —
     // 즉 바로 다음(더 오래된) 메시지와 날짜가 다르거나 더 오래된 메시지가 없을 때.
-    final itemCount = messages.length + (chat.loadingMore ? 1 : 0);
+    final controller = ref.read(chatRoomControllerProvider(widget.roomId).notifier);
+    final itemCount = pending.length + messages.length + (chat.loadingMore ? 1 : 0);
     return ListView.builder(
       controller: _scroll,
       reverse: true,
       padding: const EdgeInsets.all(16),
       itemCount: itemCount,
-      itemBuilder: (context, i) {
+      itemBuilder: (context, index) {
+        if (index < pending.length) {
+          final p = pending[pending.length - 1 - index];
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: _PendingImageBubble(
+              key: Key('pending-${p.localId}'),
+              pending: p,
+              onRetry: () => controller.retryImage(p.localId),
+              onDiscard: () => controller.discardImage(p.localId),
+            ),
+          );
+        }
+        final i = index - pending.length;
         if (i == messages.length) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
@@ -395,7 +433,9 @@ class _IncomingTextMessage extends StatelessWidget {
                   Flexible(
                     child: Container(
                       constraints: const BoxConstraints(maxWidth: 240),
-                      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+                      padding: message.type == MessageType.image
+                          ? const EdgeInsets.all(4)
+                          : const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         border: Border.all(color: AppColors.borderLight),
@@ -406,7 +446,9 @@ class _IncomingTextMessage extends StatelessWidget {
                           bottomLeft: Radius.circular(4),
                         ),
                       ),
-                      child: Text(message.text ?? '', style: _bubbleText),
+                      child: message.type == MessageType.image
+                          ? _ChatImageView(key: Key('image-${message.id}'), imageUrl: message.imageUrl!)
+                          : Text(message.text ?? '', style: _bubbleText),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -437,7 +479,9 @@ class _OutgoingTextMessage extends StatelessWidget {
         Flexible(
           child: Container(
             constraints: const BoxConstraints(maxWidth: 240),
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+            padding: message.type == MessageType.image
+                ? const EdgeInsets.all(4)
+                : const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
             decoration: const BoxDecoration(
               color: AppColors.accent,
               borderRadius: BorderRadius.only(
@@ -447,9 +491,131 @@ class _OutgoingTextMessage extends StatelessWidget {
                 bottomRight: Radius.circular(4),
               ),
             ),
-            child: Text(message.text ?? '', style: _bubbleText.copyWith(color: Colors.white)),
+            child: message.type == MessageType.image
+                ? _ChatImageView(key: Key('image-${message.id}'), imageUrl: message.imageUrl!)
+                : Text(message.text ?? '', style: _bubbleText.copyWith(color: Colors.white)),
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// 말풍선 안의 사진(Plan D Task 6). 바이트는 토큰이 붙는 API로 받는다([chatImageBytesProvider]).
+/// 누르면 화면 가득 크게 본다. 받지 못했으면 눌러서 다시 받는다.
+class _ChatImageView extends ConsumerWidget {
+  const _ChatImageView({super.key, required this.imageUrl});
+
+  final String imageUrl;
+
+  static const _size = Size(220, 165);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bytes = ref.watch(chatImageBytesProvider(imageUrl));
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(11),
+      child: bytes.when(
+        loading: () => const _ImageSlot(child: CircularProgressIndicator(strokeWidth: 2)),
+        error: (_, _) => GestureDetector(
+          onTap: () => ref.invalidate(chatImageBytesProvider(imageUrl)),
+          child: const _ImageSlot(child: Icon(Icons.refresh, color: AppColors.textTertiary)),
+        ),
+        data: (data) => GestureDetector(
+          onTap: () => showDialog<void>(
+            context: context,
+            builder: (dialogContext) => GestureDetector(
+              onTap: () => Navigator.of(dialogContext).pop(),
+              child: InteractiveViewer(child: Image.memory(data, key: const Key('imageFullScreen'))),
+            ),
+          ),
+          child: Image.memory(data, width: _size.width, height: _size.height, fit: BoxFit.cover),
+        ),
+      ),
+    );
+  }
+}
+
+/// 사진이 아직 없을 때(받는 중·실패) 자리를 같은 크기로 잡아 둔다 — 받고 나서 목록이 덜컹거리지 않게.
+class _ImageSlot extends StatelessWidget {
+  const _ImageSlot({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: _ChatImageView._size.width,
+      height: _ChatImageView._size.height,
+      color: AppColors.surface,
+      alignment: Alignment.center,
+      child: SizedBox(width: 24, height: 24, child: Center(child: child)),
+    );
+  }
+}
+
+/// 올리는 중이거나 올리지 못한 내 사진. 고른 사진을 바로 보여 주고, 실패하면 [다시 시도]·[지우기]를 둔다.
+class _PendingImageBubble extends StatelessWidget {
+  const _PendingImageBubble({
+    super.key,
+    required this.pending,
+    required this.onRetry,
+    required this.onDiscard,
+  });
+
+  final PendingImage pending;
+  final VoidCallback onRetry;
+  final VoidCallback onDiscard;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(11),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Opacity(
+                opacity: 0.5,
+                child: Image.memory(
+                  pending.bytes,
+                  width: _ChatImageView._size.width,
+                  height: _ChatImageView._size.height,
+                  fit: BoxFit.cover,
+                  // 디코딩할 수 없는 바이트여도 자리는 지킨다.
+                  errorBuilder: (_, _, _) => const _ImageSlot(child: SizedBox()),
+                ),
+              ),
+              if (!pending.failed) const CircularProgressIndicator(strokeWidth: 2),
+            ],
+          ),
+        ),
+        if (pending.failed) ...[
+          const SizedBox(height: 4),
+          Text(
+            pending.error ?? '사진을 보내지 못했어요.',
+            style: AppTextStyles.caption.copyWith(color: Theme.of(context).colorScheme.error),
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 다시 해도 안 되는 실패(크기·형식)면 다시 시도는 두지 않는다.
+              if (pending.error == null)
+                TextButton(
+                  key: Key('retryImage-${pending.localId}'),
+                  onPressed: onRetry,
+                  child: const Text('다시 시도'),
+                ),
+              TextButton(
+                key: Key('discardImage-${pending.localId}'),
+                onPressed: onDiscard,
+                child: const Text('지우기'),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -461,12 +627,16 @@ class _InputBar extends StatelessWidget {
     required this.sending,
     required this.onChanged,
     required this.onSend,
+    required this.onAttach,
   });
 
   final TextEditingController controller;
   final bool sending;
   final VoidCallback onChanged;
   final VoidCallback onSend;
+
+  /// 사진 고르기. 방 정보를 받기 전(멤버 확인 전)에는 null이라 버튼이 꺼진다.
+  final VoidCallback? onAttach;
 
   @override
   Widget build(BuildContext context) {
@@ -479,6 +649,11 @@ class _InputBar extends StatelessWidget {
       ),
       child: Row(
         children: [
+          IconButton(
+            key: const Key('attachImage'),
+            onPressed: onAttach,
+            icon: const Icon(Icons.image_outlined, color: AppColors.textSecondary),
+          ),
           Expanded(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14),

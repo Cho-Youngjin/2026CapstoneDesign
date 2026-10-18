@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:app/features/group/data/chat_api.dart';
 import 'package:app/features/group/models/chat_message.dart';
 import 'package:app/features/group/models/room.dart';
@@ -43,6 +45,49 @@ void main() {
     expect(room.id, 12);
     expect(adapter.lastRequest!.method, 'POST');
     expect(adapter.lastRequest!.data, {'inviteCode': 'ABC234'});
+  });
+
+  group('사진 (Plan D Task 6)', () {
+    const imageMessageJson = '''
+{"id": 41, "roomId": 1, "senderUid": "uid-a", "type": "IMAGE", "text": null,
+ "imageUrl": "/api/rooms/1/images/41", "createdAt": "2026-10-19T09:00:00+09:00"}
+''';
+
+    test('sendImage가 사진을 multipart의 file로 POST /api/rooms/{id}/images에 올린다', () async {
+      final adapter = StubHttpClientAdapter(path: '/api/rooms/1/images', statusCode: 201, body: imageMessageJson);
+
+      final message = await _api(adapter).sendImage(1, Uint8List.fromList([0xFF, 0xD8, 0xFF]));
+
+      expect(message.type, MessageType.image);
+      expect(message.imageUrl, '/api/rooms/1/images/41');
+      expect(adapter.lastRequest!.method, 'POST');
+      final form = adapter.lastRequest!.data as FormData;
+      expect(form.files.single.key, 'file');
+      expect(form.files.single.value.length, 3);
+    });
+
+    test('너무 큰 사진(413)과 지원하지 않는 형식(415)은 알아볼 수 있는 예외로 바꾼다', () async {
+      final tooBig = StubHttpClientAdapter(path: '/api/rooms/1/images', statusCode: 413, body: '');
+      final unsupported = StubHttpClientAdapter(path: '/api/rooms/1/images', statusCode: 415, body: '');
+
+      expect(() => _api(tooBig).sendImage(1, Uint8List(1)), throwsA(isA<ChatImageTooLargeException>()));
+      expect(() => _api(unsupported).sendImage(1, Uint8List(1)), throwsA(isA<UnsupportedChatImageException>()));
+    });
+
+    test('비멤버(404)가 사진을 올리면 RoomNotFoundException', () async {
+      final adapter = StubHttpClientAdapter(path: '/api/rooms/1/images', statusCode: 404, body: '');
+
+      expect(() => _api(adapter).sendImage(1, Uint8List(1)), throwsA(isA<RoomNotFoundException>()));
+    });
+
+    test('imageBytes가 사진 주소를 받아 바이트로 돌려준다(토큰은 apiClient가 붙인다)', () async {
+      final adapter = StubHttpClientAdapter(path: '/api/rooms/1/images/41', statusCode: 200, body: 'abc');
+
+      final bytes = await _api(adapter).imageBytes('/api/rooms/1/images/41');
+
+      expect(bytes, [97, 98, 99]);
+      expect(adapter.lastRequest!.method, 'GET');
+    });
   });
 
   test('openDm이 상대 uid를 POST /api/rooms/dm으로 보내고 DM 방을 파싱한다', () async {
