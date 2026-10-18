@@ -34,6 +34,17 @@ abstract class ChatSocket {
 Stream<ChatMessage> roomMessages(ChatSocket socket, int roomId) =>
     socket.subscribe('/topic/rooms/$roomId/messages').map(ChatMessage.fromJson);
 
+/// 누가 어디까지 읽었는지 (Plan D Task 7).
+typedef ReadEvent = ({String uid, int lastReadMessageId});
+
+/// 방의 읽음 소식 스트림 (`/topic/rooms/{roomId}/read`). 형식이 맞지 않는 소식은 버린다.
+Stream<ReadEvent> roomReads(ChatSocket socket, int roomId) =>
+    socket.subscribe('/topic/rooms/$roomId/read').expand((json) {
+      final uid = json['uid'];
+      final id = json['lastReadMessageId'];
+      return uid is String && id is int ? [(uid: uid, lastReadMessageId: id)] : const <ReadEvent>[];
+    });
+
 /// REST 주소(`http://host:8080`)에서 STOMP 주소(`ws://host:8080/ws`)를 만든다.
 String webSocketUrl(String apiBaseUrl) {
   final base = apiBaseUrl.endsWith('/') ? apiBaseUrl.substring(0, apiBaseUrl.length - 1) : apiBaseUrl;

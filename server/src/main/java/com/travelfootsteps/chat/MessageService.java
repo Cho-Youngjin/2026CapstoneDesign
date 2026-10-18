@@ -40,6 +40,7 @@ public class MessageService {
     private final RoomService roomService;
     private final ChatRoomRepository roomRepository;
     private final ChatMessageRepository messageRepository;
+    private final ChatRoomMemberRepository memberRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final ChatImageStorage imageStorage;
 
@@ -128,6 +129,25 @@ public class MessageService {
         String path = message.getImagePath();
         ChatImageFormat format = ChatImageFormat.fromExtension(path).orElseThrow(RoomNotFoundException::new);
         return new ChatImage(imageStorage.load(path), format.contentType);
+    }
+
+    /**
+     * 읽음 위치를 옮긴다(Plan D Task 7). 메시지마다 쓰지 않고 멤버 행의 값 하나만 앞으로 옮긴다 — 스펙 §6-④의 "쓰기
+     * 횟수를 줄인다". 그 방의 메시지가 아니면 400. 지금 위치보다 앞이면 아무것도 바꾸지 않고 퍼뜨리지도 않는다
+     * (늦게 도착한 옛 요청).
+     */
+    @Transactional
+    public void markRead(Long roomId, String uid, Long messageId) {
+        roomService.requireMember(roomId, uid);
+        boolean inThisRoom = messageRepository.findById(messageId)
+                .map(m -> m.getRoomId().equals(roomId))
+                .orElse(false);
+        if (!inThisRoom) {
+            throw new InvalidReadPositionException();
+        }
+        if (memberRepository.markRead(roomId, uid, messageId) > 0) {
+            eventPublisher.publishEvent(new ReadEvent(roomId, uid, messageId));
+        }
     }
 
     /** 내려받기 응답에 쓸 사진 바이트와 형식. */

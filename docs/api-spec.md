@@ -480,7 +480,7 @@ DM 방의 메시지·실시간 수신은 그룹과 똑같다(`/api/rooms/{id}/me
 | 필드 | 비고 |
 |---|---|
 | `lastMessagePreview`, `lastMessageAt` | 마지막 메시지(미리보기는 최대 100자). 메시지가 없는 방은 `null` |
-| `unreadCount` | 읽음 표시(Task 7) 전까지 항상 `0` |
+| `unreadCount` | 내 읽음 위치보다 뒤의, **남이 보낸** 메시지 수(Task 7). 방이 몇 개든 서버는 쿼리 한 번으로 센다 |
 | `dmPeer` | 그룹 방은 `null`. DM 방이면 상대(나 아닌 쪽) `{uid, displayName, photoUrl, lastReadMessageId}` — 앱은 DM을 이 이름·사진으로 표시한다. DM의 `name`·`inviteCode`는 `null` |
 
 ### `GET /api/rooms/{id}`
@@ -561,6 +561,22 @@ DM 방의 메시지·실시간 수신은 그룹과 똑같다(`/api/rooms/{id}/me
 
 **응답 200** — `[Message, ...]` (위 형태). **404** — 없는 방 또는 멤버가 아닌 방.
 
+### `POST /api/rooms/{roomId}/read`
+이 방에서 어디까지 읽었는지 알린다(Plan D Task 7). 메시지마다 쓰지 않고 멤버 행의 `lastReadMessageId` 하나만 옮긴다. 앱은 채팅방이 화면에 보이는 동안 가장 최근 메시지 id를 보내되, 메시지가 잇따라 오면 마지막으로 온 뒤 1초 조용할 때 한 번만 보낸다.
+
+**요청**
+```json
+{ "lastReadMessageId": 345 }
+```
+| 필드 | 검증 |
+|---|---|
+| `lastReadMessageId` | 필수, 1 이상, **그 방의 메시지 id** (다른 방·없는 메시지면 400) |
+
+**응답 204**. 위치는 **앞으로만** 옮겨진다 — 지금 값보다 작거나 같으면 아무것도 바꾸지 않고 실시간 전달도 하지 않는다(늦게 도착한 옛 요청). 옮겨졌으면 커밋 뒤 `/topic/rooms/{roomId}/read`로 `{roomId, uid, lastReadMessageId}`를 보낸다.
+**400** — 위 검증 실패. **404** — 멤버가 아닌 방.
+
+**메시지마다 "안 읽은 사람 수"**: 앱이 계산한다 — 보낸 사람을 뺀 멤버 중 읽음 위치(`RoomDetail.members[].lastReadMessageId`와 실시간으로 받은 값 중 큰 쪽)가 그 메시지 id보다 작은 사람 수.
+
 ### 실시간 수신 (STOMP)
 9절과 같은 `/ws` 연결을 그대로 쓴다(CONNECT 시 `Authorization: Bearer <ID Token>`).
 
@@ -574,7 +590,7 @@ SUBSCRIBE /topic/rooms/{roomId}/messages
 | 경로 | 내용 |
 |---|---|
 | `/topic/rooms/{roomId}/messages` | 새 메시지 |
-| `/topic/rooms/{roomId}/read` | 읽음 위치 갱신 (Task 7에서 추가 예정) |
+| `/topic/rooms/{roomId}/read` | 읽음 위치 갱신 `{roomId, uid, lastReadMessageId}` — 위치가 실제로 앞으로 옮겨졌을 때만 온다(아래 `POST .../read`) |
 | `/topic/group/{roomId}/location` | 실시간 위치 (9절) |
 
 **보내기 제한**: 클라이언트가 SEND할 수 있는 경로는 `/app/**`(예: `/app/location`)뿐이다. `/topic/**`에 직접 SEND하면 서버가 ERROR 프레임을 보내고 연결을 끊는다 — 브로커 토픽에 직접 쓰면 서버 검증 없이 구독자에게 배달되기 때문이다. 메시지는 반드시 REST로 보낸다.

@@ -201,6 +201,23 @@ class FakeChatApi implements ChatApi {
     return message;
   }
 
+  // ───────────── 읽음 (Plan D Task 7) ─────────────
+
+  /// markRead를 실패시킨다(호출은 기록한다).
+  bool readFails = false;
+  final List<int> readMarks = [];
+
+  @override
+  Future<void> markRead(int roomId, int lastReadMessageId) async {
+    readMarks.add(lastReadMessageId);
+    if (readFails) {
+      throw DioException.connectionError(
+        requestOptions: RequestOptions(path: '/api/rooms/$roomId/read'),
+        reason: 'offline',
+      );
+    }
+  }
+
   // ───────────── 사진 (Plan D Task 6) ─────────────
 
   /// 다음 sendImage를 이 오류로 실패시킨다(한 번만).

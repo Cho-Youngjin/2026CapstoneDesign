@@ -44,10 +44,15 @@ class ChatRoomState {
     this.loadingMore = false,
     this.sending = false,
     this.pendingImages = const [],
+    this.readPositions = const {},
   });
 
   /// 아직 서버 메시지가 되지 않은 내 사진, 보낸 순서. 화면은 목록 맨 아래(가장 최신 자리)에 둔다.
   final List<PendingImage> pendingImages;
+
+  /// 이 방에 들어온 뒤 실시간으로 받은 멤버별 읽음 위치(Plan D Task 7). 들어오기 전 값은 방 상세의
+  /// `RoomMember.lastReadMessageId`에 있다 — 화면은 둘 중 큰 값을 쓴다.
+  final Map<String, int> readPositions;
 
   /// 최신순(id 내림차순). 화면은 `ListView(reverse: true)`라 첫 항목이 맨 아래에 온다.
   final List<ChatMessage> messages;
@@ -72,6 +77,7 @@ class ChatRoomState {
     bool? loadingMore,
     bool? sending,
     List<PendingImage>? pendingImages,
+    Map<String, int>? readPositions,
   }) {
     return ChatRoomState(
       messages: messages ?? this.messages,
@@ -81,6 +87,7 @@ class ChatRoomState {
       loadingMore: loadingMore ?? this.loadingMore,
       sending: sending ?? this.sending,
       pendingImages: pendingImages ?? this.pendingImages,
+      readPositions: readPositions ?? this.readPositions,
     );
   }
 }
@@ -120,12 +127,23 @@ class ChatRoomController extends Notifier<ChatRoomState> {
 
   StreamSubscription<ChatMessage>? _messageSub;
   StreamSubscription<void>? _connectedSub;
+  StreamSubscription<ReadEvent>? _readSub;
+
+  /// 처음 목록을 받아 멤버임이 확인됐다. 그 전에는 읽음을 보내지 않는다(404가 날 요청이다).
+  bool _confirmed = false;
+
+  Timer? _readTimer;
+
+  /// 서버가 받아 준 가장 큰 읽음 위치. 같은 위치를 다시 보내지 않으려고 기억한다.
+  int _lastReadSent = 0;
 
   @override
   ChatRoomState build() {
     ref.onDispose(() {
       _messageSub?.cancel();
       _connectedSub?.cancel();
+      _readSub?.cancel();
+      _readTimer?.cancel();
     });
     // build 안에서는 state를 바꿀 수 없으므로 첫 조회는 다음 이벤트 루프에서 시작한다.
     Future.microtask(_loadLatest);
@@ -137,6 +155,7 @@ class ChatRoomController extends Notifier<ChatRoomState> {
     try {
       final page = await _api.messages(roomId, size: pageSize);
       if (!ref.mounted) return;
+      _confirmed = true;
       _merge(page);
       state = state.copyWith(loading: false, clearLoadError: true, hasMore: page.length == pageSize);
       _startRealtime();
@@ -151,6 +170,7 @@ class ChatRoomController extends Notifier<ChatRoomState> {
     final socket = ref.read(chatSocketProvider);
     _connectedSub = socket.connected.listen((_) => _fillGap());
     _messageSub = roomMessages(socket, roomId).listen((m) => _merge([m]));
+    _readSub = roomReads(socket, roomId).listen(_onRead);
     // 연결이 이미 열려 있으면 connected 이벤트가 따로 오지 않으므로, 조회~구독 사이의 틈을 지금 메운다.
     _fillGap();
   }
@@ -307,8 +327,44 @@ class ChatRoomController extends Notifier<ChatRoomState> {
     }
     final merged = byId.values.toList()..sort((a, b) => b.id.compareTo(a.id));
     state = state.copyWith(messages: merged);
+    _scheduleRead();
+  }
+
+  // ───────────── 읽음 (Plan D Task 7) ─────────────
+
+  /// 화면에 보이는 가장 최근 메시지까지 읽었다고 알린다. 메시지가 잇따라 오면 그때마다 보내지 않고, 마지막으로 온 뒤
+  /// [chatReadDebounceProvider]만큼 조용하면 한 번 보낸다(설계: 1초 디바운스). 이 컨트롤러는 채팅방 화면이 열려 있는
+  /// 동안만 살아 있으므로 "화면에 보이는 동안"이 된다. 앱이 뒤로 가면 소켓이 끊겨 새 메시지가 오지 않고, 돌아오면 빈
+  /// 구간을 채우면서 다시 알린다.
+  void _scheduleRead() {
+    if (!_confirmed || state.messages.isEmpty) return;
+    _readTimer?.cancel();
+    _readTimer = Timer(ref.read(chatReadDebounceProvider), _sendRead);
+  }
+
+  Future<void> _sendRead() async {
+    if (!ref.mounted || state.messages.isEmpty) return;
+    final latest = state.messages.first.id;
+    if (latest <= _lastReadSent) return;
+    try {
+      await _api.markRead(roomId, latest);
+      if (latest > _lastReadSent) _lastReadSent = latest;
+    } catch (e) {
+      // 다음 메시지가 올 때 다시 보낸다. 읽음은 다음 기회에 맞춰져도 되는 값이다.
+      debugPrint('읽음 알리기 실패: $e');
+    }
+  }
+
+  /// 다른 멤버(또는 다른 기기의 나)가 읽었다는 소식. 위치는 앞으로만 옮긴다 — 늦게 도착한 옛 소식은 무시한다.
+  void _onRead(ReadEvent event) {
+    final current = state.readPositions[event.uid];
+    if (current != null && current >= event.lastReadMessageId) return;
+    state = state.copyWith(readPositions: {...state.readPositions, event.uid: event.lastReadMessageId});
   }
 }
+
+/// 읽음을 알리기 전에 기다리는 시간. 테스트는 0으로 바꾼다.
+final chatReadDebounceProvider = Provider<Duration>((ref) => const Duration(seconds: 1));
 
 final chatRoomControllerProvider =
     NotifierProvider.autoDispose.family<ChatRoomController, ChatRoomState, int>(ChatRoomController.new);
