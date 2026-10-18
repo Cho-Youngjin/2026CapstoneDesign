@@ -120,6 +120,10 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
         _Header(
           title: room == null ? '' : _titleOf(room, myUid),
           subtitle: room == null ? null : '${room.members.length}명',
+          // 위치공유는 그룹 방 기능이라 DM에서는 버튼을 두지 않는다.
+          onOpenLocation: room == null || room.type != RoomType.group
+              ? null
+              : () => context.push(AppRoutes.groupLocationOf(widget.roomId)),
         ),
         Expanded(
           child: Container(
@@ -213,10 +217,14 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.title, required this.subtitle});
+  const _Header({required this.title, required this.subtitle, this.onOpenLocation});
 
   final String title;
   final String? subtitle;
+
+  /// 있으면 오른쪽에 위치공유 버튼을 둔다. 방 정보를 받아 멤버임이 확인된 뒤에만 준다 — 위치공유 화면은
+  /// 같은 소켓 연결로 그 방의 위치를 구독하므로, 멤버가 아닌 방으로는 들어가지 않게 한다.
+  final VoidCallback? onOpenLocation;
 
   @override
   Widget build(BuildContext context) {
@@ -266,14 +274,14 @@ class _Header extends StatelessWidget {
               ],
             ),
           ),
-          // 위치공유 화면(R3 담당, Plan D Task 9에서 방 id와 연결)
-          IconButton(
-            key: const Key('openLocationShare'),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            icon: const Icon(Icons.location_on_outlined, color: AppColors.textSecondary),
-            onPressed: () => context.push(AppRoutes.groupLocation),
-          ),
+          if (onOpenLocation != null)
+            IconButton(
+              key: const Key('openLocationShare'),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              icon: const Icon(Icons.location_on_outlined, color: AppColors.textSecondary),
+              onPressed: onOpenLocation,
+            ),
         ],
       ),
     );

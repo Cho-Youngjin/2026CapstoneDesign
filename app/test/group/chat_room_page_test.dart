@@ -3,9 +3,11 @@ import 'package:app/features/group/chat_room_page.dart';
 import 'package:app/features/group/data/chat_api.dart';
 import 'package:app/features/group/data/chat_socket.dart';
 import 'package:app/features/group/models/room.dart';
+import 'package:app/router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import 'fake_chat_api.dart';
 import 'fake_chat_socket.dart';
@@ -42,6 +44,54 @@ Future<(FakeChatApi, FakeChatSocket)> _pump(WidgetTester tester, {FakeChatApi? a
 }
 
 void main() {
+  testWidgets('위치 아이콘은 이 방의 위치공유 화면으로 간다', (tester) async {
+    final socket = FakeChatSocket();
+    addTearDown(socket.dispose);
+    final router = GoRouter(
+      initialLocation: '/group/chat/1',
+      routes: [
+        GoRoute(path: '/group/chat/:roomId', builder: (_, _) => const Scaffold(body: ChatRoomPage(roomId: 1))),
+        GoRoute(
+          path: AppRoutes.groupLocation,
+          builder: (_, state) => Scaffold(body: Text('위치 ${state.pathParameters['roomId']}')),
+        ),
+      ],
+    );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        chatApiProvider.overrideWithValue(FakeChatApi()..detailToReturn = _room()),
+        chatSocketProvider.overrideWithValue(socket),
+        currentUidProvider.overrideWithValue('uid-a'),
+      ],
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('openLocationShare')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('위치 1'), findsOneWidget);
+  });
+
+  testWidgets('DM 방에서는 위치 아이콘을 보여주지 않는다 (위치공유는 그룹 방 기능)', (tester) async {
+    await _pump(tester,
+        api: FakeChatApi()
+          ..detailToReturn = const RoomDetail(
+            id: 1,
+            type: RoomType.dm,
+            members: [RoomMember(uid: 'uid-a', displayName: '성주'), RoomMember(uid: 'uid-b', displayName: '영진')],
+          ));
+
+    expect(find.byKey(const Key('openLocationShare')), findsNothing);
+  });
+
+  testWidgets('멤버가 아닌 방에서는 위치 아이콘을 보여주지 않는다', (tester) async {
+    await _pump(tester, api: FakeChatApi()..roomDetailNotFound = true);
+
+    expect(find.byKey(const Key('roomNotFound')), findsOneWidget);
+    expect(find.byKey(const Key('openLocationShare')), findsNothing);
+  });
+
   testWidgets('상단에 방 이름과 인원을 보여준다', (tester) async {
     await _pump(tester);
 
