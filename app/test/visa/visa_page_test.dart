@@ -1,4 +1,5 @@
 import 'package:app/core/network/country_api.dart';
+import 'package:app/features/rate_alert/notify/notification_permission.dart';
 import 'package:app/features/visa/data/trip_api.dart';
 import 'package:app/core/prefs/shared_preferences_provider.dart';
 import 'package:app/features/visa/visa_page.dart';
@@ -19,10 +20,25 @@ const _vietnam = Country(
   tier: 'A',
 );
 
+class _FakePermission implements NotificationPermission {
+  _FakePermission({this.fails = false});
+
+  final bool fails;
+  int calls = 0;
+
+  @override
+  Future<bool> request() async {
+    calls++;
+    if (fails) throw Exception('permission plugin failed');
+    return true;
+  }
+}
+
 /// 새 여행 폼 + 여행 상세 자리만 있는 최소 라우터로 VisaPage를 띄운다.
 Future<void> _pumpVisaPage(
   WidgetTester tester, {
   required FakeTripApi api,
+  NotificationPermission? permission,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
@@ -46,6 +62,7 @@ Future<void> _pumpVisaPage(
       sharedPreferencesProvider.overrideWithValue(prefs),
       tripApiProvider.overrideWithValue(api),
       countryListProvider.overrideWith((ref) async => [_vietnam]),
+      notificationPermissionProvider.overrideWithValue(permission ?? _FakePermission()),
     ],
     child: MaterialApp.router(routerConfig: router),
   );
@@ -192,6 +209,43 @@ void main() {
       expect(call['returnDate'], today);
 
       expect(find.text('결과 42'), findsOneWidget);
+    });
+
+    testWidgets('여행을 만들면 준비 일정 알람을 위해 알림 권한을 요청한다', (tester) async {
+      final permission = _FakePermission();
+      await _pumpVisaPage(tester, api: FakeTripApi(), permission: permission);
+
+      await _fillForm(tester);
+      expect(permission.calls, 0, reason: '폼을 채우는 동안에는 묻지 않는다');
+      await tester.tap(find.byKey(const Key('submitTripButton')));
+      await tester.pumpAndSettle();
+
+      expect(permission.calls, 1);
+    });
+
+    testWidgets('알림 권한 요청이 실패해도 만든 여행의 상세로 이동한다', (tester) async {
+      await _pumpVisaPage(tester,
+          api: FakeTripApi(tripToReturn: sampleTrip(id: 42)),
+          permission: _FakePermission(fails: true));
+
+      await _fillForm(tester);
+      await tester.tap(find.byKey(const Key('submitTripButton')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('결과 42'), findsOneWidget);
+      expect(find.byKey(const Key('tripFormError')), findsNothing);
+    });
+
+    testWidgets('서버가 거절하면 알림 권한은 묻지 않는다', (tester) async {
+      final permission = _FakePermission();
+      await _pumpVisaPage(tester,
+          api: FakeTripApi(createTripStatusCode: 400), permission: permission);
+
+      await _fillForm(tester);
+      await tester.tap(find.byKey(const Key('submitTripButton')));
+      await tester.pumpAndSettle();
+
+      expect(permission.calls, 0);
     });
 
     testWidgets('여권 만료일을 고르지 않고 확인하면 오늘이 선택된다', (tester) async {

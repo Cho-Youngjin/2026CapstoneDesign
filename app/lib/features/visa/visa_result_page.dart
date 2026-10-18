@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app/router.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +14,7 @@ import 'data/trip_api.dart';
 import 'data/trip_deletion.dart';
 import 'data/trip_list_providers.dart';
 import 'models/trip.dart';
+import 'notifications/alarm_scheduler.dart';
 import 'visa_page.dart' show tripErrorMessage;
 import 'visa_result_display.dart';
 
@@ -204,12 +207,29 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
   late Trip _trip = widget.trip;
   bool _refreshing = false;
 
+  @override
+  void initState() {
+    super.initState();
+    // 열 때마다 서버의 최신 일정으로 알람을 맞춘다. 새로 만든 여행도 이 화면으로 오므로 여기서 예약된다.
+    final trip = _trip;
+    _runAlarm((s) => s.syncTrip(trip));
+  }
+
+  /// 알람은 부가 기능이라 실패해도(플러그인·권한 오류) 일정 표시와 완료 처리를 막지 않는다.
+  void _runAlarm(Future<void> Function(AlarmScheduler scheduler) action) {
+    unawaited(action(ref.read(alarmSchedulerProvider)).catchError((Object e) {
+      debugPrint('비자 준비 알람 처리 실패: $e');
+    }));
+  }
+
   Future<void> _markDone(TripTask task) async {
     if (task.done) return;
     final messenger = ScaffoldMessenger.of(context);
     try {
       final updated =
           await ref.read(tripApiProvider).markTaskDone(_trip.id, task.id);
+      final tripId = _trip.id;
+      _runAlarm((s) => s.cancelForTask(tripId: tripId, taskId: updated.id));
       if (mounted) setState(() => _trip = _trip.replaceTask(updated));
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(tripErrorMessage(e))));
@@ -221,6 +241,8 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
     setState(() => _refreshing = true);
     try {
       final refreshed = await ref.read(tripApiProvider).refreshTrip(_trip.id);
+      // 다시 판정하면 서버가 일정을 새로 만들어 id가 바뀐다 — 이전 알람을 지우고 새 일정으로 맞춘다.
+      _runAlarm((s) => s.syncTrip(refreshed));
       if (mounted) setState(() => _trip = refreshed);
       ref.invalidate(tripListProvider);
     } catch (e) {
