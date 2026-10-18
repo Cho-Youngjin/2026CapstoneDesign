@@ -79,7 +79,7 @@ class _WorldMapBody extends ConsumerWidget {
     final visited = ref.watch(visitedCountriesProvider).asData?.value ?? const <String>{};
     final steps =
         ref.watch(estimatedStepsByCountryProvider).asData?.value ?? const <String, int>{};
-    final countries = ref.watch(countryListProvider).asData?.value ?? const <Country>[];
+    final countries = ref.watch(countriesWithHomeProvider).asData?.value ?? const <Country>[];
     final nameByIso = {for (final c in countries) c.isoAlpha2: c.nameKo};
 
     final mapPolygons = <Polygon>{};

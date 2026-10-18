@@ -118,6 +118,7 @@ void main() {
       ProviderScope(
         overrides: [
           currentPositionProvider.overrideWith((ref) async => fakePosition),
+          currentLocationCountryProvider.overrideWith((ref) async => 'VN'),
           countryListProvider.overrideWith((ref) async => [country]),
           nearbyPlacesProvider.overrideWith((ref) async => const <Place>[]),
           travelAlertsProvider.overrideWith((ref, iso2) => alerts()),
@@ -169,5 +170,40 @@ void main() {
 
     expect(find.text('등록된 여행경보 없음'), findsNothing);
     expect(find.text('여행경보를 불러오지 못했습니다'), findsOneWidget);
+  });
+
+  testWidgets('한국에 있을 때는 한국이 기본으로 선택되고 경보·공관은 조회하지 않는다', (tester) async {
+    final alertCalls = <String>[];
+    final embassyCalls = <String>[];
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentPositionProvider.overrideWith((ref) async => fakePosition),
+          currentLocationCountryProvider.overrideWith((ref) async => 'KR'),
+          countryListProvider.overrideWith((ref) async => [country]),
+          nearbyPlacesProvider.overrideWith((ref) async => const <Place>[]),
+          travelAlertsProvider.overrideWith((ref, iso2) async {
+            alertCalls.add(iso2);
+            return const <TravelAlert>[];
+          }),
+          embassiesProvider.overrideWith((ref, iso2) async {
+            embassyCalls.add(iso2);
+            return const <Embassy>[];
+          }),
+        ],
+        child: const MaterialApp(home: NearbyPage()),
+      ),
+    );
+    for (var i = 0; i < 2; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump();
+      await tester.pump();
+    }
+
+    expect(find.text('대한민국'), findsOneWidget);
+    // 한국은 서버 국가 목록에 없어 경보·공관 API가 404가 된다 — 아예 부르지 않고 "경보 없음"도 말하지 않는다.
+    expect(alertCalls, isEmpty);
+    expect(embassyCalls, isEmpty);
+    expect(find.text('등록된 여행경보 없음'), findsNothing);
   });
 }

@@ -41,6 +41,16 @@ final _latestKnownPositionProvider = Provider<LatLng?>((ref) {
 /// 앱이 켜져 있는 동안 기준 위치를 최신으로 유지한다 — 탭을 열어 두지 않아도 갱신된다.
 /// 구독을 유지하려면 탭 화면 등에서 계속 listen/watch해야 한다.
 final nearbyAnchorUpdaterProvider = Provider<void>((ref) {
+  // 위치가 속한 나라가 바뀌면(해외 매핑 시작·종료 등) 직접 고른 국가를 풀어 자동 판정을 따른다.
+  // 처음 판정될 때(이전 값 없음)나 같은 나라로 다시 읽을 때는 건드리지 않는다.
+  ref.listen<AsyncValue<String?>>(currentLocationCountryProvider, (prev, next) {
+    if (next.isLoading || next.hasError) return;
+    final before = prev?.value;
+    if (before != null && before != next.value) {
+      ref.read(selectedCountryProvider.notifier).state = null;
+    }
+  });
+
   ref.listen<LatLng?>(
     _latestKnownPositionProvider,
     (_, next) {

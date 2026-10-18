@@ -3,6 +3,7 @@ import 'package:app/features/footsteps/providers/footsteps_providers.dart';
 import 'package:app/features/nearby/models/place.dart';
 import 'package:app/features/nearby/providers/nearby_selection_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -39,6 +40,47 @@ void main() {
         effectiveCountryIso2(selected: 'JP', currentLocation: 'JP', available: const []),
         isNull,
       );
+    });
+  });
+
+  group('국가 자동 판정', () {
+    Future<void> settle() async {
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    test('현재 위치가 한국이면 한국이 기본이다', () {
+      expect(
+        effectiveCountryIso2(selected: null, currentLocation: 'KR', available: const ['KR', 'JP', 'VN']),
+        'KR',
+      );
+    });
+
+    test('위치 국가가 바뀌면(해외 매핑 시작·종료) 직접 고른 국가를 풀고 자동 판정을 따른다', () async {
+      final locationIso = StateProvider<String?>((ref) => 'KR');
+      final container = ProviderContainer(overrides: [
+        liveRouteProvider.overrideWith((ref) => const Stream.empty()),
+        currentLocationCountryProvider.overrideWith((ref) async => ref.watch(locationIso)),
+      ]);
+      addTearDown(container.dispose);
+      container.listen(nearbyAnchorUpdaterProvider, (_, _) {});
+      container.listen(currentLocationCountryProvider, (_, _) {});
+      await settle();
+
+      container.read(selectedCountryProvider.notifier).state = 'VN';
+      await settle();
+      // 위치 국가가 그대로면 직접 고른 값을 유지한다.
+      expect(container.read(selectedCountryProvider), 'VN');
+
+      container.read(locationIso.notifier).state = 'JP'; // 해외 매핑 시작
+      await settle();
+      expect(container.read(selectedCountryProvider), isNull);
+
+      container.read(selectedCountryProvider.notifier).state = 'TH';
+      container.read(locationIso.notifier).state = 'KR'; // 해외 매핑 종료
+      await settle();
+      expect(container.read(selectedCountryProvider), isNull);
     });
   });
 

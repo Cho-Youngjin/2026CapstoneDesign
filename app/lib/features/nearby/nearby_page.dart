@@ -7,6 +7,8 @@ import 'api/places_api.dart';
 import 'api/travel_alert_api.dart';
 import 'models/embassy.dart';
 import 'models/travel_alert.dart';
+import '../footsteps/providers/footsteps_providers.dart' show overseasPositionProvider;
+import '../footsteps/providers/overseas_mapping_session.dart' show overseasMappingProvider;
 import 'providers/nearby_selection_providers.dart';
 import 'widgets/alert_section.dart';
 import 'widgets/category_filter_tabs.dart';
@@ -37,7 +39,7 @@ class _NearbyPageState extends ConsumerState<NearbyPage> {
   @override
   Widget build(BuildContext context) {
     final position = ref.watch(nearbyPositionProvider);
-    final countries = ref.watch(countryListProvider);
+    final countries = ref.watch(countriesWithHomeProvider);
     final selectedIso2 = ref.watch(selectedCountryProvider);
     final currentLocationIso2 = ref.watch(currentLocationCountryProvider).asData?.value;
 
@@ -98,11 +100,14 @@ class _NearbyPageState extends ConsumerState<NearbyPage> {
 
           final places = ref.watch(nearbyPlacesProvider);
           // 국가가 아직 정해지지 않았으면(null) "경보 없음"이라고 말하지 않도록 구분해 둔다.
+          // 본국(한국)은 서버 국가 목록에 없어 경보·공관 API가 404다 — 부르지 않고 "경보 없음"이라고도
+          // 말하지 않는다(null).
+          final isAbroad = iso2 != null && iso2 != homeCountryIso2;
           final AsyncValue<List<TravelAlert>>? alerts =
-              iso2 == null ? null : ref.watch(travelAlertsProvider(iso2));
-          final AsyncValue<List<Embassy>> embassies = iso2 == null
-              ? const AsyncValue.data([])
-              : ref.watch(embassiesProvider(iso2));
+              isAbroad ? ref.watch(travelAlertsProvider(iso2)) : null;
+          final AsyncValue<List<Embassy>> embassies = isAbroad
+              ? ref.watch(embassiesProvider(iso2))
+              : const AsyncValue.data([]);
 
           return CustomScrollView(
             slivers: [
@@ -113,6 +118,8 @@ class _NearbyPageState extends ConsumerState<NearbyPage> {
                     center: pos,
                     places: places.asData?.value ?? const [],
                     embassies: embassies.asData?.value ?? const [],
+                    overseasPosition: ref.watch(overseasPositionProvider),
+                    overseasHeading: ref.watch(overseasMappingProvider.select((s) => s.jpHeading)),
                   ),
                 ),
               ),

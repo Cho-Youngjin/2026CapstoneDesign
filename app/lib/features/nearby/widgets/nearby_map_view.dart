@@ -4,6 +4,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter/material.dart';
 
 import '../../footsteps/map/base_google_map.dart';
+import '../../footsteps/map/position_arrow_icon.dart';
 import '../models/embassy.dart';
 import '../models/place.dart';
 
@@ -15,11 +16,18 @@ class NearbyMapView extends StatefulWidget {
     required this.center,
     required this.places,
     required this.embassies,
+    this.overseasPosition,
+    this.overseasHeading = 0,
   });
 
   final LatLng center;
   final List<Place> places;
   final List<Embassy> embassies;
+
+  /// 해외 매핑 중 해외에서의 현재 위치(도로 위). 있으면 실제 GPS(한국) 파란 점 대신 이 위치를
+  /// 표시하고, "내 위치" 버튼도 이 위치로 이동한다. 해외 매핑 중이 아니면 null이다.
+  final LatLng? overseasPosition;
+  final double overseasHeading;
 
   @override
   State<NearbyMapView> createState() => _NearbyMapViewState();
@@ -27,6 +35,15 @@ class NearbyMapView extends StatefulWidget {
 
 class _NearbyMapViewState extends State<NearbyMapView> {
   GoogleMapController? _controller;
+  BitmapDescriptor? _arrowIcon;
+
+  @override
+  void initState() {
+    super.initState();
+    buildPositionArrowIcon().then((icon) {
+      if (mounted) setState(() => _arrowIcon = icon);
+    });
+  }
 
   @override
   void didUpdateWidget(NearbyMapView oldWidget) {
@@ -80,16 +97,53 @@ class _NearbyMapViewState extends State<NearbyMapView> {
         ),
     };
 
-    return BaseGoogleMap(
+    final overseas = widget.overseasPosition;
+    if (overseas != null) {
+      markers.add(Marker(
+        markerId: const MarkerId('overseas_current'),
+        position: overseas,
+        // 아이콘을 만드는 동안은 기본 파란 마커로 대신한다.
+        icon: _arrowIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        rotation: widget.overseasHeading,
+        flat: true,
+        anchor: const Offset(0.5, 0.5),
+        zIndexInt: 1,
+      ));
+    }
+
+    final map = BaseGoogleMap(
       initialCamera: CameraPosition(
         target: center,
         zoom: 15,
       ),
       markers: markers,
+      // 해외 매핑 중에는 기본 파란 점·"내 위치" 버튼이 한국 위치를 가리키므로 끄고 해외 위치를 직접 그린다.
+      myLocationEnabled: overseas == null,
       onMapCreated: (controller) {
         _controller = controller;
         _fitToPlaces();
       },
+    );
+    if (overseas == null) return map;
+
+    return Stack(
+      children: [
+        Positioned.fill(child: map),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Material(
+            color: Colors.white,
+            shape: const CircleBorder(),
+            elevation: 2,
+            child: IconButton(
+              tooltip: '해외 현재 위치',
+              icon: const Icon(Icons.my_location),
+              onPressed: () => _controller?.animateCamera(CameraUpdate.newLatLngZoom(overseas, 15)),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
