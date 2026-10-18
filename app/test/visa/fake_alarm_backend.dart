@@ -27,11 +27,12 @@ class FakeAlarmBackend implements AlarmBackend {
   }
 
   @override
-  Future<List<PendingAlarm>> existing() async {
+  Future<List<int>> existing() async {
     _check();
     final hold = holdPending;
     if (hold != null) await hold.future;
-    return [for (final a in scheduled.values) (id: a.id, payload: a.payload)];
+    // 가려내는 일은 실제 백엔드가 하지만, 스케줄러가 id 구간을 한 번 더 보는지 확인하려고 전부 돌려준다.
+    return scheduled.keys.toList();
   }
 
   @override

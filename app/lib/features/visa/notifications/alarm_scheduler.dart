@@ -29,14 +29,25 @@ tz.Location seoulLocation() {
   return tz.getLocation('Asia/Seoul');
 }
 
+const _tripSlots = 10000;
+const _taskSlots = 100000;
+
 /// tripId, taskId 조합마다 결정적인 알림 id를 만든다. 같은 항목을 다시 예약하거나 취소할 때
 /// 같은 id로 찾아야 하므로 해시가 아니라 단순 조합을 쓴다. 여행 1만 개·일정 10만 개까지 겹치지 않는다.
 int notificationIdFor(int tripId, int taskId) =>
-    _idBase + (tripId % 10000) * 100000 + taskId % 100000;
+    _idBase + _tripKey(tripId) * _taskSlots + taskId % _taskSlots;
 
-/// 어느 여행의 알람인지 표시한다. 다시 판정하면 일정 id가 새로 생기므로, 이 값으로 그 여행의
-/// 이전 알람을 모두 찾아 지운다.
-String _payloadFor(int tripId) => 'visa-trip:$tripId';
+/// 비자 알람 id 구간([_idBase]부터 10억 개)인가.
+bool isVisaAlarmId(int id) => id >= _idBase && id < _idBase + _tripSlots * _taskSlots;
+
+/// 알림 id에 담긴 여행 자리. 다시 판정하면 일정 id가 새로 생기므로, 이 값으로 그 여행의 이전
+/// 알람을 모두 찾아 지운다. Android는 이미 울린 알림의 payload를 돌려주지 않아 id에서 읽는다.
+int _tripKey(int tripId) => tripId % _tripSlots;
+int _tripKeyOf(int alarmId) => (alarmId - _idBase) ~/ _taskSlots;
+
+/// 예약 대기 목록에서 비자 알람을 가려내는 표시. 다른 알림이 같은 id 구간을 쓰더라도 섞이지 않게 한다.
+String _payloadFor(int tripId) => '$visaAlarmPayloadPrefix$tripId';
+const visaAlarmPayloadPrefix = 'visa-trip:';
 
 tz.TZDateTime alarmTimeFor(TripTask task) => tz.TZDateTime(
     seoulLocation(), task.dueDate.year, task.dueDate.month, task.dueDate.day, _alarmHour);
@@ -61,14 +72,12 @@ class ScheduledAlarm {
   final String payload;
 }
 
-typedef PendingAlarm = ({int id, String? payload});
-
 /// 플러그인 호출만 모은 얇은 경계. 테스트는 가짜로 바꿔 무엇이 예약·취소됐는지 본다.
 abstract interface class AlarmBackend {
   Future<void> schedule(ScheduledAlarm alarm);
 
-  /// 예약 대기 중인 알람과 이미 울려 알림창에 남은 알림. 둘 다 [cancel]로 지운다.
-  Future<List<PendingAlarm>> existing();
+  /// 예약 대기 중이거나 이미 울려 알림창에 남은 비자 알람의 id. 둘 다 [cancel]로 지운다.
+  Future<List<int>> existing();
 
   Future<void> cancel(int id);
 }
@@ -121,18 +130,20 @@ class LocalAlarmBackend implements AlarmBackend {
   }
 
   @override
-  Future<List<PendingAlarm>> existing() async {
+  Future<List<int>> existing() async {
     await _ensureInitialized();
-    final byId = <int, PendingAlarm>{};
-    for (final r in await _plugin.pendingNotificationRequests()) {
-      byId[r.id] = (id: r.id, payload: r.payload);
-    }
+    final ids = <int>{
+      for (final r in await _plugin.pendingNotificationRequests())
+        if (isVisaAlarmId(r.id) && (r.payload?.startsWith(visaAlarmPayloadPrefix) ?? false)) r.id,
+    };
     // 이미 울린 알람은 예약 목록에서 빠지지만 알림창에는 남아 이전 계정의 일정이 보일 수 있다.
+    // Android는 이 목록에 payload를 주지 않으므로 채널로 가려낸다(채널이 없는 Android 7 이하는 id 구간만).
     for (final a in await _plugin.getActiveNotifications()) {
       final id = a.id;
-      if (id != null) byId.putIfAbsent(id, () => (id: id, payload: a.payload));
+      if (id == null || !isVisaAlarmId(id)) continue;
+      if (a.channelId == null || a.channelId == channelId) ids.add(id);
     }
-    return byId.values.toList();
+    return ids.toList();
   }
 
   @override
@@ -140,13 +151,6 @@ class LocalAlarmBackend implements AlarmBackend {
     await _ensureInitialized();
     await _plugin.cancel(id: id);
   }
-}
-
-/// [_payloadFor]로 표시한 알람이면 그 여행 id, 비자 알람이 아니면 null.
-int? _tripIdOf(String? payload) {
-  const prefix = 'visa-trip:';
-  if (payload == null || !payload.startsWith(prefix)) return null;
-  return int.tryParse(payload.substring(prefix.length));
 }
 
 class AlarmScheduler {
@@ -175,7 +179,7 @@ class AlarmScheduler {
   /// 이 여행의 알람을 지금 일정에 맞춘다. 이전 알람을 모두 지운 뒤 남은 일정만 다시 예약하므로,
   /// 다시 판정해 일정 id가 바뀌어도 낡은 알람이 남지 않는다.
   Future<void> syncTrip(Trip trip) => _serial(() async {
-        await _cancelWhere((tripId) => tripId == trip.id);
+        await _cancelWhere((key) => key == _tripKey(trip.id));
         final now = _now();
         for (final task in trip.tasks) {
           if (!shouldScheduleAlarm(task, now)) continue;
@@ -192,19 +196,22 @@ class AlarmScheduler {
   Future<void> cancelForTask({required int tripId, required int taskId}) =>
       _serial(() => _backend.cancel(notificationIdFor(tripId, taskId)));
 
-  Future<void> cancelForTrip(int tripId) => _serial(() => _cancelWhere((id) => id == tripId));
+  Future<void> cancelForTrip(int tripId) =>
+      _serial(() => _cancelWhere((key) => key == _tripKey(tripId)));
 
   /// 서버 목록에 없는 여행(다른 기기에서 지웠거나 다른 계정의 여행)의 알람을 지운다.
-  Future<void> keepOnlyTrips(Set<int> tripIds) =>
-      _serial(() => _cancelWhere((id) => !tripIds.contains(id)));
+  Future<void> keepOnlyTrips(Set<int> tripIds) {
+    final keep = {for (final id in tripIds) _tripKey(id)};
+    return _serial(() => _cancelWhere((key) => !keep.contains(key)));
+  }
 
   /// 비자 알람을 모두 지운다(로그아웃·계정 전환). 환율 알림 같은 다른 알림은 건드리지 않는다.
   Future<void> cancelAll() => _serial(() => _cancelWhere((_) => true));
 
-  Future<void> _cancelWhere(bool Function(int tripId) test) async {
-    for (final alarm in await _backend.existing()) {
-      final tripId = _tripIdOf(alarm.payload);
-      if (tripId != null && test(tripId)) await _backend.cancel(alarm.id);
+  /// [test]는 알림 id에 담긴 여행 자리([_tripKey])를 받는다.
+  Future<void> _cancelWhere(bool Function(int tripKey) test) async {
+    for (final id in await _backend.existing()) {
+      if (isVisaAlarmId(id) && test(_tripKeyOf(id))) await _backend.cancel(id);
     }
   }
 }
