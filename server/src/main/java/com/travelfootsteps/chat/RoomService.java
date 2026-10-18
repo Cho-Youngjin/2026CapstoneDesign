@@ -58,6 +58,9 @@ public class RoomService {
         String dmKey = ChatRoom.dmKeyOf(uid, peerUid);
         ChatRoom room = roomRepository.findByDmKey(dmKey)
                 .orElseGet(() -> createDmOrFindExisting(dmKey, uid, peerUid));
+        // 열쇠가 겹치지 않게 만들었지만, 찾은 방이 정말 내 방인지 한 번 더 확인한다 — 어긋나면 남의 DM 멤버를
+        // 그대로 보여 주게 되므로 마지막 안전장치로 둔다.
+        requireMember(room.getId(), uid);
         return detailOf(room);
     }
 

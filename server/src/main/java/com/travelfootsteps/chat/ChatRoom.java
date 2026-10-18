@@ -43,7 +43,7 @@ public class ChatRoom {
     private String inviteCode;
 
     /** DM만 값이 있다. 두 사람 uid를 정렬해 이은 값({@link #dmKeyOf}) — 같은 두 사람의 DM을 하나로 묶는 열쇠. */
-    @Column(name = "dm_key", length = 260, unique = true)
+    @Column(name = "dm_key", length = 270, unique = true)
     private String dmKey;
 
     @Column(name = "last_message_id")
@@ -81,10 +81,16 @@ public class ChatRoom {
 
     /**
      * 두 사람의 DM 열쇠. uid를 정렬해 이으므로 A가 B에게 열든 B가 A에게 열든 같은 값이 된다.
-     * 구분자 {@code |}는 Firebase uid에 쓰이지 않는 문자라 서로 다른 두 쌍이 같은 열쇠가 되지 않는다.
+     *
+     * <p>앞쪽 uid의 길이를 맨 앞에 붙인다({@code "길이:앞uid|뒤uid"}). Firebase는 관리자가 uid를 직접 정할 수 있어
+     * {@code |}가 들어갈 수 있는데, 그냥 이으면 ({@code a}, {@code b|c})와 ({@code a|b}, {@code c})가 둘 다
+     * {@code a|b|c}가 되어 남의 DM 방을 열게 된다. 길이를 붙이면 어디서 끊어야 하는지가 정해져 겹치지 않는다.
      */
     static String dmKeyOf(String uidA, String uidB) {
-        return uidA.compareTo(uidB) <= 0 ? uidA + "|" + uidB : uidB + "|" + uidA;
+        boolean aFirst = uidA.compareTo(uidB) <= 0;
+        String first = aFirst ? uidA : uidB;
+        String second = aFirst ? uidB : uidA;
+        return first.length() + ":" + first + "|" + second;
     }
 
     /** 미리보기 최대 길이 — chat_room.last_message_preview 컬럼 크기와 같다. */
