@@ -13,7 +13,8 @@ import org.springframework.stereotype.Component;
 import java.security.Principal;
 
 /**
- * STOMP SUBSCRIBE 시점에 "그 방의 멤버인가"를 검사한다 (Plan D Task 2).
+ * STOMP SUBSCRIBE 시점에 "그 방의 멤버인가"를 검사하고, 클라이언트가 브로커 토픽에 직접 SEND하는 것을
+ * 막는다 (Plan D Task 2).
  *
  * <p>왜 필요한가: 인메모리 브로커는 목적지 문자열만 맞으면 누구에게나 메시지를 배달한다.
  * StompAuthChannelInterceptor는 CONNECT에서 "로그인한 사용자인가"만 확인하므로, 이 검사가
@@ -27,6 +28,10 @@ import java.security.Principal;
  * <p>멤버십 규칙은 REST와 같은 {@link RoomService#isMember}를 쓴다 — 두 경로가 따로 판단하면
  * 한쪽만 바뀌어 "REST로는 못 보는데 실시간 구독은 되는" 구멍이 생길 수 있다.
  *
+ * <p>SEND는 {@code /app/**}만 통과시킨다. {@code /topic/**}에 직접 보낸 프레임은 간이 브로커가 검증 없이
+ * 구독자에게 배달하기 때문이다(자세한 이유는 {@link RoomDestinations#isClientSendable} 참고).
+ * {@code /app/**}의 멤버 확인은 그 목적지를 받는 컨트롤러가 한다(예: LocationRelayController).
+ *
  * <p>한계: 구독 이후에 멤버가 방에서 빠지는 경우는 다루지 않는다. 방 나가기·강퇴 기능이 아직
  * 없으므로(Plan D 제외 범위) 지금은 일어나지 않는다.
  */
@@ -39,7 +44,16 @@ public class RoomSubscriptionInterceptor implements ChannelInterceptor {
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
         StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
-        if (accessor == null || !StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+        if (accessor == null) {
+            return message;
+        }
+        if (StompCommand.SEND.equals(accessor.getCommand())) {
+            if (!RoomDestinations.isClientSendable(accessor.getDestination())) {
+                throw new StompAuthenticationException("보낼 수 없는 경로입니다");
+            }
+            return message;
+        }
+        if (!StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
             return message;
         }
 

@@ -89,11 +89,39 @@ class RoomSubscriptionInterceptorTest {
     }
 
     @Test
-    void SUBSCRIBE가_아닌_프레임은_검사하지_않는다() {
-        // SEND 등은 각 컨트롤러가 처리한다 (예: LocationRelayController의 멤버 확인)
+    void 애플리케이션_목적지로의_SEND는_멤버_확인_없이_통과시킨다() {
+        // /app/** SEND의 멤버 확인은 각 컨트롤러가 한다 (예: LocationRelayController)
         Message<byte[]> send = frame(StompCommand.SEND, "/app/location", outsider);
 
         assertThat(interceptor.preSend(send, channel)).isSameAs(send);
+        verifyNoInteractions(roomService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "/topic/rooms/7/messages",     // 브로커 토픽에 직접 쓰면 검증 없이 구독자에게 배달된다
+            "/topic/rooms/7/read",
+            "/topic/group/7/location",
+            "/topic/other",
+            "/application/location"        // /app 접두사처럼 보이지만 아닌 경로
+    })
+    void 브로커_토픽으로의_SEND는_멤버여도_거부한다(String destination) {
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SEND, destination, member), channel))
+                .isInstanceOf(StompAuthenticationException.class);
+        verifyNoInteractions(roomService);
+    }
+
+    @Test
+    void 목적지_없는_SEND는_거부한다() {
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SEND, null, member), channel))
+                .isInstanceOf(StompAuthenticationException.class);
+    }
+
+    @Test
+    void SUBSCRIBE와_SEND가_아닌_프레임은_검사하지_않는다() {
+        Message<byte[]> unsubscribe = frame(StompCommand.UNSUBSCRIBE, null, outsider);
+
+        assertThat(interceptor.preSend(unsubscribe, channel)).isSameAs(unsubscribe);
         verifyNoInteractions(roomService);
     }
 }

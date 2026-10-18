@@ -29,11 +29,12 @@ public class MessageService {
 
     @Transactional
     public MessageResponse sendText(Long roomId, String uid, String text) {
-        roomService.requireMember(roomId, uid);
-        ChatRoom room = roomRepository.findById(roomId).orElseThrow(RoomNotFoundException::new);
+        roomService.requireMember(roomId, uid); // 멤버 행이 있으면 방도 있다(FK)
 
         ChatMessage message = messageRepository.save(ChatMessage.text(roomId, uid, text));
-        room.recordLastMessage(message); // 같은 트랜잭션의 변경 감지로 함께 저장된다
+        // 같은 트랜잭션 안의 UPDATE라 메시지 저장이 롤백되면 이 갱신도 함께 롤백된다.
+        // 더 새로운 메시지가 이미 기록돼 있으면 아무것도 바꾸지 않는다(동시 전송 대비).
+        roomRepository.recordLastMessage(roomId, message.getId(), ChatRoom.previewOf(message), message.getCreatedAt());
 
         MessageResponse response = MessageResponse.of(message);
         eventPublisher.publishEvent(new MessageSentEvent(response));

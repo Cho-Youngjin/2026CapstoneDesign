@@ -202,6 +202,23 @@ class StompChatIntegrationTest {
     }
 
     @Test
+    void 브로커_토픽에_직접_보낸_메시지는_구독자에게_가지_않는다() throws Exception {
+        // 간이 브로커는 /topic으로 들어온 SEND를 구독자에게 그대로 배달한다. 서버 검증(멤버 확인,
+        // 발신자 uid 고정, 저장)을 건너뛴 위조 메시지가 퍼지지 않아야 한다 — 같은 방 멤버라도 마찬가지다.
+        long roomId = givenRoomWithAAndB();
+        StompSession a = connect(A);
+        BlockingQueue<JsonNode> bInbox = subscribe(connect(B), "/topic/rooms/" + roomId + "/messages");
+        BlockingQueue<JsonNode> bLocations = subscribe(connect(B), "/topic/group/" + roomId + "/location");
+
+        a.send("/topic/rooms/" + roomId + "/messages",
+                Map.of("id", 999, "roomId", roomId, "senderUid", "uid-b", "text", "B인 척하는 메시지"));
+        a.send("/topic/group/" + roomId + "/location", Map.of("uid", "uid-b", "lat", 0.0, "lng", 0.0));
+
+        assertThat(bInbox.poll(1, TimeUnit.SECONDS)).as("위조 메시지가 배달되면 안 된다").isNull();
+        assertThat(bLocations.poll(1, TimeUnit.SECONDS)).as("위조 위치가 배달되면 안 된다").isNull();
+    }
+
+    @Test
     void 비멤버가_보낸_위치는_퍼지지_않는다() throws Exception {
         long roomId = givenRoomWithAAndB();
         StompSession outsider = connect(OUTSIDER);

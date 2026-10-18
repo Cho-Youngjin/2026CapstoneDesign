@@ -70,16 +70,10 @@ public class ChatRoom {
     static final int PREVIEW_MAX_LENGTH = 100;
 
     /**
-     * 방 목록 정렬·미리보기용 비정규화 값을 갱신한다. 메시지를 저장하는 같은 트랜잭션 안에서
-     * 부르므로, 메시지 저장이 롤백되면 이 갱신도 함께 롤백된다.
+     * 방 목록에 보여 줄 마지막 메시지 미리보기. 저장은 {@link ChatRoomRepository#recordLastMessage}가
+     * 조건부 UPDATE로 한다 — 엔티티 필드를 바꾸지 않는 이유는 그 메서드 주석 참고.
      */
-    public void recordLastMessage(ChatMessage message) {
-        this.lastMessageId = message.getId();
-        this.lastMessagePreview = previewOf(message);
-        this.lastMessageAt = message.getCreatedAt();
-    }
-
-    private static String previewOf(ChatMessage message) {
+    static String previewOf(ChatMessage message) {
         if (message.getType() == MessageType.IMAGE) {
             return "사진";
         }

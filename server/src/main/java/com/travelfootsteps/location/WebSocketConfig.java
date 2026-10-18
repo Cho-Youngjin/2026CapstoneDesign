@@ -39,6 +39,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // 애초에 어디에도 저장하지 않는다(스펙 §3, §6-④) — 그래서 이 선택이 데이터 손실이 아니다.
         registry.enableSimpleBroker("/topic");
         // 클라이언트가 SEND하는 목적지 중 "/app"으로 시작하는 것만 @MessageMapping 컨트롤러로 라우팅한다.
+        // 주의: 이 설정만으로는 클라이언트가 "/topic/..."에 직접 SEND하는 것을 막지 못한다(간이 브로커가 그대로
+        // 구독자에게 배달한다). 그 차단은 RoomSubscriptionInterceptor가 한다 — RoomDestinations의 "/app/" 값과
+        // 이 접두사를 함께 바꿔야 한다.
         registry.setApplicationDestinationPrefixes("/app");
     }
 
@@ -46,8 +49,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void configureClientInboundChannel(ChannelRegistration registration) {
         // 모든 인바운드 STOMP 프레임(CONNECT/SUBSCRIBE/SEND/...)이 이 인터셉터들을 거친다.
         // 1) StompAuthChannelInterceptor: CONNECT에서 토큰을 검증하고 uid를 세션에 고정한다.
-        // 2) RoomSubscriptionInterceptor: SUBSCRIBE에서 그 uid가 해당 방의 멤버인지 확인한다(Plan D Task 2).
-        // 둘은 서로 다른 프레임(CONNECT / SUBSCRIBE)만 보므로 등록 순서에 의존하지 않는다 — Spring이
+        // 2) RoomSubscriptionInterceptor: SUBSCRIBE에서 그 uid가 해당 방의 멤버인지 확인하고,
+        //    SEND는 /app/** 로 가는 것만 통과시킨다(브로커 토픽 직접 SEND 차단, Plan D Task 2).
+        // 둘은 서로 다른 프레임(CONNECT / SUBSCRIBE·SEND)만 보므로 등록 순서에 의존하지 않는다 — Spring이
         // CONNECT 때 고정된 Principal을 이후 프레임에 인터셉터보다 먼저 붙여 두기 때문이다.
         // 읽는 사람이 흐름(인증 → 권한)을 따라가기 쉽도록 이 순서로 둔다.
         // 2)를 빠뜨리면 로그인한 누구나 아무 방이나 구독할 수 있게 된다 — StompChatIntegrationTest가 이를 잡는다.

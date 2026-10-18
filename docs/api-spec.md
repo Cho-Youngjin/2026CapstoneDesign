@@ -538,6 +538,8 @@ SUBSCRIBE /topic/rooms/{roomId}/messages
 | `/topic/rooms/{roomId}/read` | 읽음 위치 갱신 (Task 7에서 추가 예정) |
 | `/topic/group/{roomId}/location` | 실시간 위치 (9절) |
 
+**보내기 제한**: 클라이언트가 SEND할 수 있는 경로는 `/app/**`(예: `/app/location`)뿐이다. `/topic/**`에 직접 SEND하면 서버가 ERROR 프레임을 보내고 연결을 끊는다 — 브로커 토픽에 직접 쓰면 서버 검증 없이 구독자에게 배달되기 때문이다. 메시지는 반드시 REST로 보낸다.
+
 **재연결 시 주의**: 연결이 끊긴 동안 온 메시지는 실시간으로 다시 오지 않는다. 재연결 후에는 REST 목록으로 마지막으로 받은 id 이후를 다시 받아 빈 구간을 메워야 한다.
 
 ---

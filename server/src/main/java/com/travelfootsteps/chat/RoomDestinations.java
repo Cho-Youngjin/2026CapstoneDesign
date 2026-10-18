@@ -22,6 +22,12 @@ public final class RoomDestinations {
     private static final Pattern LOCATION_TOPIC =
             Pattern.compile("^/topic/group/(\\d{1,18})/location$");
 
+    /**
+     * 클라이언트가 SEND할 수 있는 목적지의 접두사. WebSocketConfig의
+     * {@code setApplicationDestinationPrefixes("/app")}와 같은 값이어야 한다.
+     */
+    private static final String APPLICATION_PREFIX = "/app/";
+
     private RoomDestinations() {
     }
 
@@ -57,6 +63,18 @@ public final class RoomDestinations {
             return Long.parseLong(location.group(1));
         }
         return null;
+    }
+
+    /**
+     * 클라이언트가 SEND해도 되는 목적지인가 — {@code /app/**}(@MessageMapping 컨트롤러로 가는 경로)만 허용한다.
+     *
+     * <p>{@code /topic/**}은 간이 브로커가 맡는 경로라, 클라이언트가 여기에 직접 SEND하면 컨트롤러를
+     * 거치지 않고 구독자에게 그대로 배달된다. 그러면 멤버 확인·발신자 uid 고정·DB 저장을 모두 건너뛴
+     * 위조 메시지(다른 사람인 척하는 채팅, 가짜 위치)가 퍼진다. 브로커 토픽에 쓰는 것은 서버
+     * 코드(ChatMessageBroadcaster, LocationRelayController)뿐이다.
+     */
+    public static boolean isClientSendable(String destination) {
+        return destination != null && destination.startsWith(APPLICATION_PREFIX);
     }
 
     /** 위치 릴레이가 받은 roomId 문자열을 방 id로 바꾼다. 숫자가 아니면 null. */
