@@ -84,7 +84,8 @@ class _LocationSharePageState extends ConsumerState<LocationSharePage> {
 
   Widget _content(LocationShareState s, RoomDetail room, String? myUid) {
     final notifier = ref.read(locationShareSessionProvider(widget.roomId).notifier);
-    final names = {for (final m in room.members) m.uid: m.displayName ?? '그룹원'};
+    // 이름이 비어 있으면 채팅과 같은 대체 이름(RoomMember.label)을 쓴다. 방 정보에 없는 사람은 '그룹원'.
+    final names = {for (final m in room.members) m.uid: m.label};
     final others = [for (final m in room.members) if (m.uid != myUid) m];
     // 방 정보를 받은 뒤에 들어온 사람도 위치가 오면 보여준다(이름은 아직 모른다).
     final strangers = [
@@ -159,7 +160,7 @@ class _LocationSharePageState extends ConsumerState<LocationSharePage> {
             for (final m in [...others, ...strangers])
               _MemberChip(
                 key: Key('memberChip-${m.uid}'),
-                name: m.displayName ?? '그룹원',
+                name: names[m.uid] ?? '그룹원',
                 isMe: false,
                 live: !s.isStale(m.uid),
                 onTap: s.others[m.uid] == null ? null : () => _moveTo(s.others[m.uid]!.position),

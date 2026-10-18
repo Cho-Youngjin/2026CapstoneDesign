@@ -200,6 +200,24 @@ void main() {
     expect(h.sentLocations, hasLength(2));
   });
 
+  test('GPS를 읽는 사이 앱이 뒤로 가면 읽은 위치를 보내지 않는다', () async {
+    final h = _Harness();
+    await h.start();
+    await h.session.setSharing(true);
+    final binding = TestWidgetsFlutterBinding.instance;
+    addTearDown(() => binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    h.position.hold = Completer<void>();
+
+    await h.tick(); // 읽기 시작(아직 안 끝남)
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    h.position.hold!.complete();
+    await pumpEventQueue();
+
+    expect(h.sentLocations, hasLength(1), reason: '켤 때 보낸 것뿐');
+  });
+
   test('GPS가 늦어도 앞선 읽기가 끝나기 전에는 겹쳐 읽지 않는다', () async {
     final h = _Harness();
     await h.start();

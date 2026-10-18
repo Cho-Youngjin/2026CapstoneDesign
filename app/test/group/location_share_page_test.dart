@@ -132,6 +132,27 @@ void main() {
     expect(find.text('공유 중'), findsNothing);
   });
 
+  testWidgets('이름이 비어 있는 그룹원은 대체 이름으로 보여준다', (tester) async {
+    final page = _Page();
+    page.api.detailToReturn = const RoomDetail(
+      id: 7,
+      type: RoomType.group,
+      name: '도쿄 여행',
+      inviteCode: 'ABC234',
+      members: [
+        RoomMember(uid: 'uid-a', displayName: '성주'),
+        RoomMember(uid: 'uid-b', displayName: '  '),
+      ],
+    );
+    await page.pump(tester);
+
+    page.socket.emit(_topic, {'uid': 'uid-b', 'lat': 35.7, 'lng': 139.8, 'ts': 1});
+    await tester.pumpAndSettle();
+
+    expect(find.text('알 수 없음'), findsOneWidget);
+    expect(page.markers(tester).single.infoWindow.title, '알 수 없음');
+  });
+
   testWidgets('위치 권한이 없으면 켜지 않고 이유를 보여준다', (tester) async {
     final page = _Page()..positionError = const LocationPermissionDeniedException();
     await page.pump(tester);

@@ -214,8 +214,9 @@ class LocationShareSession extends Notifier<LocationShareState> {
     try {
       final position = await ref.read(locationShareReaderProvider)();
       if (!ref.mounted) return false;
-      // 읽는 사이에 껐으면 보내지 않는다.
-      if (!starting && !state.sharing) return false;
+      // 읽는 사이에 껐거나 앱이 뒤로 갔으면 보내지 않는다(앞에 있을 때만 보낸다는 약속을 지킨다).
+      // 권한 대화상자는 앱을 inactive로만 만들어 앞에 있는 것으로 보므로, 켤 때도 같은 검사를 해도 된다.
+      if ((!starting && !state.sharing) || !_foreground) return false;
       ref.read(chatSocketProvider).send('/app/location', {
         'roomId': '$roomId',
         'lat': position.latitude,
