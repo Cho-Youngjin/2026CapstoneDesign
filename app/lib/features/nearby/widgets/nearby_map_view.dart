@@ -84,6 +84,7 @@ class _NearbyMapViewState extends State<NearbyMapView> {
         Marker(
           markerId: MarkerId('place-${place.id}'),
           position: LatLng(place.lat, place.lng),
+          icon: BitmapDescriptor.defaultMarkerWithHue(place.category.markerHue),
           infoWindow: InfoWindow(title: place.name, snippet: place.address),
         ),
       for (final embassy in embassies)

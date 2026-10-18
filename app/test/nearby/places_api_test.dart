@@ -45,6 +45,33 @@ void main() {
       expect(places.first.category, PlaceCategory.restaurant);
     });
 
+    test('기본 검색 반경은 8km이고 서버에 그대로 보낸다', () async {
+      expect(nearbySearchRadiusMeters, 8000);
+      final adapter = _RadiusCapturingAdapter();
+      final dio = Dio(BaseOptions(baseUrl: 'http://test'))..httpClientAdapter = adapter;
+
+      await fetchNearbyPlaces(dio, lat: 37.5, lng: 127.0, category: PlaceCategory.tourist);
+
+      expect(adapter.radius, 8000);
+    });
+
+    test('서버가 반경 밖 장소를 섞어 보내도 8km 넘는 곳은 걸러낸다', () async {
+      final dio = Dio(BaseOptions(baseUrl: 'http://test'))
+        ..httpClientAdapter = _DistancePlacesAdapter();
+
+      final places = await fetchNearbyPlaces(
+        dio,
+        lat: 35.6812,
+        lng: 139.7671,
+        category: PlaceCategory.tourist,
+      );
+
+      // 도쿄역 기준 8km 안은 near(약 50m)와 mid(약 1km)뿐이다. far는 약 12km라 빠진다.
+      expect(places.map((p) => p.id), ['near', 'mid']);
+      expect(places.first.distanceMeters, lessThan(100));
+      expect(places.last.distanceMeters, inInclusiveRange(800, 1300));
+    });
+
     test('응답 순서와 관계없이 현재 위치에서 가까운 순으로 정렬한다', () async {
       final dio = Dio(BaseOptions(baseUrl: 'http://test'));
       dio.httpClientAdapter = _UnorderedPlacesAdapter();
@@ -112,6 +139,54 @@ class _FakePlacesAdapter implements HttpClientAdapter {
         'lat': 37.5,
         'lng': 127.0,
       },
+    ]);
+    return ResponseBody.fromString(json, 200, headers: {
+      Headers.contentTypeHeader: [Headers.jsonContentType],
+    });
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _RadiusCapturingAdapter implements HttpClientAdapter {
+  int? radius;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    radius = options.queryParameters['radius'] as int?;
+    return ResponseBody.fromString('[]', 200, headers: {
+      Headers.contentTypeHeader: [Headers.jsonContentType],
+    });
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _DistancePlacesAdapter implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    Map<String, Object> place(String id, double lat, double lng) => {
+          'id': id,
+          'name': id,
+          'category': 'TOURIST',
+          'address': '도쿄',
+          'lat': lat,
+          'lng': lng,
+        };
+    final json = jsonEncode([
+      place('far', 35.7900, 139.7671), // 도쿄역 북쪽 약 12km
+      place('mid', 35.6717, 139.7649), // 긴자 방면 약 1km
+      place('near', 35.6815, 139.7675),
     ]);
     return ResponseBody.fromString(json, 200, headers: {
       Headers.contentTypeHeader: [Headers.jsonContentType],
