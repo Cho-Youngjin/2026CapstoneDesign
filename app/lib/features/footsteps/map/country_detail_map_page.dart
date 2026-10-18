@@ -266,7 +266,8 @@ class _MovementHistory extends StatelessWidget {
       return const Center(child: Text('이 날짜의 이동 기록이 없습니다'));
     }
     final latLngs = [for (final p in points) LatLng(p.lat, p.lng)];
-    final totalMeters = totalDistanceMeters(latLngs);
+    // 같은 날이라도 세션이 나뉘면 그 사이 공백은 빼고 더한다 — 세계지도의 추정 걸음 수와 같은 계산.
+    final totalMeters = walkingDistanceMeters([for (final p in points) (LatLng(p.lat, p.lng), p.recordedAt)]);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

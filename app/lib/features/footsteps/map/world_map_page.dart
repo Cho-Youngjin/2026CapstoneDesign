@@ -35,8 +35,9 @@ final estimatedStepsByCountryProvider = FutureProvider<Map<String, int>>((ref) a
   final result = <String, int>{};
   for (final iso in visited) {
     final points = await repository.routePointsForCountry(iso);
-    final latLngs = [for (final p in points) LatLng(p.lat, p.lng)];
-    result[iso] = estimateStepsFromDistance(totalDistanceMeters(latLngs));
+    // 다른 날·다른 세션 사이의 공백은 걸은 거리로 치지 않는다(walkingDistanceMeters 주석 참고).
+    final timed = [for (final p in points) (LatLng(p.lat, p.lng), p.recordedAt)];
+    result[iso] = estimateStepsFromDistance(walkingDistanceMeters(timed));
   }
   return result;
 });
