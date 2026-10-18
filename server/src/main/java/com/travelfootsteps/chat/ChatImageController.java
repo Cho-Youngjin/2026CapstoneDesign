@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -44,8 +45,11 @@ public class ChatImageController {
     @ResponseStatus(HttpStatus.CREATED)
     public MessageResponse upload(@PathVariable Long roomId,
                                   @RequestPart("file") MultipartFile file,
+                                  // 선택. 앱이 사진마다 붙이는 업로드 id — 다시 보내도 한 번만 저장된다(MessageService.sendImage).
+                                  // multipart의 글자 칸도 @RequestParam으로 읽을 수 있다.
+                                  @RequestParam(value = "clientId", required = false) String clientId,
                                   Authentication authentication) throws IOException {
-        return messageService.sendImage(roomId, authentication.getName(), file.getBytes());
+        return messageService.sendImage(roomId, authentication.getName(), file.getBytes(), clientId);
     }
 
     /**

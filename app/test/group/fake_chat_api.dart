@@ -210,14 +210,16 @@ class FakeChatApi implements ChatApi {
   Completer<void>? holdImage;
 
   final List<Uint8List> sentImages = [];
+  final List<String> sentImageClientIds = [];
 
   /// imageBytes가 돌려줄 바이트(주소별). 없으면 1x1 PNG.
   final Map<String, Uint8List> imagesByUrl = {};
   final List<String> imageDownloads = [];
 
   @override
-  Future<ChatMessage> sendImage(int roomId, Uint8List bytes) async {
+  Future<ChatMessage> sendImage(int roomId, Uint8List bytes, {required String clientId}) async {
     sentImages.add(bytes);
+    sentImageClientIds.add(clientId);
     final hold = holdImage;
     if (hold != null) await hold.future;
     final error = nextImageError;

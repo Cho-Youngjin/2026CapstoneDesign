@@ -9,6 +9,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * 메시지 보내기와 조회. 권한 검사는 모두 {@link RoomService#requireMember}를 거친다.
@@ -29,6 +30,9 @@ public class MessageService {
      * 먼저 413으로 막히지만, 한도 설정이 바뀌거나 빠져도 여기서 한 번 더 막는다.
      */
     static final int MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+    /** 앱이 붙이는 업로드 id 형식 — UUID 같은 영문·숫자·하이픈 64자 이하(chat_message.client_id 컬럼 크기). */
+    private static final Pattern CLIENT_ID_PATTERN = Pattern.compile("[A-Za-z0-9-]{1,64}");
 
     private final RoomService roomService;
     private final ChatRoomRepository roomRepository;
@@ -51,8 +55,19 @@ public class MessageService {
      * 실패했을 때 열리지 않는 사진 메시지가 실시간으로 먼저 퍼질 수 있다.
      */
     @Transactional
-    public MessageResponse sendImage(Long roomId, String uid, byte[] bytes) {
+    public MessageResponse sendImage(Long roomId, String uid, byte[] bytes, String clientId) {
         roomService.requireMember(roomId, uid);
+        if (clientId != null) {
+            if (!CLIENT_ID_PATTERN.matcher(clientId).matches()) {
+                throw new InvalidChatImageException();
+            }
+            // 같은 업로드 id로 이미 저장했으면(응답이 끊겨 앱이 다시 보낸 경우) 새로 저장하지 않고 그대로 돌려준다.
+            // 실시간 전송도 다시 하지 않는다 — 처음 저장할 때 이미 나갔다.
+            var existing = messageRepository.findByRoomIdAndSenderUidAndClientId(roomId, uid, clientId);
+            if (existing.isPresent()) {
+                return MessageResponse.of(existing.get());
+            }
+        }
         if (bytes.length == 0) {
             throw new InvalidChatImageException();
         }
@@ -71,7 +86,7 @@ public class MessageService {
                 }
             }
         });
-        return saveAndAnnounce(ChatMessage.image(roomId, uid, path));
+        return saveAndAnnounce(ChatMessage.image(roomId, uid, path, clientId));
     }
 
     /**

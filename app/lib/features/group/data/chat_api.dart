@@ -94,11 +94,17 @@ class ChatApi {
 
   /// 사진을 보낸다(Plan D Task 6). 같은 메시지가 실시간 구독으로도 한 번 더 온다 — 글자 메시지와 같다.
   /// 파일 이름은 서버가 쓰지 않으므로(서버가 UUID로 저장) 아무 값이나 보낸다.
-  Future<ChatMessage> sendImage(int roomId, Uint8List bytes) async {
+  ///
+  /// [clientId]는 사진마다 정한 업로드 id다. 다시 보낼 때 같은 값을 보내면, 서버가 이미 저장한 경우(응답만 끊김)
+  /// 새로 저장하지 않고 그 메시지를 돌려준다 — 같은 사진이 두 장 올라가지 않게.
+  Future<ChatMessage> sendImage(int roomId, Uint8List bytes, {required String clientId}) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
         '/api/rooms/$roomId/images',
-        data: FormData.fromMap({'file': MultipartFile.fromBytes(bytes, filename: 'photo')}),
+        data: FormData.fromMap({
+          'file': MultipartFile.fromBytes(bytes, filename: 'photo'),
+          'clientId': clientId,
+        }),
       );
       return ChatMessage.fromJson(response.data!);
     } on DioException catch (e) {

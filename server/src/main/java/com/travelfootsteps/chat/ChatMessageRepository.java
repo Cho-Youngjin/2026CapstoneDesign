@@ -4,6 +4,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 메시지 페이지 조회는 "커서" 방식이다 — 페이지 번호(OFFSET) 대신 "이 id보다 오래된 것"으로 자른다.
@@ -18,4 +19,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
 
     /** {@code beforeId}보다 오래된 메시지부터 (위로 스크롤해서 이전 기록을 볼 때). */
     List<ChatMessage> findByRoomIdAndIdLessThanOrderByIdDesc(Long roomId, Long beforeId, Pageable limit);
+
+    /** 같은 사람이 같은 방에 같은 업로드 id로 이미 올린 사진 — 다시 보내기를 한 번만 저장하려고 쓴다(Task 6). */
+    Optional<ChatMessage> findByRoomIdAndSenderUidAndClientId(Long roomId, String senderUid, String clientId);
 }

@@ -200,6 +200,15 @@ void main() {
       expect(_state(c).messages.single.type, MessageType.image);
     });
 
+    test('사진마다 다른 업로드 id를 붙인다', () async {
+      final c = await _start();
+
+      await _controller(c).sendImage(photo);
+      await _controller(c).sendImage(photo);
+
+      expect(api.sentImageClientIds.toSet(), hasLength(2));
+    });
+
     test('브로드캐스트로 같은 사진이 또 와도 하나만 남는다', () async {
       final c = await _start();
 
@@ -225,6 +234,8 @@ void main() {
       await _controller(c).retryImage(pending.localId);
 
       expect(api.sentImages, [photo, photo]);
+      expect(api.sentImageClientIds.toSet(), hasLength(1), reason: '다시 시도는 같은 업로드 id로 — 서버가 한 번만 저장한다');
+      expect(api.sentImageClientIds.first, matches(RegExp(r'^[0-9a-f]{32}$')));
       expect(_state(c).pendingImages, isEmpty);
       expect(_state(c).messages.single.type, MessageType.image);
     });

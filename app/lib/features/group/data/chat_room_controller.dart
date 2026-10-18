@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,9 +12,18 @@ import 'chat_socket.dart';
 /// 올리는 중이거나 올리지 못한 사진(Plan D Task 6). 서버 메시지가 되기 전이라 id가 없어 [localId]로 구분한다.
 @immutable
 class PendingImage {
-  const PendingImage({required this.localId, required this.bytes, this.failed = false, this.error});
+  const PendingImage({
+    required this.localId,
+    required this.clientId,
+    required this.bytes,
+    this.failed = false,
+    this.error,
+  });
 
   final int localId;
+
+  /// 서버에 함께 보내는 업로드 id. 다시 시도해도 같은 값을 써서 서버가 한 번만 저장하게 한다.
+  final String clientId;
   final Uint8List bytes;
 
   /// 올리지 못했다. 화면이 [다시 시도]·[지우기]를 보여준다.
@@ -198,25 +208,35 @@ class ChatRoomController extends Notifier<ChatRoomState> {
   /// 서버 메시지로 바꾼다. 실패하면 자리표시를 실패로 남겨 [retryImage]·[discardImage]를 고르게 한다 — 사진은 다시
   /// 고르기 번거로우므로 글자처럼 그냥 버리지 않는다.
   Future<void> sendImage(Uint8List bytes) async {
-    final localId = _nextLocalId++;
-    state = state.copyWith(pendingImages: [...state.pendingImages, PendingImage(localId: localId, bytes: bytes)]);
-    await _upload(localId, bytes);
+    final pending = PendingImage(localId: _nextLocalId++, clientId: _newClientId(), bytes: bytes);
+    state = state.copyWith(pendingImages: [...state.pendingImages, pending]);
+    await _upload(pending);
   }
 
+  /// 같은 사진·같은 업로드 id로 다시 올린다. 앞선 요청이 서버에는 저장됐는데 응답만 끊긴 경우라도, 서버가 같은 id를
+  /// 알아보고 그 메시지를 돌려주므로 사진이 두 장이 되지 않는다.
   Future<void> retryImage(int localId) async {
     final pending = state.pendingImages.where((p) => p.localId == localId).firstOrNull;
     if (pending == null || !pending.failed) return;
-    _replacePending(PendingImage(localId: localId, bytes: pending.bytes));
-    await _upload(localId, pending.bytes);
+    final retrying = PendingImage(localId: localId, clientId: pending.clientId, bytes: pending.bytes);
+    _replacePending(retrying);
+    await _upload(retrying);
   }
+
+  static final _random = Random.secure();
+
+  /// 서버가 받는 형식(영문·숫자·하이픈 64자 이하)의 무작위 id. 128비트라 겹칠 걱정이 없다.
+  static String _newClientId() =>
+      [for (var i = 0; i < 16; i++) _random.nextInt(256).toRadixString(16).padLeft(2, '0')].join();
 
   void discardImage(int localId) {
     state = state.copyWith(pendingImages: [for (final p in state.pendingImages) if (p.localId != localId) p]);
   }
 
-  Future<void> _upload(int localId, Uint8List bytes) async {
+  Future<void> _upload(PendingImage pending) async {
+    final localId = pending.localId;
     try {
-      final message = await _api.sendImage(roomId, bytes);
+      final message = await _api.sendImage(roomId, pending.bytes, clientId: pending.clientId);
       if (!ref.mounted) return;
       discardImage(localId);
       _merge([message]);
@@ -228,7 +248,13 @@ class ChatRoomController extends Notifier<ChatRoomState> {
         UnsupportedChatImageException() => '보낼 수 없는 사진 형식이에요.',
         _ => null,
       };
-      _replacePending(PendingImage(localId: localId, bytes: bytes, failed: true, error: reason));
+      _replacePending(PendingImage(
+        localId: localId,
+        clientId: pending.clientId,
+        bytes: pending.bytes,
+        failed: true,
+        error: reason,
+      ));
     }
   }
 

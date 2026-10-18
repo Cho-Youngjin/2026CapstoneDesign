@@ -33,6 +33,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -240,6 +241,52 @@ class ChatImageControllerTest {
         upload(OUTSIDER, roomId, "photo.jpg", "image/jpeg", JPEG).andExpect(status().isNotFound());
 
         assertThat(storedFileCount()).isEqualTo(before);
+    }
+
+    // ───────────────────────── 다시 보내기(clientId) ─────────────────────────
+
+    private ResultActions uploadWithClientId(String token, long roomId, String clientId) throws Exception {
+        return mockMvc.perform(multipart("/api/rooms/{id}/images", roomId)
+                .file(new MockMultipartFile("file", "photo.jpg", "image/jpeg", JPEG))
+                .param("clientId", clientId)
+                .header("Authorization", "Bearer " + token));
+    }
+
+    @Test
+    void 같은_clientId로_다시_보내면_새로_저장하지_않고_처음_메시지를_돌려준다() throws Exception {
+        // 서버는 저장했는데 응답이 끊겨 앱이 [다시 시도]한 경우 — 같은 사진이 두 장 올라가면 안 된다.
+        long roomId = givenRoomWithAAndB();
+        long before = storedFileCount();
+
+        long first = json(uploadWithClientId(A, roomId, "c3f1a2b4-0001").andExpect(status().isCreated()).andReturn())
+                .get("id").asLong();
+        long second = json(uploadWithClientId(A, roomId, "c3f1a2b4-0001").andExpect(status().isCreated()).andReturn())
+                .get("id").asLong();
+
+        assertThat(second).isEqualTo(first);
+        assertThat(storedFileCount()).isEqualTo(before + 1);
+        mockMvc.perform(get("/api/rooms/{id}/messages", roomId).header("Authorization", "Bearer " + A))
+                .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
+    void clientId가_같아도_보낸_사람이나_방이_다르면_다른_사진이다() throws Exception {
+        long roomId = givenRoomWithAAndB();
+        long otherRoomId = givenRoomWithAAndB();
+
+        long a = json(uploadWithClientId(A, roomId, "same-id").andReturn()).get("id").asLong();
+        long b = json(uploadWithClientId(B, roomId, "same-id").andReturn()).get("id").asLong();
+        long other = json(uploadWithClientId(A, otherRoomId, "same-id").andReturn()).get("id").asLong();
+
+        assertThat(Set.of(a, b, other)).hasSize(3);
+    }
+
+    @Test
+    void clientId는_64자_이하의_영문_숫자_하이픈만_받는다() throws Exception {
+        long roomId = givenRoomWithAAndB();
+
+        uploadWithClientId(A, roomId, "x".repeat(65)).andExpect(status().isBadRequest());
+        uploadWithClientId(A, roomId, "../evil").andExpect(status().isBadRequest());
     }
 
     // ───────────────────────── 내려받기 ─────────────────────────
