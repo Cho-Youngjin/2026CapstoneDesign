@@ -83,6 +83,10 @@ class ChatRoomController extends Notifier<ChatRoomState> {
 
   ChatApi get _api => ref.read(chatApiProvider);
 
+  /// [_fillGap]이 목록을 줄일 때마다 1씩 오른다. 줄이기 전에 시작한 [loadOlder]는 이제 없는 꼬리를
+  /// 커서로 삼았으므로, 응답이 늦게 와도 버린다(합치면 버린 오래된 메시지와 함께 구멍이 다시 생긴다).
+  int _windowGeneration = 0;
+
   StreamSubscription<ChatMessage>? _messageSub;
   StreamSubscription<void>? _connectedSub;
 
@@ -129,9 +133,15 @@ class ChatRoomController extends Notifier<ChatRoomState> {
   Future<void> loadOlder() async {
     if (state.loading || state.loadingMore || !state.hasMore || state.messages.isEmpty) return;
     state = state.copyWith(loadingMore: true);
+    final generation = _windowGeneration;
     try {
       final page = await _api.messages(roomId, before: state.messages.last.id, size: pageSize);
       if (!ref.mounted) return;
+      if (generation != _windowGeneration) {
+        // 기다리는 동안 목록이 줄었다 — 다시 스크롤하면 새 꼬리부터 불러온다.
+        state = state.copyWith(loadingMore: false);
+        return;
+      }
       _merge(page);
       state = state.copyWith(loadingMore: false, hasMore: page.length == pageSize);
     } catch (e) {
@@ -185,6 +195,7 @@ class ChatRoomController extends Notifier<ChatRoomState> {
       // 가장 오래된 메시지 바로 아래부터 이어서 불러오게 한다. 뺀 메시지는 스크롤하면 다시 받는다.
       final oldestFetched = before;
       if (oldestFetched != null) {
+        _windowGeneration++;
         state = state.copyWith(
           messages: [for (final m in state.messages) if (m.id >= oldestFetched) m],
           hasMore: true,

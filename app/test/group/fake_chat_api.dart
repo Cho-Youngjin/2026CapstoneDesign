@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app/features/group/data/chat_api.dart';
 import 'package:app/features/group/models/chat_message.dart';
 import 'package:app/features/group/models/room.dart';
@@ -126,6 +128,10 @@ class FakeChatApi implements ChatApi {
   /// sendText를 실패시킨다.
   bool sendFails = false;
 
+  /// `before`가 이 키인 messages 응답을, 테스트가 completer를 완료할 때까지 붙잡아 둔다
+  /// (느린 네트워크에서 응답 순서가 뒤바뀌는 상황을 흉내 낸다).
+  final Map<int, Completer<void>> holdBefore = {};
+
   final List<({int? before, int size})> messageQueries = [];
   final List<String> sentTexts = [];
   int _nextId = 1000;
@@ -133,6 +139,8 @@ class FakeChatApi implements ChatApi {
   @override
   Future<List<ChatMessage>> messages(int roomId, {int? before, int size = 30}) async {
     messageQueries.add((before: before, size: size));
+    final hold = before == null ? null : holdBefore[before];
+    if (hold != null) await hold.future;
     final error = nextMessagesError;
     if (error != null) {
       nextMessagesError = null;

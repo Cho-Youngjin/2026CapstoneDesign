@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app/features/group/data/chat_api.dart';
 import 'package:app/features/group/data/chat_room_controller.dart';
 import 'package:app/features/group/data/chat_socket.dart';
@@ -253,6 +255,34 @@ void main() {
       for (var i = 1; i < ids.length; i++) {
         expect(ids[i - 1] - ids[i], 1, reason: '${ids[i - 1]}와 ${ids[i]} 사이가 비었다');
       }
+    });
+    test('보충이 목록을 줄인 뒤 늦게 도착한 이전 페이지 응답은 버린다 — 줄여 둔 구멍이 다시 생기지 않게', () async {
+      api.storedMessages.addAll([for (var i = 1; i <= 40; i++) sampleMessage(id: i)]);
+      final c = await _start();
+      expect(_state(c).hasMore, isTrue); // 40..11을 받았다
+
+      // 사용자가 위로 스크롤해 이전 페이지(11 아래)를 요청했는데 응답이 늦다.
+      final slowOlder = Completer<void>();
+      api.holdBefore[11] = slowOlder;
+      final older = _controller(c).loadOlder();
+      await _settle();
+
+      // 그 사이 재접속해 한도보다 긴 빈 구간을 채우고 목록을 400~251로 줄였다.
+      api.storedMessages.addAll([for (var i = 41; i <= 400; i++) sampleMessage(id: i)]);
+      socket.emitConnected();
+      for (var i = 0; i < 8; i++) {
+        await _settle();
+      }
+      expect(_ids(c).last, 251);
+
+      slowOlder.complete();
+      await older;
+
+      expect(_ids(c).last, 251, reason: '줄이기 전 커서로 받은 오래된 메시지(10~1)가 다시 들어오면 안 된다');
+      expect(_state(c).loadingMore, isFalse);
+
+      await _controller(c).loadOlder();
+      expect(_ids(c).last, 221);
     });
   });
 }
