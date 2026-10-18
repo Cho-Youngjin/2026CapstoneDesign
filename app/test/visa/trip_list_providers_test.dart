@@ -2,16 +2,20 @@ import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/core/prefs/shared_preferences_provider.dart';
 import 'package:app/features/visa/data/trip_api.dart';
 import 'package:app/features/visa/data/trip_list_providers.dart';
+import 'package:app/features/visa/models/trip.dart';
+import 'package:app/features/visa/notifications/alarm_scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'fake_alarm_backend.dart';
 import 'fake_trip_api.dart';
 
 Future<ProviderContainer> _container({
   Map<String, Object> stored = const {},
   TripApi? api,
   String? uid = 'uid-a',
+  AlarmScheduler? alarms,
 }) async {
   SharedPreferences.setMockInitialValues(stored);
   final prefs = await SharedPreferences.getInstance();
@@ -20,6 +24,7 @@ Future<ProviderContainer> _container({
       sharedPreferencesProvider.overrideWithValue(prefs),
       currentUidProvider.overrideWithValue(uid),
       if (api != null) tripApiProvider.overrideWithValue(api),
+      if (alarms != null) alarmSchedulerProvider.overrideWithValue(alarms),
     ],
   );
   addTearDown(container.dispose);
@@ -183,6 +188,43 @@ void main() {
       container.read(_uidForTest.notifier).switchTo('uid-b');
 
       await expectLater(container.read(tripListProvider.future), throwsA(anything));
+    });
+
+    group('준비 일정 알람 정리', () {
+      Future<(AlarmScheduler, FakeAlarmBackend)> alarmsFor7And9() async {
+        final backend = FakeAlarmBackend();
+        final scheduler = AlarmScheduler(backend, now: () => seoulTime(2026, 9, 7, 12));
+        for (final id in [7, 9]) {
+          await scheduler.syncTrip(sampleTrip(id: id, tasks: [
+            TripTask(id: id * 10, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20), done: false),
+          ]));
+        }
+        return (scheduler, backend);
+      }
+
+      test('서버 목록에 없는 여행(다른 기기에서 지운 여행)의 알람을 지운다', () async {
+        final (scheduler, backend) = await alarmsFor7And9();
+        final container = await _container(
+            api: FakeTripApi(trips: [sampleSummary(id: 7)]), alarms: scheduler);
+
+        await container.read(tripListProvider.future);
+        await scheduler.keepOnlyTrips({7, 9}); // 앞선 정리가 끝날 때까지 기다린다(순서대로 처리)
+
+        expect(backend.scheduled.keys, [notificationIdFor(7, 70)]);
+      });
+
+      test('오프라인 캐시를 보여줄 때는 알람을 건드리지 않는다', () async {
+        final (scheduler, backend) = await alarmsFor7And9();
+        final container = await _container(
+            api: FakeTripApi(listTripsStatusCode: 503), alarms: scheduler);
+        await container.read(tripListCacheProvider).write([sampleSummary(id: 7)]);
+
+        await container.read(tripListProvider.future);
+        await scheduler.keepOnlyTrips({7, 9});
+
+        expect(backend.scheduled.keys,
+            unorderedEquals([notificationIdFor(7, 70), notificationIdFor(9, 90)]));
+      });
     });
   });
 

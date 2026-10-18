@@ -1,5 +1,10 @@
+import 'dart:async';
+
+import 'package:app/core/auth/app_user.dart';
+import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/features/visa/models/trip.dart';
 import 'package:app/features/visa/notifications/alarm_scheduler.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_alarm_backend.dart';
@@ -105,6 +110,87 @@ void main() {
       await scheduler.cancelForTrip(7);
 
       expect(backend.scheduled.keys, [notificationIdFor(8, 201)]);
+    });
+
+    test('열 때 시작한 예약이 늦게 끝나도 그 사이 완료한 일정의 알람은 되살아나지 않는다', () async {
+      final trip = sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]);
+      backend.holdPending = Completer<void>();
+
+      final opening = scheduler.syncTrip(trip); // 기존 알람 조회에서 멈춰 있다
+      final completing = scheduler.cancelForTask(tripId: 7, taskId: 101);
+      backend.holdPending!.complete();
+      await Future.wait([opening, completing]);
+
+      expect(backend.scheduled, isEmpty);
+    });
+
+    test('한 작업이 실패해도 다음 작업은 처리한다', () async {
+      backend.holdPending = Completer<void>();
+      final failed = scheduler.syncTrip(sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
+      backend.holdPending!.completeError(Exception('boom'));
+      await expectLater(failed, throwsException);
+      backend.holdPending = null;
+
+      await scheduler.syncTrip(sampleTrip(id: 8, tasks: [_task(201, DateTime(2026, 9, 21))]));
+
+      expect(backend.scheduled.keys, [notificationIdFor(8, 201)]);
+    });
+
+    test('서버 목록에 없는 여행의 알람만 지운다', () async {
+      await scheduler.syncTrip(sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
+      await scheduler.syncTrip(sampleTrip(id: 9, tasks: [_task(901, DateTime(2026, 9, 21))]));
+
+      await scheduler.keepOnlyTrips({7, 8});
+
+      expect(backend.scheduled.keys, [notificationIdFor(7, 101)]);
+    });
+
+    test('모두 지워도 비자 알람이 아닌 알림은 건드리지 않는다', () async {
+      await scheduler.syncTrip(sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
+      backend.scheduled[42] = ScheduledAlarm(
+          id: 42, title: '환율', body: '', at: seoulTime(2026, 9, 8), payload: 'rate');
+
+      await scheduler.cancelAll();
+
+      expect(backend.scheduled.keys, [42]);
+    });
+
+    test('울릴 일정이 하나라도 남았는지 알려준다 (없으면 권한을 묻지 않는다)', () {
+      expect(scheduler.hasUpcoming(sampleTrip(tasks: [_task(1, DateTime(2026, 9, 21))])), isTrue);
+      expect(
+          scheduler.hasUpcoming(sampleTrip(tasks: [
+            _task(1, DateTime(2026, 9, 1)),
+            _task(2, DateTime(2026, 9, 21), done: true),
+          ])),
+          isFalse);
+    });
+  });
+
+  group('visaAlarmAccountGuardProvider', () {
+    test('로그아웃하거나 계정이 바뀌면 이전 계정의 비자 알람을 지운다', () async {
+      final auth = StreamController<AppUser?>();
+      addTearDown(auth.close);
+      final backend = FakeAlarmBackend();
+      final container = ProviderContainer(overrides: [
+        authStateProvider.overrideWith((ref) => auth.stream),
+        alarmSchedulerProvider.overrideWithValue(
+            AlarmScheduler(backend, now: () => seoulTime(2026, 9, 7, 12))),
+      ]);
+      addTearDown(container.dispose);
+      container.listen(visaAlarmAccountGuardProvider, (_, _) {});
+      final scheduler = container.read(alarmSchedulerProvider);
+
+      auth.add(const AppUser(uid: 'uid-a'));
+      await container.read(authStateProvider.future);
+      await scheduler.syncTrip(sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
+      expect(backend.scheduled, isNotEmpty, reason: '로그인할 때는 지우지 않는다');
+
+      auth.add(null);
+      await pumpEventQueue();
+      await scheduler.cancelAll(); // 순서대로 처리되므로 이 호출이 끝나면 앞선 정리도 끝났다
+
+      expect(backend.cancelled, contains(notificationIdFor(7, 101)));
+      expect(backend.scheduled, isEmpty);
     });
   });
 }

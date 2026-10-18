@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app/features/visa/notifications/alarm_scheduler.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -10,6 +12,9 @@ class FakeAlarmBackend implements AlarmBackend {
 
   final Map<int, ScheduledAlarm> scheduled = {};
   final List<int> cancelled = [];
+
+  /// 정해 두면 [pending]이 이 Completer가 끝날 때까지 기다린다 — 작업이 겹치는 순간을 만든다.
+  Completer<void>? holdPending;
 
   void _check() {
     if (failing) throw Exception('alarm backend failed');
@@ -24,6 +29,8 @@ class FakeAlarmBackend implements AlarmBackend {
   @override
   Future<List<PendingAlarm>> pending() async {
     _check();
+    final hold = holdPending;
+    if (hold != null) await hold.future;
     return [for (final a in scheduled.values) (id: a.id, payload: a.payload)];
   }
 

@@ -1,8 +1,12 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../../../core/auth/auth_providers.dart';
 import '../models/trip.dart';
 
 // 비자 준비 일정 로컬 알람(설계 §6-①). 역산 일정은 사용자 본인 일정이라 서버 푸시 없이
@@ -127,6 +131,13 @@ class LocalAlarmBackend implements AlarmBackend {
   }
 }
 
+/// [_payloadFor]로 표시한 알람이면 그 여행 id, 비자 알람이 아니면 null.
+int? _tripIdOf(String? payload) {
+  const prefix = 'visa-trip:';
+  if (payload == null || !payload.startsWith(prefix)) return null;
+  return int.tryParse(payload.substring(prefix.length));
+}
+
 class AlarmScheduler {
   AlarmScheduler(this._backend, {tz.TZDateTime Function()? now})
       : _now = now ?? (() => tz.TZDateTime.now(seoulLocation()));
@@ -134,33 +145,70 @@ class AlarmScheduler {
   final AlarmBackend _backend;
   final tz.TZDateTime Function() _now;
 
-  /// 이 여행의 알람을 지금 일정에 맞춘다. 이전 알람을 모두 지운 뒤 남은 일정만 다시 예약하므로,
-  /// 다시 판정해 일정 id가 바뀌어도 낡은 알람이 남지 않는다.
-  Future<void> syncTrip(Trip trip) async {
-    await cancelForTrip(trip.id);
-    final now = _now();
-    for (final task in trip.tasks) {
-      if (!shouldScheduleAlarm(task, now)) continue;
-      await _backend.schedule(ScheduledAlarm(
-        id: notificationIdFor(trip.id, task.id),
-        title: '여행 준비: ${task.title}',
-        body: '${trip.countryNameKo} 여행 준비 일정의 마감일이에요.',
-        at: alarmTimeFor(task),
-        payload: _payloadFor(trip.id),
-      ));
-    }
+  /// 예약·취소를 부른 순서대로 하나씩 처리한다. 화면을 열자마자 일정을 완료하면 열 때 시작한
+  /// 예약이 완료 처리의 취소보다 늦게 끝나 완료한 일정의 알람이 되살아날 수 있어서다.
+  Future<void> _tail = Future.value();
+
+  Future<void> _serial(Future<void> Function() action) {
+    final result = _tail.then((_) => action());
+    _tail = result.catchError((Object _) {}); // 한 작업이 실패해도 다음 작업은 이어간다.
+    return result;
   }
 
-  Future<void> cancelForTask({required int tripId, required int taskId}) =>
-      _backend.cancel(notificationIdFor(tripId, taskId));
+  /// 예약할 알람이 하나라도 있는가. 없으면 알림 권한을 물을 이유도 없다.
+  bool hasUpcoming(Trip trip) {
+    final now = _now();
+    return trip.tasks.any((t) => shouldScheduleAlarm(t, now));
+  }
 
-  Future<void> cancelForTrip(int tripId) async {
-    final payload = _payloadFor(tripId);
+  /// 이 여행의 알람을 지금 일정에 맞춘다. 이전 알람을 모두 지운 뒤 남은 일정만 다시 예약하므로,
+  /// 다시 판정해 일정 id가 바뀌어도 낡은 알람이 남지 않는다.
+  Future<void> syncTrip(Trip trip) => _serial(() async {
+        await _cancelWhere((tripId) => tripId == trip.id);
+        final now = _now();
+        for (final task in trip.tasks) {
+          if (!shouldScheduleAlarm(task, now)) continue;
+          await _backend.schedule(ScheduledAlarm(
+            id: notificationIdFor(trip.id, task.id),
+            title: '여행 준비: ${task.title}',
+            body: '${trip.countryNameKo} 여행 준비 일정의 마감일이에요.',
+            at: alarmTimeFor(task),
+            payload: _payloadFor(trip.id),
+          ));
+        }
+      });
+
+  Future<void> cancelForTask({required int tripId, required int taskId}) =>
+      _serial(() => _backend.cancel(notificationIdFor(tripId, taskId)));
+
+  Future<void> cancelForTrip(int tripId) => _serial(() => _cancelWhere((id) => id == tripId));
+
+  /// 서버 목록에 없는 여행(다른 기기에서 지웠거나 다른 계정의 여행)의 알람을 지운다.
+  Future<void> keepOnlyTrips(Set<int> tripIds) =>
+      _serial(() => _cancelWhere((id) => !tripIds.contains(id)));
+
+  /// 비자 알람을 모두 지운다(로그아웃·계정 전환). 환율 알림 같은 다른 알림은 건드리지 않는다.
+  Future<void> cancelAll() => _serial(() => _cancelWhere((_) => true));
+
+  Future<void> _cancelWhere(bool Function(int tripId) test) async {
     for (final alarm in await _backend.pending()) {
-      if (alarm.payload == payload) await _backend.cancel(alarm.id);
+      final tripId = _tripIdOf(alarm.payload);
+      if (tripId != null && test(tripId)) await _backend.cancel(alarm.id);
     }
   }
 }
 
 final alarmSchedulerProvider =
     Provider<AlarmScheduler>((ref) => AlarmScheduler(LocalAlarmBackend()));
+
+/// 로그아웃하거나 다른 계정으로 바뀌면 이전 계정의 알람을 모두 지운다 — 알림에 이전 계정의
+/// 국가·일정이 뜨면 안 된다. 새 계정의 알람은 그 계정의 여행 상세를 열 때 다시 예약된다.
+/// 앱 최상단(main.dart의 _Root)이 watch해서 앱이 떠 있는 동안 계속 지켜본다.
+final visaAlarmAccountGuardProvider = Provider<void>((ref) {
+  ref.listen<String?>(currentUidProvider, (previous, next) {
+    if (previous == null || previous == next) return;
+    unawaited(ref.read(alarmSchedulerProvider).cancelAll().catchError((Object e) {
+      debugPrint('이전 계정의 비자 준비 알람 정리 실패: $e');
+    }));
+  });
+});

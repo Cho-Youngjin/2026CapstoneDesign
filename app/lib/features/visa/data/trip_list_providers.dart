@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -7,6 +9,7 @@ import '../../../core/auth/auth_providers.dart';
 import '../../../core/prefs/shared_preferences_provider.dart';
 import '../models/trip.dart';
 import '../models/trip_summary.dart';
+import '../notifications/alarm_scheduler.dart';
 import 'trip_api.dart';
 
 const _cacheKeyPrefix = 'trips.cache.v1';
@@ -81,6 +84,13 @@ final tripListProvider = FutureProvider<TripListState>(
     try {
       final trips = await ref.watch(tripApiProvider).listTrips();
       await cache.write(trips);
+      // 서버 목록에 없는 여행(다른 기기에서 지웠거나 다른 계정의 여행)의 알람을 지운다.
+      // 오프라인으로 캐시를 보여줄 때는 목록이 낡았을 수 있어 하지 않는다.
+      unawaited(ref
+          .read(alarmSchedulerProvider)
+          .keepOnlyTrips({for (final t in trips) t.id}).catchError((Object e) {
+        debugPrint('목록에 없는 여행의 비자 준비 알람 정리 실패: $e');
+      }));
       return TripListState(trips: trips);
     } catch (_) {
       final cached = cache.read();

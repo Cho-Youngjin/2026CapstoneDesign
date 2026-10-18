@@ -9,7 +9,6 @@ import '../../core/network/country_api.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
-import '../rate_alert/notify/notification_permission.dart';
 import 'data/trip_api.dart';
 import 'data/trip_list_providers.dart';
 
@@ -148,11 +147,6 @@ class _VisaPageState extends ConsumerState<VisaPage> {
             passportExpiry: _passportExpiry!,
           );
       ref.invalidate(tripListProvider);
-      // 준비 일정 알람(상세 화면에서 예약)을 띄우려면 알림 권한이 필요하다(Android 13+).
-      // 거부하거나 요청이 실패해도 여행은 그대로 쓸 수 있으므로 결과를 따지지 않는다.
-      try {
-        await ref.read(notificationPermissionProvider).request();
-      } catch (_) {}
       if (mounted) context.pushReplacement(AppRoutes.tripOf(trip.id));
     } catch (e) {
       if (mounted) setState(() => _error = tripErrorMessage(e));

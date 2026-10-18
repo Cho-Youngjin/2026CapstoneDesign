@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
+import '../rate_alert/notify/notification_permission.dart';
 import 'data/trip_api.dart';
 import 'data/trip_deletion.dart';
 import 'data/trip_list_providers.dart';
@@ -42,6 +43,10 @@ class VisaResultPage extends ConsumerWidget {
       if (ref.read(selectedTripIdProvider) == tripId) {
         ref.read(selectedTripIdProvider.notifier).clear();
       }
+      // 다른 기기에서 지운 여행이면 이 기기에 예약해 둔 알람도 필요 없다.
+      ref.read(alarmSchedulerProvider).cancelForTrip(tripId).catchError((Object e) {
+        debugPrint('지워진 여행의 비자 준비 알람 정리 실패: $e');
+      });
       ref.read(tripListCacheProvider).remove(tripId).whenComplete(() {
         ref.invalidate(tripListProvider);
       });
@@ -212,7 +217,17 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
     super.initState();
     // 열 때마다 서버의 최신 일정으로 알람을 맞춘다. 새로 만든 여행도 이 화면으로 오므로 여기서 예약된다.
     final trip = _trip;
-    _runAlarm((s) => s.syncTrip(trip));
+    _runAlarm((s) async {
+      // 알람을 띄우려면 Android 13+에서 알림 권한이 필요하다. 이미 있는 여행만 가진 사용자(앱 재설치 등)도
+      // 이 화면은 열게 되므로 여기서 묻는다. 허용돼 있으면 아무것도 뜨지 않는다. 거부하거나 요청이
+      // 실패해도 예약은 해 둔다 — 나중에 설정에서 허용하면 그때부터 보인다.
+      if (s.hasUpcoming(trip)) {
+        try {
+          await ref.read(notificationPermissionProvider).request();
+        } catch (_) {}
+      }
+      await s.syncTrip(trip);
+    });
   }
 
   /// 알람은 부가 기능이라 실패해도(플러그인·권한 오류) 일정 표시와 완료 처리를 막지 않는다.

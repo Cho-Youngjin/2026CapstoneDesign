@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/core/prefs/shared_preferences_provider.dart';
+import 'package:app/features/rate_alert/notify/notification_permission.dart';
 import 'package:app/features/visa/data/trip_api.dart';
 import 'package:app/features/visa/data/trip_deletion.dart';
 import 'package:app/features/visa/data/trip_list_providers.dart';
@@ -16,6 +17,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fake_alarm_backend.dart';
 import 'fake_trip_api.dart';
+
+class FakePermission implements NotificationPermission {
+  FakePermission({this.fails = false});
+
+  final bool fails;
+  int calls = 0;
+
+  @override
+  Future<bool> request() async {
+    calls++;
+    if (fails) throw Exception('permission plugin failed');
+    return true;
+  }
+}
 
 class _FakeTripDeleter implements TripDeleter {
   _FakeTripDeleter({this.fails = false});
@@ -50,6 +65,7 @@ Future<
   bool deleteFails = false,
   bool watchTripList = false,
   FakeAlarmBackend? alarms,
+  NotificationPermission? permission,
 }) async {
   SharedPreferences.setMockInitialValues(stored);
   final prefs = await SharedPreferences.getInstance();
@@ -90,6 +106,7 @@ Future<
         tripDeleterProvider.overrideWithValue(deleter),
         alarmSchedulerProvider.overrideWithValue(
             AlarmScheduler(alarmBackend, now: () => seoulTime(2026, 9, 7, 12))),
+        notificationPermissionProvider.overrideWithValue(permission ?? FakePermission()),
       ],
       // 목록 provider를 누군가 보고 있어야 invalidate가 다시 조회로 이어진다(여행 목록 탭 역할).
       child: Consumer(builder: (context, ref, child) {
@@ -280,6 +297,51 @@ void main() {
       final alarms = (await pumpResultPage(tester, trip: trip)).alarms;
 
       expect(alarms.scheduled.keys, [notificationIdFor(7, 3)]);
+    });
+
+    testWidgets('울릴 일정이 있으면 알림 권한을 요청한다 (이미 있던 여행도)', (tester) async {
+      final permission = FakePermission();
+      await pumpResultPage(tester,
+          trip: sampleTrip(tasks: [
+            task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+          ]),
+          permission: permission);
+
+      expect(permission.calls, 1);
+    });
+
+    testWidgets('울릴 일정이 없으면 알림 권한을 묻지 않는다', (tester) async {
+      final permission = FakePermission();
+      await pumpResultPage(tester,
+          trip: sampleTrip(tasks: [
+            task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 9, 1)),
+          ]),
+          permission: permission);
+
+      expect(permission.calls, 0);
+    });
+
+    testWidgets('알림 권한 요청이 실패해도 알람은 예약해 둔다', (tester) async {
+      final alarms = (await pumpResultPage(tester,
+              trip: sampleTrip(id: 7, tasks: [
+                task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+              ]),
+              permission: FakePermission(fails: true)))
+          .alarms;
+
+      expect(alarms.scheduled.keys, [notificationIdFor(7, 3)]);
+    });
+
+    testWidgets('다른 기기에서 지운 여행(404)이면 이 기기의 알람도 지운다', (tester) async {
+      final alarms = FakeAlarmBackend();
+      final scheduler = AlarmScheduler(alarms, now: () => seoulTime(2026, 9, 7, 12));
+      await scheduler.syncTrip(sampleTrip(id: 7, tasks: [
+        task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+      ]));
+
+      await pumpResultPage(tester, getTripStatusCode: 404, alarms: alarms);
+
+      expect(alarms.scheduled, isEmpty);
     });
 
     testWidgets('일정을 완료하면 그 알람을 취소한다', (tester) async {
