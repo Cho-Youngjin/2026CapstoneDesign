@@ -212,6 +212,9 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
   late Trip _trip = widget.trip;
   bool _refreshing = false;
 
+  /// 서버 응답을 기다리는 일정. 그동안 다시 누르면 무시한다 — 연타가 완료·취소 요청을 엇갈려 보내지 않게.
+  final Set<int> _pending = {};
+
   @override
   void initState() {
     super.initState();
@@ -246,17 +249,29 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
     }));
   }
 
-  Future<void> _markDone(TripTask task) async {
-    if (task.done) return;
+  /// 누르면 완료, 완료한 일정을 다시 누르면 완료 취소. 취소하면 그 일정의 알람을 다시 예약한다
+  /// (마감일이 이미 지났으면 [AlarmScheduler.syncTrip]이 알아서 건너뛴다).
+  Future<void> _toggleDone(TripTask task) async {
+    if (!_pending.add(task.id)) return;
     final messenger = ScaffoldMessenger.of(context);
     final scheduler = ref.read(alarmSchedulerProvider);
+    final api = ref.read(tripApiProvider);
     try {
-      final updated =
-          await ref.read(tripApiProvider).markTaskDone(_trip.id, task.id);
-      _runAlarm((s) => s.cancelForTask(updated.id), scheduler: scheduler);
-      if (mounted) setState(() => _trip = _trip.replaceTask(updated));
+      final updated = task.done
+          ? await api.markTaskUndone(_trip.id, task.id)
+          : await api.markTaskDone(_trip.id, task.id);
+      // 화면을 나간 뒤에 응답이 와도 알람은 맞춘다 — 서버에는 이미 반영됐다. 그 사이 다른 일정의
+      // 응답이 먼저 왔을 수 있으니 지금의 _trip에 이 일정만 갈아끼운 것으로 맞춘다.
+      final trip = _trip.replaceTask(updated);
+      _runAlarm(
+        (s) => updated.done ? s.cancelForTask(updated.id) : s.syncTrip(trip),
+        scheduler: scheduler,
+      );
+      if (mounted) setState(() => _trip = trip);
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(tripErrorMessage(e))));
+    } finally {
+      _pending.remove(task.id);
     }
   }
 
@@ -337,7 +352,7 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
                 task: tasks[i],
                 departDate: _trip.departDate,
                 isLast: i == tasks.length - 1,
-                onTap: () => _markDone(tasks[i]),
+                onTap: () => _toggleDone(tasks[i]),
               ),
           const SizedBox(height: 24),
           Row(
@@ -538,7 +553,7 @@ class _BasisCard extends StatelessWidget {
 }
 
 /// 역산 일정 타임라인 한 단계: 좌측 점(+연결선), 우측 제목/상태/날짜.
-/// 누르면 완료로 표시한다(서버는 완료 해제 API를 제공하지 않아 되돌릴 수 없다).
+/// 누르면 완료로 표시하고, 완료한 단계를 다시 누르면 완료를 취소한다.
 class _TimelineStep extends StatelessWidget {
   const _TimelineStep({
     required this.task,
@@ -584,7 +599,7 @@ class _TimelineStep extends StatelessWidget {
             child: Padding(
               padding: EdgeInsets.only(bottom: isLast ? 0 : 20),
               child: InkWell(
-                onTap: tone == TaskTone.done ? null : onTap,
+                onTap: onTap,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

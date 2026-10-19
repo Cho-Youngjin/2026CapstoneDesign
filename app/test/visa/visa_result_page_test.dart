@@ -279,6 +279,54 @@ void main() {
     expect(find.text('완료'), findsOneWidget);
   });
 
+  testWidgets('완료한 일정을 다시 누르면 완료를 취소하고 서버에 알린다', (tester) async {
+    final trip = sampleTrip(tasks: [
+      task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20), done: true),
+    ]);
+
+    final api = (await pumpResultPage(tester, trip: trip)).api;
+    expect(find.text('완료'), findsOneWidget);
+
+    await tester.tap(find.text('여행자보험 가입'));
+    await tester.pumpAndSettle();
+
+    expect(api.markTaskUndoneCalls, [(tripId: trip.id, taskId: 3)]);
+    expect(api.markTaskDoneCalls, isEmpty);
+    expect(find.text('완료'), findsNothing);
+  });
+
+  testWidgets('완료를 취소하지 못하면 완료로 남기고 안내한다', (tester) async {
+    final trip = sampleTrip(tasks: [
+      task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20), done: true),
+    ]);
+    final api = (await pumpResultPage(tester, trip: trip)).api;
+    api.markTaskUndoneStatusCode = 500;
+
+    await tester.tap(find.text('여행자보험 가입'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('완료'), findsOneWidget);
+    expect(find.byType(SnackBar), findsOneWidget);
+  });
+
+  testWidgets('응답을 기다리는 동안 같은 일정을 또 눌러도 요청은 한 번만 간다', (tester) async {
+    final trip = sampleTrip(tasks: [
+      task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20), done: true),
+    ]);
+    final api = (await pumpResultPage(tester, trip: trip)).api;
+    api.holdMarkTaskUndone = Completer<void>();
+
+    await tester.tap(find.text('여행자보험 가입'));
+    await tester.pump();
+    await tester.tap(find.text('여행자보험 가입'));
+    await tester.pump();
+    api.holdMarkTaskUndone!.complete();
+    await tester.pumpAndSettle();
+
+    expect(api.markTaskUndoneCalls, hasLength(1));
+    expect(api.markTaskDoneCalls, isEmpty);
+  });
+
   testWidgets('판정 기준이 바뀌었으면 다시 판정할 수 있게 한다', (tester) async {
     final trip = sampleTrip(judgementStale: true);
 
@@ -361,6 +409,52 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(alarms.scheduled.keys, [notificationIdFor(5)]);
+    });
+
+    testWidgets('완료를 취소하면 그 일정의 알람을 다시 예약한다', (tester) async {
+      final trip = sampleTrip(id: 7, tasks: [
+        task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20), done: true),
+        task(id: 5, title: '최종 서류 점검', dueDate: DateTime(2026, 12, 13)),
+      ]);
+      final alarms = (await pumpResultPage(tester, trip: trip)).alarms;
+      expect(alarms.scheduled.keys, [notificationIdFor(5)]);
+
+      await tester.tap(find.text('여행자보험 가입'));
+      await tester.pumpAndSettle();
+
+      expect(alarms.scheduled.keys,
+          unorderedEquals([notificationIdFor(3), notificationIdFor(5)]));
+    });
+
+    testWidgets('완료를 취소한 일정이 이미 마감일을 지났으면 알람을 잡지 않는다', (tester) async {
+      final trip = sampleTrip(id: 7, tasks: [
+        task(id: 3, title: '여권 재발급', dueDate: DateTime(2026, 9, 1), done: true),
+      ]);
+      final alarms = (await pumpResultPage(tester, trip: trip)).alarms;
+
+      await tester.tap(find.text('여권 재발급'));
+      await tester.pumpAndSettle();
+
+      expect(alarms.scheduled, isEmpty);
+    });
+
+    testWidgets('취소 응답이 오기 전에 화면을 나가도 그 일정의 알람은 다시 예약한다', (tester) async {
+      final trip = sampleTrip(id: 7, tasks: [
+        task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20), done: true),
+      ]);
+      final r = await pumpResultPage(tester, trip: trip);
+      r.api.holdMarkTaskUndone = Completer<void>();
+
+      await tester.tap(find.text('여행자보험 가입'));
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+      expect(find.text('여행 목록'), findsOneWidget);
+
+      r.api.holdMarkTaskUndone!.complete();
+      await tester.pumpAndSettle();
+
+      expect(r.alarms.scheduled.keys, [notificationIdFor(3)]);
     });
 
     testWidgets('권한 대화상자가 떠 있는 동안 완료한 일정의 알람은 되살아나지 않는다', (tester) async {

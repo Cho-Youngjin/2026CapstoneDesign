@@ -209,6 +209,73 @@ class TripControllerTest {
     }
 
     @Test
+    void 완료를_취소하면_done이_false로_돌아오고_조회에도_남는다() throws Exception {
+        givenVietnamVisaFree45Days();
+        Long tripId = createTrip("token-a", "VN",
+                LocalDate.of(2026, 12, 20), LocalDate.of(2027, 1, 9), LocalDate.of(2028, 1, 1));
+        Long taskId = firstTaskId("token-a", tripId);
+        mockMvc.perform(post("/api/trips/" + tripId + "/tasks/" + taskId + "/done")
+                        .header("Authorization", "Bearer token-a"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/trips/" + tripId + "/tasks/" + taskId + "/done")
+                        .header("Authorization", "Bearer token-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(taskId))
+                .andExpect(jsonPath("$.done").value(false));
+
+        assertThat(doneOf("token-a", tripId, taskId)).isFalse();
+    }
+
+    @Test
+    void 완료하지_않은_일정을_취소해도_그대로_false다() throws Exception {
+        givenVietnamVisaFree45Days();
+        Long tripId = createTrip("token-a", "VN",
+                LocalDate.of(2026, 12, 20), LocalDate.of(2027, 1, 9), LocalDate.of(2028, 1, 1));
+        Long taskId = firstTaskId("token-a", tripId);
+
+        mockMvc.perform(delete("/api/trips/" + tripId + "/tasks/" + taskId + "/done")
+                        .header("Authorization", "Bearer token-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.done").value(false));
+    }
+
+    @Test
+    void 다른_사용자의_일정은_완료를_취소할_수_없다() throws Exception {
+        givenVietnamVisaFree45Days();
+        Long tripId = createTrip("token-a", "VN",
+                LocalDate.of(2026, 12, 20), LocalDate.of(2027, 1, 9), LocalDate.of(2028, 1, 1));
+        Long taskId = firstTaskId("token-a", tripId);
+        mockMvc.perform(post("/api/trips/" + tripId + "/tasks/" + taskId + "/done")
+                        .header("Authorization", "Bearer token-a"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/trips/" + tripId + "/tasks/" + taskId + "/done")
+                        .header("Authorization", "Bearer token-b"))
+                .andExpect(status().isNotFound());
+        assertThat(doneOf("token-a", tripId, taskId)).isTrue();
+    }
+
+    private boolean doneOf(String token, Long tripId, Long taskId) throws Exception {
+        String body = mockMvc.perform(get("/api/trips/" + tripId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        for (JsonNode task : objectMapper.readTree(body).get("tasks")) {
+            if (task.get("id").asLong() == taskId) {
+                return task.get("done").asBoolean();
+            }
+        }
+        throw new AssertionError(taskId + "번 일정이 없다");
+    }
+
+    private Long firstTaskId(String token, Long tripId) throws Exception {
+        String body = mockMvc.perform(get("/api/trips/" + tripId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).get("tasks").get(0).get("id").asLong();
+    }
+
+    @Test
     void 조회는_생성_시점의_스냅샷을_그대로_반환하고_원본이_바뀌면_stale_플래그가_선다() throws Exception {
         upsertVietnamVisaRequirement(false, 45, 6, "관광 목적 45일 무비자",
                 OffsetDateTime.parse("2026-01-01T00:00:00Z"));

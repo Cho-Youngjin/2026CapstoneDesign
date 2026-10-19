@@ -124,11 +124,16 @@ class _LocationSharePageState extends ConsumerState<LocationSharePage> {
         Marker(
           markerId: MarkerId(e.key),
           position: e.value.position,
-          // 소식이 끊긴 사람은 흐리게, 이름 옆에 "꺼짐"을 붙인다(마지막 위치는 남겨 둔다).
+          // 소식이 끊긴 사람은 흐리게 하고 마지막으로 받은 때를 붙인다(마지막 위치는 남겨 둔다).
+          // 상대가 공유를 껐는지, 앱을 내렸는지, 신호가 끊겼는지는 이 기기에서 구분할 수 없어
+          // "꺼짐"이 아니라 "업데이트 멈춤"이라고 말한다.
           alpha: s.isStale(e.key) ? 0.4 : 1,
-          infoWindow: InfoWindow(
-            title: s.isStale(e.key) ? '${names[e.key] ?? '그룹원'} · 꺼짐' : names[e.key] ?? '그룹원',
-          ),
+          infoWindow: s.isStale(e.key)
+              ? InfoWindow(
+                  title: '${names[e.key] ?? '그룹원'} · 위치 업데이트 멈춤',
+                  snippet: '마지막 위치 ${lastSeenLabel(s.sinceLastUpdate(e.key)!)}',
+                )
+              : InfoWindow(title: names[e.key] ?? '그룹원'),
         ),
     };
 
@@ -181,6 +186,7 @@ class _LocationSharePageState extends ConsumerState<LocationSharePage> {
                 name: names[m.uid] ?? '그룹원',
                 isMe: false,
                 live: !s.isStale(m.uid),
+                lastSeen: s.sinceLastUpdate(m.uid),
                 onTap: s.others[m.uid] == null ? null : () => _moveTo(s.others[m.uid]!.position),
               ),
           ],
@@ -424,6 +430,13 @@ class _MemberSheet extends StatelessWidget {
   }
 }
 
+/// 마지막으로 위치를 받은 뒤 지난 시간을 짧게 — "21초 전", "3분 전", "2시간 전".
+String lastSeenLabel(Duration elapsed) {
+  if (elapsed.inMinutes < 1) return '${elapsed.inSeconds}초 전';
+  if (elapsed.inHours < 1) return '${elapsed.inMinutes}분 전';
+  return '${elapsed.inHours}시간 전';
+}
+
 /// 하단 시트의 그룹원 한 명. 공유 중이면 테두리를 강조하고, 누르면 지도를 그 사람에게 옮긴다.
 class _MemberChip extends StatelessWidget {
   const _MemberChip({
@@ -431,12 +444,16 @@ class _MemberChip extends StatelessWidget {
     required this.name,
     required this.isMe,
     required this.live,
+    this.lastSeen,
     required this.onTap,
   });
 
   final String name;
   final bool isMe;
   final bool live;
+
+  /// 위치를 받은 적이 있으면 마지막으로 받은 뒤 지난 시간. 공유가 멈췄을 때 "꺼짐" 대신 보여준다.
+  final Duration? lastSeen;
   final VoidCallback? onTap;
 
   @override
@@ -480,7 +497,7 @@ class _MemberChip extends StatelessWidget {
               ),
             ),
             Text(
-              live ? '공유 중' : '꺼짐',
+              live ? '공유 중' : lastSeen != null ? lastSeenLabel(lastSeen!) : '꺼짐',
               style: TextStyle(
                 fontFamily: 'Noto Sans KR',
                 fontSize: 9,

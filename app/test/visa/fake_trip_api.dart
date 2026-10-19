@@ -88,6 +88,7 @@ class FakeTripApi implements TripApi {
   final List<int> getTripCalls = [];
   final List<int> refreshTripCalls = [];
   final List<({int tripId, int taskId})> markTaskDoneCalls = [];
+  final List<({int tripId, int taskId})> markTaskUndoneCalls = [];
   int listTripsCalls = 0;
   final List<int> deleteTripCalls = [];
   final List<int> getChecklistCalls = [];
@@ -136,6 +137,23 @@ class FakeTripApi implements TripApi {
     final hold = holdMarkTaskDone;
     if (hold != null) await hold.future;
     return tripToReturn.tasks.firstWhere((t) => t.id == taskId).copyWith(done: true);
+  }
+
+  /// 정해 두면 markTaskUndone 응답을 이 Completer가 끝날 때까지 미룬다.
+  Completer<void>? holdMarkTaskUndone;
+
+  /// 정해 두면 markTaskUndone이 이 상태 코드의 DioException을 던진다.
+  int? markTaskUndoneStatusCode;
+
+  @override
+  Future<TripTask> markTaskUndone(int tripId, int taskId) async {
+    markTaskUndoneCalls.add((tripId: tripId, taskId: taskId));
+    final hold = holdMarkTaskUndone;
+    if (hold != null) await hold.future;
+    if (markTaskUndoneStatusCode != null) {
+      throw _error('/api/trips/$tripId/tasks/$taskId/done', markTaskUndoneStatusCode!);
+    }
+    return tripToReturn.tasks.firstWhere((t) => t.id == taskId).copyWith(done: false);
   }
 
   @override
