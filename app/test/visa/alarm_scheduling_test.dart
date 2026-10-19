@@ -228,6 +228,28 @@ void main() {
         expect(backend.scheduled, isEmpty);
       });
 
+      test('그 사이 다시 판정해 일정이 바뀌었으면 옛 일정은 예약하지 않는다', () async {
+        await owned.syncTrip(sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
+        await owned.syncTripFor('uid-a', sampleTrip(id: 7, tasks: [_task(201, DateTime(2026, 9, 25))]));
+
+        final restored = await owned.scheduleTaskFor(
+            'uid-a', sampleTrip(id: 7), _task(101, DateTime(2026, 9, 21)));
+
+        expect(restored, isFalse);
+        expect(backend.scheduled.keys, [notificationIdFor(201)]);
+      });
+
+      test('목록 갱신으로 정리된 여행(다른 기기에서 삭제)이면 예약하지 않는다', () async {
+        final trip = sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21), done: true)]);
+        await owned.syncTrip(trip); // 화면을 열었다(울릴 알람은 없다)
+        await owned.keepOnlyTrips({8});
+
+        expect(await owned.scheduleTaskFor('uid-a', trip, _task(101, DateTime(2026, 9, 21))), isFalse);
+        await owned.syncTripFor('uid-a', sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
+
+        expect(backend.scheduled, isEmpty);
+      });
+
       test('같은 계정이면 여행 전체를 다시 맞춘다', () async {
         await owned.syncTripFor('uid-a', sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
 
