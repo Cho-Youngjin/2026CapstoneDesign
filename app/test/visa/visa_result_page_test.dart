@@ -496,8 +496,9 @@ void main() {
           unorderedEquals([notificationIdFor(3), notificationIdFor(5)]));
     });
 
-    testWidgets('취소 응답을 기다리는 사이 로그아웃했으면 알람을 되살리지 않는다', (tester) async {
+    testWidgets('취소 응답을 기다리는 사이 로그아웃했으면 알람을 되살리지 않고 권한도 묻지 않는다', (tester) async {
       final alarms = FakeAlarmBackend();
+      final permission = FakePermission();
       final scheduler = AlarmScheduler(alarms,
           registry: MemoryAlarmRegistry('uid-a'), now: () => seoulTime(2026, 9, 7, 12));
       final r = await pumpResultPage(tester,
@@ -505,7 +506,8 @@ void main() {
             task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20), done: true),
           ]),
           alarms: alarms,
-          scheduler: scheduler);
+          scheduler: scheduler,
+          permission: permission);
       r.api.holdMarkTaskUndone = Completer<void>();
 
       await tester.tap(find.text('여행자보험 가입'));
@@ -516,6 +518,41 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(alarms.scheduled, isEmpty);
+      expect(permission.calls, 0);
+    });
+
+    testWidgets('일정 응답을 기다리는 동안에는 다시 판정하지 않는다 (일정 id가 바뀌어 알람이 어긋난다)', (tester) async {
+      final trip = sampleTrip(id: 7, judgementStale: true, tasks: [
+        task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20), done: true),
+      ]);
+      final r = await pumpResultPage(tester, trip: trip);
+      r.api.holdMarkTaskUndone = Completer<void>();
+
+      await tester.tap(find.text('여행자보험 가입'));
+      await tester.pump();
+      await tester.tap(find.text('다시 판정'));
+      await tester.pump();
+
+      expect(r.api.refreshTripCalls, isEmpty);
+      r.api.holdMarkTaskUndone!.complete();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('다시 판정하는 동안에는 일정을 눌러도 요청하지 않는다', (tester) async {
+      final trip = sampleTrip(id: 7, judgementStale: true, tasks: [
+        task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20), done: true),
+      ]);
+      final r = await pumpResultPage(tester, trip: trip);
+      r.api.holdRefreshTrip = Completer<void>();
+
+      await tester.tap(find.text('다시 판정'));
+      await tester.pump();
+      await tester.tap(find.text('여행자보험 가입'));
+      await tester.pump();
+
+      expect(r.api.markTaskUndoneCalls, isEmpty);
+      r.api.holdRefreshTrip!.complete();
+      await tester.pumpAndSettle();
     });
 
     testWidgets('다시 판정 응답을 기다리는 사이 다른 계정으로 바뀌었으면 예약하지 않는다', (tester) async {

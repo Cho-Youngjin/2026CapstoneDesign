@@ -193,6 +193,13 @@ void main() {
         expect(backend.scheduled, isEmpty);
       });
 
+      test('예약했는지 알려준다 (예약하지 않았으면 알림 권한을 물을 이유도 없다)', () async {
+        final trip = sampleTrip(id: 7);
+        expect(await owned.scheduleTaskFor('uid-a', trip, _task(101, DateTime(2026, 9, 21))), isTrue);
+        expect(await owned.scheduleTaskFor('uid-a', trip, _task(102, DateTime(2026, 9, 1))), isFalse);
+        expect(await owned.scheduleTaskFor('uid-b', trip, _task(103, DateTime(2026, 9, 21))), isFalse);
+      });
+
       test('그 사이 로그아웃했으면 예약하지 않는다', () async {
         await owned.claimFor(null);
 

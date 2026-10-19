@@ -208,9 +208,9 @@ class AlarmScheduler {
   /// 표([_registry])를 읽고 고쳐 쓰는 일도 이 순서 안에서만 하므로 서로 덮어쓰지 않는다.
   Future<void> _tail = Future.value();
 
-  Future<void> _serial(Future<void> Function() action) {
+  Future<T> _serial<T>(Future<T> Function() action) {
     final result = _tail.then((_) => action());
-    _tail = result.catchError((Object _) {}); // 한 작업이 실패해도 다음 작업은 이어간다.
+    _tail = result.then((_) {}, onError: (Object _) {}); // 한 작업이 실패해도 다음 작업은 이어간다.
     return result;
   }
 
@@ -237,9 +237,12 @@ class AlarmScheduler {
   /// 서버 응답을 기다린 뒤에 일정 하나만 다시 예약할 때(완료 취소). 여행 전체를 다시 맞추지 않는 이유:
   /// 응답이 늦게 오면 화면이 들고 있던 [trip]이 낡았을 수 있다(그 사이 다른 일정을 완료했으면 그 알람이
   /// 되살아난다). [trip]은 알림 문구(국가 이름)와 여행 단위 정리용 표에만 쓴다. 계정 확인은 [syncTripFor]와 같다.
-  Future<void> scheduleTaskFor(String? owner, Trip trip, TripTask task) => _serial(() async {
-        if (!_ownedBy(owner) || !shouldScheduleAlarm(task, _now())) return;
+  ///
+  /// 실제로 예약했으면 true. false면(계정이 바뀌었거나 울릴 일정이 아님) 알림 권한도 묻지 않는다.
+  Future<bool> scheduleTaskFor(String? owner, Trip trip, TripTask task) => _serial(() async {
+        if (!_ownedBy(owner) || !shouldScheduleAlarm(task, _now())) return false;
         await _schedule(trip, task);
+        return true;
       });
 
   bool _ownedBy(String? owner) => owner != null && _registry.readOwner() == owner;

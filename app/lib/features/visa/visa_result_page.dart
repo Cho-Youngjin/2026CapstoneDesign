@@ -243,17 +243,15 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
     await sync;
   }
 
-  /// 완료를 취소한 일정 하나의 알람을 되살린다. 그 일정이 울릴 예정이면 알림 권한도 묻는다 — 처음 열 때
-  /// 울릴 일정이 없어 묻지 않았을 수 있다. 순서는 [_syncAsking]과 같은 이유로 예약을 먼저 줄 세운다.
+  /// 완료를 취소한 일정 하나의 알람을 되살리고, 실제로 예약했으면 알림 권한을 묻는다 — 처음 열 때
+  /// 울릴 일정이 없어 묻지 않았을 수 있다. 예약이 끝난 뒤에 묻는 이유: 그 사이 로그아웃·계정 전환으로
+  /// 예약을 건너뛰었다면 로그인 화면이나 다른 계정 위에 이전 계정의 권한 대화상자를 띄우면 안 된다.
   static Future<void> _restoreAsking(AlarmScheduler s, String? uid, Trip trip, TripTask task,
       NotificationPermission permission) async {
-    final scheduling = s.scheduleTaskFor(uid, trip, task);
-    if (s.isUpcoming(task)) {
-      try {
-        await permission.request();
-      } catch (_) {}
-    }
-    await scheduling;
+    if (!await s.scheduleTaskFor(uid, trip, task)) return;
+    try {
+      await permission.request();
+    } catch (_) {}
   }
 
   /// 알람은 부가 기능이라 실패해도(플러그인·권한 오류) 일정 표시와 완료 처리를 막지 않는다.
@@ -271,7 +269,9 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
   /// 누르면 완료, 완료한 일정을 다시 누르면 완료 취소. 취소하면 그 일정의 알람을 다시 예약한다
   /// (마감일이 이미 지났으면 [AlarmScheduler.syncTrip]이 알아서 건너뛴다).
   Future<void> _toggleDone(TripTask task) async {
-    if (!_pending.add(task.id)) return;
+    // 다시 판정하는 동안에는 받지 않는다 — 서버가 일정을 지우고 새 id로 만들어, 늦게 온 응답이 이미
+    // 없어진 일정의 알람을 되살릴 수 있다. 반대로 일정 응답을 기다리는 동안에는 다시 판정을 받지 않는다.
+    if (_refreshing || !_pending.add(task.id)) return;
     final messenger = ScaffoldMessenger.of(context);
     final scheduler = ref.read(alarmSchedulerProvider);
     final permission = ref.read(notificationPermissionProvider);
@@ -299,6 +299,7 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
   }
 
   Future<void> _refreshJudgement() async {
+    if (_pending.isNotEmpty) return; // _toggleDone 참고
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _refreshing = true);
     final scheduler = ref.read(alarmSchedulerProvider);
