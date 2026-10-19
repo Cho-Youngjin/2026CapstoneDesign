@@ -58,22 +58,29 @@ final overseasMappingActiveProvider = StateProvider<bool>((ref) => false);
 /// 주변 정보가 "지금 있는 곳"을 해외 위치로 삼는 데 쓴다.
 final overseasPositionProvider = StateProvider<LatLng?>((ref) => null);
 
+/// 실시간 경로용 위치 스트림을 여는 함수. 테스트에서 실제 GPS 대신 가짜 스트림을 넣으려고 분리했다.
+final livePositionsProvider = Provider<Stream<Position> Function()>(
+  (ref) => () => Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
+      ),
+);
+
 final liveRouteProvider = StreamProvider.autoDispose<List<LatLng>>((ref) {
   final enabled = ref.watch(realtimeTrackingEnabledProvider);
   if (!enabled) return const Stream.empty();
 
-  final positions = Geolocator.getPositionStream(
-    locationSettings: const LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
-    ),
-  );
+  final positions = ref.watch(livePositionsProvider)();
 
   return trackAndPersistLiveRoute(
     positions: positions,
     countryResolver: ref.watch(realtimeCountryResolverProvider),
     repository: ref.watch(footstepsRepositoryProvider),
-    shouldPersist: () => !ref.read(overseasMappingActiveProvider),
+    // 국가 판정을 기다리는 사이 추적이 꺼지거나(백그라운드 전환) 화면을 떠나 이 provider가 사라졌으면
+    // ref를 쓸 수 없다. 그때 들어온 좌표는 저장하지 않는다 — 구독이 이미 끝난 뒤의 마지막 한 점이다.
+    shouldPersist: () => ref.mounted && !ref.read(overseasMappingActiveProvider),
   );
 });
 
