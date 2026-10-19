@@ -426,6 +426,21 @@ void main() {
           unorderedEquals([notificationIdFor(3), notificationIdFor(5)]));
     });
 
+    testWidgets('완료를 취소해 울릴 일정이 생기면 그때 알림 권한을 요청한다', (tester) async {
+      final permission = FakePermission();
+      await pumpResultPage(tester,
+          trip: sampleTrip(tasks: [
+            task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20), done: true),
+          ]),
+          permission: permission);
+      expect(permission.calls, 0, reason: '처음에는 울릴 일정이 없다');
+
+      await tester.tap(find.text('여행자보험 가입'));
+      await tester.pumpAndSettle();
+
+      expect(permission.calls, 1);
+    });
+
     testWidgets('완료를 취소한 일정이 이미 마감일을 지났으면 알람을 잡지 않는다', (tester) async {
       final trip = sampleTrip(id: 7, tasks: [
         task(id: 3, title: '여권 재발급', dueDate: DateTime(2026, 9, 1), done: true),
