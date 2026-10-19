@@ -189,7 +189,7 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
     final dm = await showModalBottomSheet<RoomDetail>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => MembersSheet(members: room.members, myUid: myUid),
+      builder: (_) => MembersSheet(members: room.members, myUid: myUid, inviteCode: room.inviteCode),
     );
     if (dm == null || !mounted) return;
     ref.invalidate(myRoomsProvider);

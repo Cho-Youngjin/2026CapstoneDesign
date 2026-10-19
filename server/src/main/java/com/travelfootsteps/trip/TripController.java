@@ -155,6 +155,22 @@ public class TripController {
         return TripTaskResponse.from(task);
     }
 
+    // DELETE /api/trips/{id}/tasks/{taskId}/done — 완료를 취소한다(위 POST의 반대).
+    // @DeleteMapping: HTTP DELETE 요청을 이 메서드에 연결한다. "완료 표시(done)를 지운다"는 뜻이라
+    // 같은 주소에 POST(붙이기)/DELETE(떼기)를 짝지었다. 이미 완료가 아니어도 오류 없이 false를
+    // 돌려준다 — 같은 요청을 두 번 보내도 결과가 같아야(멱등) 앱이 재시도를 걱정하지 않아도 된다.
+    // 남의 여행이면 POST와 똑같이 404다.
+    @DeleteMapping("/{id}/tasks/{taskId}/done")
+    public TripTaskResponse markTaskUndone(@PathVariable Long id, @PathVariable Long taskId,
+                                            Authentication authentication) {
+        findOwnedTripOrThrow(id, authentication.getName());
+        TripTask task = tripTaskRepository.findByIdAndTripId(taskId, id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "준비물 항목을 찾을 수 없습니다"));
+        task.markUndone();
+        tripTaskRepository.save(task);
+        return TripTaskResponse.from(task);
+    }
+
     // GET /api/trips/{id}/checklist — 이 여행 생성 시점에 스냅샷으로 복사해 둔 체크리스트를
     // 우선순위순으로 돌려준다. 진행률(%)은 여기서 계산해 내려주지 않는다 — 앱이 checked 개수를
     // 세어 계산한다(2026-09-12 리뷰, 과설계 방지).

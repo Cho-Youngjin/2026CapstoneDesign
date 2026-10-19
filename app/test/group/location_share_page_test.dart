@@ -110,7 +110,7 @@ void main() {
     expect(page.markers(tester).map((m) => m.markerId.value), ['me']);
   });
 
-  testWidgets('그룹원의 위치가 오면 마커를 그리고, 소식이 끊기면 꺼짐으로 바꾼다', (tester) async {
+  testWidgets('그룹원의 위치가 오면 마커를 그리고, 소식이 끊기면 업데이트 멈춤과 마지막 시각을 보여준다', (tester) async {
     final page = _Page();
     await page.pump(tester);
 
@@ -127,9 +127,27 @@ void main() {
     page.ticks.add(null);
     await tester.pumpAndSettle();
 
-    expect(page.markers(tester).single.infoWindow.title, '민준 · 꺼짐');
-    expect(page.markers(tester).single.alpha, lessThan(1));
+    final stale = page.markers(tester).single;
+    expect(stale.infoWindow.title, '민준 · 위치 업데이트 멈춤');
+    expect(stale.infoWindow.snippet, '마지막 위치 21초 전');
+    expect(stale.alpha, lessThan(1));
     expect(find.text('공유 중'), findsNothing);
+    expect(find.text('21초 전'), findsOneWidget, reason: '멤버 칩에도 마지막으로 받은 때를 보여준다');
+
+    page.now = page.now.add(const Duration(minutes: 3));
+    page.ticks.add(null);
+    await tester.pumpAndSettle();
+
+    expect(page.markers(tester).single.infoWindow.snippet, '마지막 위치 3분 전');
+    expect(find.text('3분 전'), findsOneWidget);
+  });
+
+  test('lastSeenLabel은 초·분·시간 단위로 줄여 말한다', () {
+    expect(lastSeenLabel(const Duration(seconds: 21)), '21초 전');
+    expect(lastSeenLabel(const Duration(seconds: 59)), '59초 전');
+    expect(lastSeenLabel(const Duration(minutes: 1, seconds: 30)), '1분 전');
+    expect(lastSeenLabel(const Duration(minutes: 59)), '59분 전');
+    expect(lastSeenLabel(const Duration(hours: 2, minutes: 5)), '2시간 전');
   });
 
   testWidgets('이름이 비어 있는 그룹원은 대체 이름으로 보여준다', (tester) async {

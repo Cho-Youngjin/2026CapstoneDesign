@@ -44,4 +44,10 @@ public class TripTask {
     public void markDone() {
         this.done = true;
     }
+
+    // 잘못 눌러 완료한 일정을 되돌린다. done을 그냥 setter로 열지 않고 "완료/취소" 두 동작으로만
+    // 바꿀 수 있게 해 두면, 이 필드가 어디서 바뀌는지 메서드 이름만 찾아봐도 알 수 있다.
+    public void markUndone() {
+        this.done = false;
+    }
 }

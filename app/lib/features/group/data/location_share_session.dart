@@ -89,6 +89,12 @@ class LocationShareState {
     return m == null || now.difference(m.receivedAt) > locationStaleAfter;
   }
 
+  /// 그 사람의 위치를 마지막으로 받은 뒤 지난 시간. 한 번도 받지 못했으면 null.
+  Duration? sinceLastUpdate(String uid) {
+    final m = others[uid];
+    return m == null ? null : now.difference(m.receivedAt);
+  }
+
   LocationShareState copyWith({
     bool? loading,
     Object? loadError,

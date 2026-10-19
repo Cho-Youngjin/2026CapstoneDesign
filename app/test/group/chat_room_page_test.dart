@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/features/group/chat_room_page.dart';
 import 'package:app/features/group/data/chat_api.dart';
@@ -9,6 +7,7 @@ import 'package:app/features/group/models/room.dart';
 import 'package:app/router.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -297,6 +296,28 @@ void main() {
       expect(find.byKey(const Key('membersSheetError')), findsOneWidget);
       expect(find.textContaining('같은 그룹 멤버에게만'), findsOneWidget);
       expect(find.text('채팅 30'), findsNothing);
+    });
+
+    testWidgets('멤버 목록에서 이 방의 초대 코드를 보고 복사할 수 있다', (tester) async {
+      final copied = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied.add((call.arguments as Map)['text'] as String);
+        }
+        return null;
+      });
+      addTearDown(() =>
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+      await _pump(tester);
+
+      await tester.tap(find.byKey(const Key('openMembers')));
+      await tester.pumpAndSettle();
+      expect(find.text('ABC234'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('membersInviteCopy')));
+      await tester.pump();
+
+      expect(copied, ['ABC234']);
     });
 
     testWidgets('DM 방에는 멤버 목록 버튼이 없고 제목은 상대 이름이다', (tester) async {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -11,11 +12,15 @@ import 'models/room.dart';
 /// 그 방을 돌려준다(Plan D Task 5). 닫으면 null.
 ///
 /// DM은 같은 그룹 멤버끼리만 열 수 있어(서버 규칙) 이 목록이 DM을 시작하는 곳이다.
+/// 방을 만든 뒤에도 일행을 더 부를 수 있게 이 방의 초대 코드도 여기서 보여준다.
 class MembersSheet extends ConsumerStatefulWidget {
-  const MembersSheet({super.key, required this.members, required this.myUid});
+  const MembersSheet({super.key, required this.members, required this.myUid, this.inviteCode});
 
   final List<RoomMember> members;
   final String? myUid;
+
+  /// 그룹 방의 초대 코드. 없으면(DM 등) 표시하지 않는다.
+  final String? inviteCode;
 
   @override
   ConsumerState<MembersSheet> createState() => _MembersSheetState();
@@ -63,6 +68,7 @@ class _MembersSheetState extends ConsumerState<MembersSheet> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text('멤버 ${members.length}', style: AppTextStyles.screenTitle),
+              if (widget.inviteCode case final code?) _InviteCodeRow(code: code),
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
@@ -104,6 +110,43 @@ class _MembersSheetState extends ConsumerState<MembersSheet> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _InviteCodeRow extends StatelessWidget {
+  const _InviteCodeRow({required this.code});
+
+  final String code;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        children: [
+          Text('초대 코드', style: AppTextStyles.caption),
+          const SizedBox(width: 8),
+          SelectableText(
+            code,
+            key: const Key('membersInviteCode'),
+            style: AppTextStyles.body.copyWith(letterSpacing: 3, color: AppColors.accent),
+          ),
+          const Spacer(),
+          TextButton.icon(
+            key: const Key('membersInviteCopy'),
+            icon: const Icon(Icons.copy, size: 16),
+            label: const Text('복사'),
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: code));
+              if (context.mounted) {
+                ScaffoldMessenger.maybeOf(context)
+                    ?.showSnackBar(const SnackBar(content: Text('초대 코드를 복사했어요')));
+              }
+            },
+          ),
+        ],
       ),
     );
   }

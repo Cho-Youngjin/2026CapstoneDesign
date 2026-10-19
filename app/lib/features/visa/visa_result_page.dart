@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/auth/auth_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
@@ -212,26 +213,45 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
   late Trip _trip = widget.trip;
   bool _refreshing = false;
 
+  /// 서버 응답을 기다리는 일정. 그동안 다시 누르면 무시한다 — 연타가 완료·취소 요청을 엇갈려 보내지 않게.
+  final Set<int> _pending = {};
+
   @override
   void initState() {
     super.initState();
     // 열 때마다 서버의 최신 일정으로 알람을 맞춘다. 새로 만든 여행도 이 화면으로 오므로 여기서 예약된다.
     final trip = _trip;
     final permission = ref.read(notificationPermissionProvider);
-    _runAlarm((s) async {
-      // 예약을 먼저 줄 세운다. 권한 대화상자가 떠 있는 동안 사용자가 일정을 완료하면 그 취소가 이
-      // 예약 뒤에 처리돼야 한다 — 권한을 기다린 뒤에 예약하면 완료한 일정의 알람이 되살아난다.
-      final sync = s.syncTrip(trip);
-      // 알람을 띄우려면 Android 13+에서 알림 권한이 필요하다. 이미 있는 여행만 가진 사용자(앱 재설치 등)도
-      // 이 화면은 열게 되므로 여기서 묻는다. 허용돼 있으면 아무것도 뜨지 않는다. 거부하거나 요청이
-      // 실패해도 예약은 해 둔다 — 나중에 설정에서 허용하면 그때부터 보인다.
-      if (s.hasUpcoming(trip)) {
-        try {
-          await permission.request();
-        } catch (_) {}
-      }
-      await sync;
-    });
+    _runAlarm((s) => _syncAsking(s, trip, permission));
+  }
+
+  /// 이 여행의 알람을 맞추고, 울릴 일정이 있으면 알림 권한을 묻는다. 화면을 열 때와, 완료를 취소해
+  /// 일정이 다시 울리게 될 때 쓴다(처음엔 울릴 일정이 없어 묻지 않았을 수 있다).
+  static Future<void> _syncAsking(
+      AlarmScheduler s, Trip trip, NotificationPermission permission) async {
+    // 예약을 먼저 줄 세운다. 권한 대화상자가 떠 있는 동안 사용자가 일정을 완료하면 그 취소가 이
+    // 예약 뒤에 처리돼야 한다 — 권한을 기다린 뒤에 예약하면 완료한 일정의 알람이 되살아난다.
+    final sync = s.syncTrip(trip);
+    // 알람을 띄우려면 Android 13+에서 알림 권한이 필요하다. 이미 있는 여행만 가진 사용자(앱 재설치 등)도
+    // 이 화면은 열게 되므로 여기서 묻는다. 허용돼 있으면 아무것도 뜨지 않는다. 거부하거나 요청이
+    // 실패해도 예약은 해 둔다 — 나중에 설정에서 허용하면 그때부터 보인다.
+    if (s.hasUpcoming(trip)) {
+      try {
+        await permission.request();
+      } catch (_) {}
+    }
+    await sync;
+  }
+
+  /// 완료를 취소한 일정 하나의 알람을 되살리고, 실제로 예약했으면 알림 권한을 묻는다 — 처음 열 때
+  /// 울릴 일정이 없어 묻지 않았을 수 있다. 예약이 끝난 뒤에 묻는 이유: 그 사이 로그아웃·계정 전환으로
+  /// 예약을 건너뛰었다면 로그인 화면이나 다른 계정 위에 이전 계정의 권한 대화상자를 띄우면 안 된다.
+  static Future<void> _restoreAsking(AlarmScheduler s, String? uid, Trip trip, TripTask task,
+      NotificationPermission permission) async {
+    if (!await s.scheduleTaskFor(uid, trip, task)) return;
+    try {
+      await permission.request();
+    } catch (_) {}
   }
 
   /// 알람은 부가 기능이라 실패해도(플러그인·권한 오류) 일정 표시와 완료 처리를 막지 않는다.
@@ -246,28 +266,49 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
     }));
   }
 
-  Future<void> _markDone(TripTask task) async {
-    if (task.done) return;
+  /// 누르면 완료, 완료한 일정을 다시 누르면 완료 취소. 취소하면 그 일정의 알람을 다시 예약한다
+  /// (마감일이 이미 지났으면 [AlarmScheduler.syncTrip]이 알아서 건너뛴다).
+  Future<void> _toggleDone(TripTask task) async {
+    // 다시 판정하는 동안에는 받지 않는다 — 서버가 일정을 지우고 새 id로 만들어, 늦게 온 응답이 이미
+    // 없어진 일정의 알람을 되살릴 수 있다. 반대로 일정 응답을 기다리는 동안에는 다시 판정을 받지 않는다.
+    if (_refreshing || !_pending.add(task.id)) return;
     final messenger = ScaffoldMessenger.of(context);
     final scheduler = ref.read(alarmSchedulerProvider);
+    final permission = ref.read(notificationPermissionProvider);
+    final uid = ref.read(currentUidProvider);
+    final api = ref.read(tripApiProvider);
     try {
-      final updated =
-          await ref.read(tripApiProvider).markTaskDone(_trip.id, task.id);
-      _runAlarm((s) => s.cancelForTask(updated.id), scheduler: scheduler);
-      if (mounted) setState(() => _trip = _trip.replaceTask(updated));
+      final updated = task.done
+          ? await api.markTaskUndone(_trip.id, task.id)
+          : await api.markTaskDone(_trip.id, task.id);
+      // 화면을 나간 뒤에 응답이 와도 알람은 맞춘다 — 서버에는 이미 반영됐다. 다만 완료를 취소했을 때는
+      // 이 일정 하나만 다시 예약하고, 그 사이 계정이 바뀌었으면 하지 않는다(scheduleTaskFor 참고).
+      final trip = _trip.replaceTask(updated);
+      _runAlarm(
+        (s) => updated.done
+            ? s.cancelForTask(updated.id)
+            : _restoreAsking(s, uid, trip, updated, permission),
+        scheduler: scheduler,
+      );
+      if (mounted) setState(() => _trip = trip);
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(tripErrorMessage(e))));
+    } finally {
+      _pending.remove(task.id);
     }
   }
 
   Future<void> _refreshJudgement() async {
+    if (_pending.isNotEmpty) return; // _toggleDone 참고
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _refreshing = true);
     final scheduler = ref.read(alarmSchedulerProvider);
+    final uid = ref.read(currentUidProvider);
     try {
       final refreshed = await ref.read(tripApiProvider).refreshTrip(_trip.id);
       // 다시 판정하면 서버가 일정을 새로 만들어 id가 바뀐다 — 이전 알람을 지우고 새 일정으로 맞춘다.
-      _runAlarm((s) => s.syncTrip(refreshed), scheduler: scheduler);
+      // 응답을 기다리는 사이 계정이 바뀌었으면 이전 계정의 알람을 되살리지 않는다.
+      _runAlarm((s) => s.syncTripFor(uid, refreshed), scheduler: scheduler);
       if (mounted) setState(() => _trip = refreshed);
       ref.invalidate(tripListProvider);
     } catch (e) {
@@ -337,7 +378,7 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
                 task: tasks[i],
                 departDate: _trip.departDate,
                 isLast: i == tasks.length - 1,
-                onTap: () => _markDone(tasks[i]),
+                onTap: () => _toggleDone(tasks[i]),
               ),
           const SizedBox(height: 24),
           Row(
@@ -538,7 +579,7 @@ class _BasisCard extends StatelessWidget {
 }
 
 /// 역산 일정 타임라인 한 단계: 좌측 점(+연결선), 우측 제목/상태/날짜.
-/// 누르면 완료로 표시한다(서버는 완료 해제 API를 제공하지 않아 되돌릴 수 없다).
+/// 누르면 완료로 표시하고, 완료한 단계를 다시 누르면 완료를 취소한다.
 class _TimelineStep extends StatelessWidget {
   const _TimelineStep({
     required this.task,
@@ -584,7 +625,7 @@ class _TimelineStep extends StatelessWidget {
             child: Padding(
               padding: EdgeInsets.only(bottom: isLast ? 0 : 20),
               child: InkWell(
-                onTap: tone == TaskTone.done ? null : onTap,
+                onTap: onTap,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

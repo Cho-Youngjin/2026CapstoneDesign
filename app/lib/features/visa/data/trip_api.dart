@@ -56,6 +56,14 @@ class TripApi {
     return TripTask.fromJson(response.data!);
   }
 
+  /// 잘못 눌러 완료한 일정을 되돌린다. 이미 완료가 아니어도 서버는 그대로 false를 돌려준다.
+  Future<TripTask> markTaskUndone(int tripId, int taskId) async {
+    final response = await _dio.delete<Map<String, dynamic>>(
+      '/api/trips/$tripId/tasks/$taskId/done',
+    );
+    return TripTask.fromJson(response.data!);
+  }
+
   /// 내 여행 목록(출발일 최신순).
   Future<List<TripSummary>> listTrips() async {
     final response = await _dio.get<List<dynamic>>('/api/trips');
