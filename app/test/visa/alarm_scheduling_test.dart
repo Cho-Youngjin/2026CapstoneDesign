@@ -218,6 +218,16 @@ void main() {
         expect(backend.scheduled, isEmpty);
       });
 
+      test('그 사이 지운 여행이면 예약하지 않는다', () async {
+        final trip = sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]);
+        await owned.cancelForTrip(7); // 여행 삭제(또는 다른 기기에서 지워져 404)
+
+        expect(await owned.scheduleTaskFor('uid-a', trip, _task(101, DateTime(2026, 9, 21))), isFalse);
+        await owned.syncTripFor('uid-a', trip);
+
+        expect(backend.scheduled, isEmpty);
+      });
+
       test('같은 계정이면 여행 전체를 다시 맞춘다', () async {
         await owned.syncTripFor('uid-a', sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
 

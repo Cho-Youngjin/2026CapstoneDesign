@@ -231,7 +231,7 @@ class AlarmScheduler {
   /// 로그아웃했거나 다른 계정으로 바뀌었으면 아무것도 하지 않는다 — 계정 가드가 이미 정리한 이전 계정의
   /// 알람을 되살리면 다른 사람 기기에 그 사람의 여행 일정이 뜬다.
   Future<void> syncTripFor(String? owner, Trip trip) => _serial(() async {
-        if (_ownedBy(owner)) await _sync(trip);
+        if (_ownedBy(owner) && !_removedTrips.contains(trip.id)) await _sync(trip);
       });
 
   /// 서버 응답을 기다린 뒤에 일정 하나만 다시 예약할 때(완료 취소). 여행 전체를 다시 맞추지 않는 이유:
@@ -240,12 +240,18 @@ class AlarmScheduler {
   ///
   /// 실제로 예약했으면 true. false면(계정이 바뀌었거나 울릴 일정이 아님) 알림 권한도 묻지 않는다.
   Future<bool> scheduleTaskFor(String? owner, Trip trip, TripTask task) => _serial(() async {
-        if (!_ownedBy(owner) || !shouldScheduleAlarm(task, _now())) return false;
+        if (!_ownedBy(owner) || _removedTrips.contains(trip.id) || !shouldScheduleAlarm(task, _now())) {
+          return false;
+        }
         await _schedule(trip, task);
         return true;
       });
 
   bool _ownedBy(String? owner) => owner != null && _registry.readOwner() == owner;
+
+  /// [cancelForTrip]으로 지운 여행. 응답을 기다리던 예약([scheduleTaskFor], [syncTripFor])이 삭제보다 늦게
+  /// 와도 그 여행의 알람을 되살리지 않게 기억한다. 여행 id는 다시 쓰이지 않으므로 앱이 떠 있는 동안 둔다.
+  final Set<int> _removedTrips = {};
 
   Future<void> _sync(Trip trip) async {
     await _cancelWhere((tripId) => tripId == trip.id);
@@ -274,7 +280,11 @@ class AlarmScheduler {
         await _registry.write(_registry.read()..remove(id));
       });
 
-  Future<void> cancelForTrip(int tripId) => _serial(() => _cancelWhere((id) => id == tripId));
+  /// 여행이 없어졌을 때(삭제, 다른 기기에서 지워져 404) 그 여행의 알람을 모두 지운다.
+  Future<void> cancelForTrip(int tripId) => _serial(() {
+        _removedTrips.add(tripId);
+        return _cancelWhere((id) => id == tripId);
+      });
 
   /// 서버 목록에 없는 여행(다른 기기에서 지웠거나 다른 계정의 여행)의 알람을 지운다.
   Future<void> keepOnlyTrips(Set<int> tripIds) =>
