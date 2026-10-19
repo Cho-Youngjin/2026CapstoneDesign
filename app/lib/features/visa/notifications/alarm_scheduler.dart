@@ -225,7 +225,13 @@ class AlarmScheduler {
 
   /// 이 여행의 알람을 지금 일정에 맞춘다. 이전 알람을 모두 지운 뒤 남은 일정만 다시 예약하므로,
   /// 다시 판정해 일정 id가 바뀌어도 낡은 알람이 남지 않는다.
-  Future<void> syncTrip(Trip trip) => _serial(() => _sync(trip));
+  ///
+  /// [trip]은 방금 서버에서 받은 여행이므로, 이전에 없어진 것으로 적어 둔 여행이어도(다른 계정일 때 목록에
+  /// 없었다든가) 지금은 있는 것으로 되돌린다.
+  Future<void> syncTrip(Trip trip) => _serial(() {
+        _removedTrips.remove(trip.id);
+        return _sync(trip);
+      });
 
   /// 서버 응답을 기다린 뒤에 여행 전체를 맞출 때(다시 판정). 요청을 보낸 계정([owner])이 그 사이
   /// 로그아웃했거나 다른 계정으로 바뀌었으면 아무것도 하지 않는다 — 계정 가드가 이미 정리한 이전 계정의
@@ -324,6 +330,11 @@ class AlarmScheduler {
         final owner = _registry.readOwner();
         if (uid == null || (owner != null && owner != uid)) {
           await _cancelWhere((_) => true);
+        }
+        // 없어진 여행·일정 기록은 그 계정의 목록과 화면을 기준으로 쓴 것이라 계정이 바뀌면 버린다.
+        if (owner != uid) {
+          _removedTrips.clear();
+          _tasksByTrip.clear();
         }
         if (owner != uid) await _registry.writeOwner(uid);
       });

@@ -250,6 +250,25 @@ void main() {
         expect(backend.scheduled, isEmpty);
       });
 
+      test('정리됐던 여행도 서버에서 다시 받아 열면 다시 예약한다 (다른 계정일 때 목록에 없었을 뿐)', () async {
+        final trip = sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21), done: true)]);
+        await owned.syncTrip(trip);
+        await owned.keepOnlyTrips({8}); // 다른 계정의 목록에는 7번이 없다
+
+        await owned.syncTrip(trip); // 원래 계정으로 돌아와 7번을 다시 열었다
+
+        expect(await owned.scheduleTaskFor('uid-a', trip, _task(101, DateTime(2026, 9, 21))), isTrue);
+      });
+
+      test('계정이 바뀌면 정리 기록도 처음부터 다시 쓴다', () async {
+        final trip = sampleTrip(id: 7);
+        await owned.cancelForTrip(7); // uid-a로 있을 때 404
+        await owned.claimFor('uid-b');
+        await owned.claimFor('uid-a');
+
+        expect(await owned.scheduleTaskFor('uid-a', trip, _task(101, DateTime(2026, 9, 21))), isTrue);
+      });
+
       test('같은 계정이면 여행 전체를 다시 맞춘다', () async {
         await owned.syncTripFor('uid-a', sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
 
