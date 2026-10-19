@@ -73,6 +73,12 @@ RoomSummary sampleRoom({
   );
 }
 
+extension RoomDetailMembers on RoomDetail {
+  /// 같은 방에 멤버만 바꾼 상세.
+  RoomDetail withMembers(List<RoomMember> members) =>
+      RoomDetail(id: id, type: type, name: name, inviteCode: inviteCode, members: members);
+}
+
 RoomDetail sampleDetail({int id = 1, String name = '도쿄 여행', String inviteCode = 'ABC234'}) {
   return RoomDetail(
     id: id,
@@ -199,6 +205,23 @@ class FakeChatApi implements ChatApi {
     final message = sampleMessage(id: _nextId++, roomId: roomId, text: text, senderUid: 'uid-a');
     storedMessages.add(message);
     return message;
+  }
+
+  // ───────────── 읽음 (Plan D Task 7) ─────────────
+
+  /// markRead를 실패시킨다(호출은 기록한다).
+  bool readFails = false;
+  final List<int> readMarks = [];
+
+  @override
+  Future<void> markRead(int roomId, int lastReadMessageId) async {
+    readMarks.add(lastReadMessageId);
+    if (readFails) {
+      throw DioException.connectionError(
+        requestOptions: RequestOptions(path: '/api/rooms/$roomId/read'),
+        reason: 'offline',
+      );
+    }
   }
 
   // ───────────── 사진 (Plan D Task 6) ─────────────

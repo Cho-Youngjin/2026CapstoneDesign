@@ -28,4 +28,10 @@ class ChatMessageBroadcaster {
         MessageResponse message = event.message();
         messagingTemplate.convertAndSend(RoomDestinations.messages(message.roomId()), message);
     }
+
+    /** 읽음 위치가 바뀌었다(Task 7). 같은 이유로 커밋 뒤에만 보낸다 — 화면의 "안 읽은 사람 수"가 저장된 값과 어긋나지 않게. */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    void onRead(ReadEvent event) {
+        messagingTemplate.convertAndSend(RoomDestinations.read(event.roomId()), event);
+    }
 }

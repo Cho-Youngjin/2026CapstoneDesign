@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:app/router.dart';
@@ -121,8 +122,24 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
     }
   }
 
+  /// 마지막으로 컨트롤러에 알린 "맨 위 화면인가".
+  bool _reportedVisible = true;
+
+  /// 위에 다른 화면(위치공유, 다른 DM)이 열리거나 닫히면 컨트롤러에 알린다 — 가려진 동안 온 메시지를 읽음으로
+  /// 치지 않게(Task 7). `ModalRoute.isCurrentOf`에 기대면 라우트가 바뀔 때마다 이 build가 다시 불린다.
+  void _reportVisibility(BuildContext context) {
+    final visible = ModalRoute.isCurrentOf(context) ?? true;
+    if (visible == _reportedVisible) return;
+    _reportedVisible = visible;
+    // build 중에는 provider 상태를 바꿀 수 없으므로 프레임이 끝난 뒤에 알린다.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(chatRoomControllerProvider(widget.roomId).notifier).setVisible(visible);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    _reportVisibility(context);
     final detail = ref.watch(roomDetailProvider(widget.roomId));
     final chat = ref.watch(chatRoomControllerProvider(widget.roomId));
     final myUid = ref.watch(currentUidProvider);
@@ -218,6 +235,16 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
     // 보낸 것이 맨 아래), 그 위로 메시지를 둔다. 각 메시지 "위"에 날짜가 바뀌면 날짜 구분선을 둔다 —
     // 즉 바로 다음(더 오래된) 메시지와 날짜가 다르거나 더 오래된 메시지가 없을 때.
     final controller = ref.read(chatRoomControllerProvider(widget.roomId).notifier);
+    // 멤버별 읽음 위치(Task 7): 방 상세의 값과 컨트롤러가 맞춘 값 중 큰 쪽. 방 상세를 받은 뒤 들어와
+    // 컨트롤러만 아는 멤버도 넣는다 — 그 사람도 안 읽었으면 세야 한다.
+    final readPositions = <String, int>{
+      for (final e in chat.readPositions.entries) e.key: e.value,
+      for (final member in members.values)
+        member.uid: max(member.lastReadMessageId ?? 0, chat.readPositions[member.uid] ?? 0),
+    };
+    // 이 메시지를 아직 안 읽은 멤버 수 — 보낸 사람은 빼고 센다. 0이면 표시하지 않는다.
+    int unreadOf(ChatMessage m) =>
+        readPositions.entries.where((e) => e.key != m.senderUid && e.value < m.id).length;
     final itemCount = pending.length + messages.length + (chat.loadingMore ? 1 : 0);
     return ListView.builder(
       controller: _scroll,
@@ -256,11 +283,12 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
               const SizedBox(height: 14),
             ],
             mine
-                ? _OutgoingTextMessage(key: Key('outgoing-${m.id}'), message: m)
+                ? _OutgoingTextMessage(key: Key('outgoing-${m.id}'), message: m, unread: unreadOf(m))
                 : _IncomingTextMessage(
                     key: Key('incoming-${m.id}'),
                     message: m,
                     senderName: members[m.senderUid]?.label ?? '알 수 없음',
+                    unread: unreadOf(m),
                   ),
             const SizedBox(height: 14),
           ],
@@ -392,16 +420,38 @@ class _DatePill extends StatelessWidget {
   }
 }
 
+/// 말풍선 옆의 시각. 위에 아직 안 읽은 멤버 수를 붙인다(Task 7, 0이면 생략).
 class _Time extends StatelessWidget {
-  const _Time(this.at);
+  const _Time(this.at, {required this.messageId, this.unread = 0, this.alignEnd = false});
 
   final DateTime at;
+  final int messageId;
+  final int unread;
+
+  /// 내 말풍선은 시각이 말풍선 왼쪽에 오므로 오른쪽(말풍선 쪽)에 붙인다.
+  final bool alignEnd;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      formatClock(at),
-      style: AppTextStyles.caption.copyWith(fontSize: 9, color: AppColors.textTertiary),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        if (unread > 0)
+          Text(
+            '$unread',
+            key: Key('unread-$messageId'),
+            style: AppTextStyles.caption.copyWith(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: AppColors.accent,
+            ),
+          ),
+        Text(
+          formatClock(at),
+          style: AppTextStyles.caption.copyWith(fontSize: 9, color: AppColors.textTertiary),
+        ),
+      ],
     );
   }
 }
@@ -409,10 +459,16 @@ class _Time extends StatelessWidget {
 const _bubbleText = TextStyle(fontFamily: 'Noto Sans KR', fontSize: 14, height: 1.4, color: AppColors.ink);
 
 class _IncomingTextMessage extends StatelessWidget {
-  const _IncomingTextMessage({super.key, required this.message, required this.senderName});
+  const _IncomingTextMessage({
+    super.key,
+    required this.message,
+    required this.senderName,
+    required this.unread,
+  });
 
   final ChatMessage message;
   final String senderName;
+  final int unread;
 
   @override
   Widget build(BuildContext context) {
@@ -452,7 +508,7 @@ class _IncomingTextMessage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 6),
-                  _Time(message.createdAt),
+                  _Time(message.createdAt, messageId: message.id, unread: unread),
                 ],
               ),
             ],
@@ -464,9 +520,10 @@ class _IncomingTextMessage extends StatelessWidget {
 }
 
 class _OutgoingTextMessage extends StatelessWidget {
-  const _OutgoingTextMessage({super.key, required this.message});
+  const _OutgoingTextMessage({super.key, required this.message, required this.unread});
 
   final ChatMessage message;
+  final int unread;
 
   @override
   Widget build(BuildContext context) {
@@ -474,7 +531,7 @@ class _OutgoingTextMessage extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.end,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        _Time(message.createdAt),
+        _Time(message.createdAt, messageId: message.id, unread: unread, alignEnd: true),
         const SizedBox(width: 6),
         Flexible(
           child: Container(

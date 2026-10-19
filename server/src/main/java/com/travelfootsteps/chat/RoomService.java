@@ -111,9 +111,14 @@ public class RoomService {
                         ChatRoomMemberRepository.RoomMemberCount::getMemberCount));
         Map<Long, MemberResponse> dmPeers = dmPeersOf(uid,
                 rooms.stream().filter(r -> r.getType() == RoomType.DM).map(ChatRoom::getId).toList());
+        // 안 읽은 수(Task 7) — 방이 몇 개든 쿼리 한 번. 안 읽은 게 없는 방은 결과에 없어 0으로 둔다.
+        Map<Long, Long> unreadCounts = memberRepository.countUnreadOf(uid).stream()
+                .collect(Collectors.toMap(
+                        ChatRoomMemberRepository.RoomUnreadCount::getRoomId,
+                        ChatRoomMemberRepository.RoomUnreadCount::getUnreadCount));
         return rooms.stream()
                 .map(room -> RoomSummaryResponse.of(room, memberCounts.getOrDefault(room.getId(), 0L),
-                        dmPeers.get(room.getId())))
+                        unreadCounts.getOrDefault(room.getId(), 0L), dmPeers.get(room.getId())))
                 .toList();
     }
 

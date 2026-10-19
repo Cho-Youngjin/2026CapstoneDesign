@@ -14,8 +14,8 @@ public class ChatExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
-    /** 자기 자신에게 DM을 열려는 요청, 빈 사진 파일은 잘못된 요청(400)이다. */
-    @ExceptionHandler({SelfDmException.class, InvalidChatImageException.class})
+    /** 자기 자신에게 DM을 열려는 요청, 빈 사진 파일, 그 방의 메시지가 아닌 읽음 위치는 잘못된 요청(400)이다. */
+    @ExceptionHandler({SelfDmException.class, InvalidChatImageException.class, InvalidReadPositionException.class})
     public ResponseEntity<Void> handleBadRequest(RuntimeException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
     }

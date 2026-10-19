@@ -130,6 +130,17 @@ class ChatApi {
     return Uint8List.fromList(response.data!);
   }
 
+  /// 이 방에서 [lastReadMessageId]까지 읽었다고 알린다(Plan D Task 7). 서버는 위치를 앞으로만 옮기므로
+  /// 늦게 도착한 옛 요청이 위치를 되돌리지 않는다.
+  Future<void> markRead(int roomId, int lastReadMessageId) async {
+    try {
+      await _dio.post<void>('/api/rooms/$roomId/read', data: {'lastReadMessageId': lastReadMessageId});
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) throw const RoomNotFoundException();
+      rethrow;
+    }
+  }
+
   /// 채팅 화면에 표시할 내 이름·사진을 올린다(처음이면 만들고 있으면 덮어쓴다).
   Future<void> putProfile({required String? displayName, required String? photoUrl}) async {
     await _dio.put<void>(

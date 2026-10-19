@@ -94,6 +94,15 @@ void main() {
     });
   });
 
+  test('markRead가 읽은 위치를 POST /api/rooms/{id}/read로 보낸다 (Plan D Task 7)', () async {
+    final adapter = StubHttpClientAdapter(path: '/api/rooms/1/read', statusCode: 204, body: '');
+
+    await _api(adapter).markRead(1, 42);
+
+    expect(adapter.lastRequest!.method, 'POST');
+    expect(adapter.lastRequest!.data, {'lastReadMessageId': 42});
+  });
+
   test('openDm이 상대 uid를 POST /api/rooms/dm으로 보내고 DM 방을 파싱한다', () async {
     final adapter = StubHttpClientAdapter(
       path: '/api/rooms/dm',

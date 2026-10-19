@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/features/group/data/chat_api.dart';
 import 'package:app/features/group/data/chat_room_controller.dart';
 import 'package:app/features/group/data/chat_socket.dart';
 import 'package:app/features/group/models/chat_message.dart';
+import 'package:app/features/group/models/room.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,15 +16,19 @@ import 'fake_chat_socket.dart';
 
 const _roomId = 1;
 const _topic = '/topic/rooms/1/messages';
+const _readTopic = '/topic/rooms/1/read';
 
 late FakeChatApi api;
 late FakeChatSocket socket;
 
 /// 컨트롤러를 만들고 구독을 유지한 채(화면이 보고 있는 상태) 첫 조회가 끝날 때까지 기다린다.
-Future<ProviderContainer> _start() async {
+/// 읽음 디바운스는 0으로 둬 바로 보낸다(실제 1초는 따로 확인한다).
+Future<ProviderContainer> _start({Duration readDebounce = Duration.zero}) async {
   final container = ProviderContainer(overrides: [
     chatApiProvider.overrideWithValue(api),
     chatSocketProvider.overrideWithValue(socket),
+    currentUidProvider.overrideWithValue('uid-a'),
+    chatReadDebounceProvider.overrideWithValue(readDebounce),
   ]);
   addTearDown(container.dispose);
   final sub = container.listen(chatRoomControllerProvider(_roomId), (_, _) {});
@@ -59,7 +65,7 @@ void main() {
     test('그 방의 실시간 토픽을 구독한다', () async {
       await _start();
 
-      expect(socket.activeSubscriptions, {_topic});
+      expect(socket.activeSubscriptions, {_topic, _readTopic});
     });
 
     test('멤버가 아닌 방(404)이면 구독하지 않는다 — 공유 연결이 서버에 끊기지 않게', () async {
@@ -80,7 +86,7 @@ void main() {
       await _controller(c).retry();
       await _settle();
 
-      expect(socket.activeSubscriptions, {_topic});
+      expect(socket.activeSubscriptions, {_topic, _readTopic});
     });
 
     test('불러오기에 실패하면 오류 상태가 되고 retry로 다시 시도한다', () async {
@@ -138,7 +144,7 @@ void main() {
       addTearDown(container.dispose);
       final sub = container.listen(chatRoomControllerProvider(_roomId), (_, _) {});
       await _settle();
-      expect(socket.activeSubscriptions, {_topic});
+      expect(socket.activeSubscriptions, {_topic, _readTopic});
 
       sub.close();   // 화면이 사라짐 → autoDispose
       await _settle();
@@ -177,6 +183,109 @@ void main() {
       expect(await _controller(c).send('안녕'), isFalse);
       expect(_state(c).messages, isEmpty);
       expect(_state(c).sending, isFalse);
+    });
+  });
+
+  group('읽음 (Plan D Task 7)', () {
+    test('들어오면 가장 최근 메시지까지 읽었다고 알린다', () async {
+      api.storedMessages.addAll([sampleMessage(id: 1), sampleMessage(id: 2)]);
+
+      await _start();
+
+      expect(api.readMarks, [2]);
+    });
+
+    test('메시지가 없으면 알리지 않는다', () async {
+      await _start();
+
+      expect(api.readMarks, isEmpty);
+    });
+
+    test('새 메시지가 오면 그 메시지까지 다시 알리고, 같은 위치는 다시 보내지 않는다', () async {
+      api.storedMessages.add(sampleMessage(id: 1));
+      await _start();
+
+      socket.emit(_topic, messageJson(sampleMessage(id: 5)));
+      await _settle();
+      socket.emit(_topic, messageJson(sampleMessage(id: 5))); // 같은 메시지가 또 옴
+      await _settle();
+
+      expect(api.readMarks, [1, 5]);
+    });
+
+    test('잇따라 오면 한 번만 알린다(디바운스)', () async {
+      api.storedMessages.add(sampleMessage(id: 1));
+      await _start(readDebounce: const Duration(milliseconds: 50));
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      api.readMarks.clear();
+
+      for (var id = 2; id <= 4; id++) {
+        socket.emit(_topic, messageJson(sampleMessage(id: id)));
+        await _settle();
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      expect(api.readMarks, [4]);
+    });
+
+    test('알리기에 실패하면 다음 메시지 때 다시 알린다', () async {
+      api.storedMessages.add(sampleMessage(id: 1));
+      api.readFails = true;
+      await _start();
+      api.readFails = false;
+
+      socket.emit(_topic, messageJson(sampleMessage(id: 2)));
+      await _settle();
+
+      expect(api.readMarks, [1, 2], reason: '실패한 1은 기록만 됐고 성공한 위치로 치지 않는다');
+    });
+
+    test('다른 사람이 읽었다는 소식을 받아 그 사람의 읽음 위치를 갱신한다', () async {
+      api.storedMessages.add(sampleMessage(id: 1));
+      final c = await _start();
+
+      socket.emit(_readTopic, {'roomId': 1, 'uid': 'uid-b', 'lastReadMessageId': 7});
+      socket.emit(_readTopic, {'roomId': 1, 'uid': 'uid-b', 'lastReadMessageId': 3}); // 옛 소식은 무시
+      socket.emit(_readTopic, {'uid': 'uid-c'}); // 형식이 틀린 소식은 무시
+      await _settle();
+
+      expect(_state(c).readPositions['uid-b'], 7);
+      expect(_state(c).readPositions.containsKey('uid-c'), isFalse);
+      expect(socket.activeSubscriptions, contains(_readTopic));
+    });
+
+    test('읽음 알리기가 성공하면 실시간 소식을 기다리지 않고 내 위치를 바로 옮긴다', () async {
+      api.storedMessages.add(sampleMessage(id: 3));
+
+      final c = await _start();
+
+      expect(_state(c).readPositions['uid-a'], 3);
+    });
+
+    test('구독을 시작할 때 방 정보로 멤버들의 읽음 위치를 맞춘다(구독 전에 읽은 사람 포함)', () async {
+      api.detailToReturn = sampleDetail().withMembers(const [
+        RoomMember(uid: 'uid-a'),
+        RoomMember(uid: 'uid-b', lastReadMessageId: 4),
+        RoomMember(uid: 'uid-c'), // 아직 아무것도 안 읽음
+      ]);
+
+      final c = await _start();
+
+      expect(_state(c).readPositions['uid-b'], 4);
+      expect(_state(c).readPositions['uid-c'], 0);
+    });
+
+    test('다시 연결되면 끊긴 동안 다른 사람이 읽은 위치를 다시 받는다', () async {
+      final c = await _start();
+      api.detailToReturn = sampleDetail().withMembers(const [
+        RoomMember(uid: 'uid-a'),
+        RoomMember(uid: 'uid-b', lastReadMessageId: 9),
+      ]);
+
+      socket.emitConnected();
+      await _settle();
+
+      expect(_state(c).readPositions['uid-b'], 9);
     });
   });
 
