@@ -269,11 +269,14 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
       // 화면을 나간 뒤에 응답이 와도 알람은 맞춘다 — 서버에는 이미 반영됐다. 그 사이 다른 일정의
       // 응답이 먼저 왔을 수 있으니 지금의 _trip에 이 일정만 갈아끼운 것으로 맞춘다.
       final trip = _trip.replaceTask(updated);
+      // 화면을 나갔어도 _trip은 갱신한다. 두 일정을 연달아 취소하고 나갔을 때, 뒤에 온 응답이 앞의
+      // 취소를 모르는 옛 _trip으로 syncTrip을 부르면 앞에서 되살린 알람을 다시 지운다.
+      _trip = trip;
       _runAlarm(
         (s) => updated.done ? s.cancelForTask(updated.id) : _syncAsking(s, trip, permission),
         scheduler: scheduler,
       );
-      if (mounted) setState(() => _trip = trip);
+      if (mounted) setState(() {});
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(tripErrorMessage(e))));
     } finally {

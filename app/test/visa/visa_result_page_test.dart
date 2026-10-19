@@ -472,6 +472,28 @@ void main() {
       expect(r.alarms.scheduled.keys, [notificationIdFor(3)]);
     });
 
+    testWidgets('두 일정을 취소하고 응답 전에 화면을 나가도 두 알람이 모두 남는다', (tester) async {
+      final trip = sampleTrip(id: 7, tasks: [
+        task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20), done: true),
+        task(id: 5, title: '최종 서류 점검', dueDate: DateTime(2026, 12, 13), done: true),
+      ]);
+      final r = await pumpResultPage(tester, trip: trip);
+      r.api.holdMarkTaskUndone = Completer<void>();
+
+      await tester.tap(find.text('여행자보험 가입'));
+      await tester.pump();
+      await tester.tap(find.text('최종 서류 점검'));
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+
+      r.api.holdMarkTaskUndone!.complete();
+      await tester.pumpAndSettle();
+
+      expect(r.alarms.scheduled.keys,
+          unorderedEquals([notificationIdFor(3), notificationIdFor(5)]));
+    });
+
     testWidgets('권한 대화상자가 떠 있는 동안 완료한 일정의 알람은 되살아나지 않는다', (tester) async {
       final dialog = Completer<void>();
       final r = await pumpResultPage(tester,
