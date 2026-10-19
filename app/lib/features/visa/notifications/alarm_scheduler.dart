@@ -220,24 +220,50 @@ class AlarmScheduler {
     return trip.tasks.any((t) => shouldScheduleAlarm(t, now));
   }
 
+  /// 이 일정이 지금 예약 대상인가(미완료이고 울릴 시각이 남았다).
+  bool isUpcoming(TripTask task) => shouldScheduleAlarm(task, _now());
+
   /// 이 여행의 알람을 지금 일정에 맞춘다. 이전 알람을 모두 지운 뒤 남은 일정만 다시 예약하므로,
   /// 다시 판정해 일정 id가 바뀌어도 낡은 알람이 남지 않는다.
-  Future<void> syncTrip(Trip trip) => _serial(() async {
-        await _cancelWhere((tripId) => tripId == trip.id);
-        final now = _now();
-        for (final task in trip.tasks) {
-          if (!shouldScheduleAlarm(task, now)) continue;
-          final id = notificationIdFor(task.id);
-          // 표에 먼저 적는다 — 예약 도중 실패해도 나중에 지울 수 있게.
-          await _registry.write({..._registry.read(), id: trip.id});
-          await _backend.schedule(ScheduledAlarm(
-            id: id,
-            title: '여행 준비: ${task.title}',
-            body: '${trip.countryNameKo} 여행 준비 일정의 마감일이에요.',
-            at: alarmTimeFor(task),
-          ));
-        }
+  Future<void> syncTrip(Trip trip) => _serial(() => _sync(trip));
+
+  /// 서버 응답을 기다린 뒤에 여행 전체를 맞출 때(다시 판정). 요청을 보낸 계정([owner])이 그 사이
+  /// 로그아웃했거나 다른 계정으로 바뀌었으면 아무것도 하지 않는다 — 계정 가드가 이미 정리한 이전 계정의
+  /// 알람을 되살리면 다른 사람 기기에 그 사람의 여행 일정이 뜬다.
+  Future<void> syncTripFor(String? owner, Trip trip) => _serial(() async {
+        if (_ownedBy(owner)) await _sync(trip);
       });
+
+  /// 서버 응답을 기다린 뒤에 일정 하나만 다시 예약할 때(완료 취소). 여행 전체를 다시 맞추지 않는 이유:
+  /// 응답이 늦게 오면 화면이 들고 있던 [trip]이 낡았을 수 있다(그 사이 다른 일정을 완료했으면 그 알람이
+  /// 되살아난다). [trip]은 알림 문구(국가 이름)와 여행 단위 정리용 표에만 쓴다. 계정 확인은 [syncTripFor]와 같다.
+  Future<void> scheduleTaskFor(String? owner, Trip trip, TripTask task) => _serial(() async {
+        if (!_ownedBy(owner) || !shouldScheduleAlarm(task, _now())) return;
+        await _schedule(trip, task);
+      });
+
+  bool _ownedBy(String? owner) => owner != null && _registry.readOwner() == owner;
+
+  Future<void> _sync(Trip trip) async {
+    await _cancelWhere((tripId) => tripId == trip.id);
+    final now = _now();
+    for (final task in trip.tasks) {
+      if (!shouldScheduleAlarm(task, now)) continue;
+      await _schedule(trip, task);
+    }
+  }
+
+  Future<void> _schedule(Trip trip, TripTask task) async {
+    final id = notificationIdFor(task.id);
+    // 표에 먼저 적는다 — 예약 도중 실패해도 나중에 지울 수 있게.
+    await _registry.write({..._registry.read(), id: trip.id});
+    await _backend.schedule(ScheduledAlarm(
+      id: id,
+      title: '여행 준비: ${task.title}',
+      body: '${trip.countryNameKo} 여행 준비 일정의 마감일이에요.',
+      at: alarmTimeFor(task),
+    ));
+  }
 
   Future<void> cancelForTask(int taskId) => _serial(() async {
         final id = notificationIdFor(taskId);

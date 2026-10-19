@@ -122,9 +122,14 @@ class FakeTripApi implements TripApi {
     return tripToReturn;
   }
 
+  /// 정해 두면 refreshTrip 응답을 이 Completer가 끝날 때까지 미룬다.
+  Completer<void>? holdRefreshTrip;
+
   @override
   Future<Trip> refreshTrip(int id) async {
     refreshTripCalls.add(id);
+    final hold = holdRefreshTrip;
+    if (hold != null) await hold.future;
     return tripAfterRefresh ?? tripToReturn;
   }
 

@@ -163,6 +163,61 @@ void main() {
       expect(backend.scheduled.keys, [42]);
     });
 
+    group('응답을 기다린 뒤의 예약 (계정 확인)', () {
+      late AlarmScheduler owned;
+
+      setUp(() {
+        owned = AlarmScheduler(backend,
+            registry: MemoryAlarmRegistry('uid-a'), now: () => seoulTime(2026, 9, 7, 12));
+      });
+
+      test('일정 하나만 예약하고 이 여행의 다른 알람은 건드리지 않는다', () async {
+        final trip = sampleTrip(id: 7, tasks: [
+          _task(101, DateTime(2026, 9, 21)),
+          _task(102, DateTime(2026, 9, 22)),
+        ]);
+        await owned.syncTrip(trip);
+        await owned.cancelForTask(102); // 그 사이 다른 화면에서 완료했다
+
+        // 옛 화면이 들고 있던 trip에는 102가 아직 미완료지만, 101만 다시 맞춘다
+        await owned.scheduleTaskFor('uid-a', trip, _task(101, DateTime(2026, 9, 21)));
+
+        expect(backend.scheduled.keys, [notificationIdFor(101)]);
+      });
+
+      test('지났거나 완료된 일정은 예약하지 않는다', () async {
+        final trip = sampleTrip(id: 7);
+        await owned.scheduleTaskFor('uid-a', trip, _task(101, DateTime(2026, 9, 1)));
+        await owned.scheduleTaskFor('uid-a', trip, _task(102, DateTime(2026, 9, 21), done: true));
+
+        expect(backend.scheduled, isEmpty);
+      });
+
+      test('그 사이 로그아웃했으면 예약하지 않는다', () async {
+        await owned.claimFor(null);
+
+        await owned.scheduleTaskFor('uid-a', sampleTrip(id: 7), _task(101, DateTime(2026, 9, 21)));
+        await owned.syncTripFor('uid-a', sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
+
+        expect(backend.scheduled, isEmpty);
+      });
+
+      test('그 사이 다른 계정으로 바뀌었으면 예약하지 않는다', () async {
+        await owned.claimFor('uid-b');
+
+        await owned.scheduleTaskFor('uid-a', sampleTrip(id: 7), _task(101, DateTime(2026, 9, 21)));
+        await owned.syncTripFor('uid-a', sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
+
+        expect(backend.scheduled, isEmpty);
+      });
+
+      test('같은 계정이면 여행 전체를 다시 맞춘다', () async {
+        await owned.syncTripFor('uid-a', sampleTrip(id: 7, tasks: [_task(101, DateTime(2026, 9, 21))]));
+
+        expect(backend.scheduled.keys, [notificationIdFor(101)]);
+      });
+    });
+
     test('울릴 일정이 하나라도 남았는지 알려준다 (없으면 권한을 묻지 않는다)', () {
       expect(scheduler.hasUpcoming(sampleTrip(tasks: [_task(1, DateTime(2026, 9, 21))])), isTrue);
       expect(

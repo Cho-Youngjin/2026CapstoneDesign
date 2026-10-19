@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/auth/auth_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
@@ -242,6 +243,19 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
     await sync;
   }
 
+  /// 완료를 취소한 일정 하나의 알람을 되살린다. 그 일정이 울릴 예정이면 알림 권한도 묻는다 — 처음 열 때
+  /// 울릴 일정이 없어 묻지 않았을 수 있다. 순서는 [_syncAsking]과 같은 이유로 예약을 먼저 줄 세운다.
+  static Future<void> _restoreAsking(AlarmScheduler s, String? uid, Trip trip, TripTask task,
+      NotificationPermission permission) async {
+    final scheduling = s.scheduleTaskFor(uid, trip, task);
+    if (s.isUpcoming(task)) {
+      try {
+        await permission.request();
+      } catch (_) {}
+    }
+    await scheduling;
+  }
+
   /// 알람은 부가 기능이라 실패해도(플러그인·권한 오류) 일정 표시와 완료 처리를 막지 않는다.
   ///
   /// 서버 응답을 기다린 뒤에 부를 때는 [scheduler]를 기다리기 전에 꺼내 넘긴다 — 그 사이 화면을
@@ -261,22 +275,22 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
     final messenger = ScaffoldMessenger.of(context);
     final scheduler = ref.read(alarmSchedulerProvider);
     final permission = ref.read(notificationPermissionProvider);
+    final uid = ref.read(currentUidProvider);
     final api = ref.read(tripApiProvider);
     try {
       final updated = task.done
           ? await api.markTaskUndone(_trip.id, task.id)
           : await api.markTaskDone(_trip.id, task.id);
-      // 화면을 나간 뒤에 응답이 와도 알람은 맞춘다 — 서버에는 이미 반영됐다. 그 사이 다른 일정의
-      // 응답이 먼저 왔을 수 있으니 지금의 _trip에 이 일정만 갈아끼운 것으로 맞춘다.
+      // 화면을 나간 뒤에 응답이 와도 알람은 맞춘다 — 서버에는 이미 반영됐다. 다만 완료를 취소했을 때는
+      // 이 일정 하나만 다시 예약하고, 그 사이 계정이 바뀌었으면 하지 않는다(scheduleTaskFor 참고).
       final trip = _trip.replaceTask(updated);
-      // 화면을 나갔어도 _trip은 갱신한다. 두 일정을 연달아 취소하고 나갔을 때, 뒤에 온 응답이 앞의
-      // 취소를 모르는 옛 _trip으로 syncTrip을 부르면 앞에서 되살린 알람을 다시 지운다.
-      _trip = trip;
       _runAlarm(
-        (s) => updated.done ? s.cancelForTask(updated.id) : _syncAsking(s, trip, permission),
+        (s) => updated.done
+            ? s.cancelForTask(updated.id)
+            : _restoreAsking(s, uid, trip, updated, permission),
         scheduler: scheduler,
       );
-      if (mounted) setState(() {});
+      if (mounted) setState(() => _trip = trip);
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(tripErrorMessage(e))));
     } finally {
@@ -288,10 +302,12 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _refreshing = true);
     final scheduler = ref.read(alarmSchedulerProvider);
+    final uid = ref.read(currentUidProvider);
     try {
       final refreshed = await ref.read(tripApiProvider).refreshTrip(_trip.id);
       // 다시 판정하면 서버가 일정을 새로 만들어 id가 바뀐다 — 이전 알람을 지우고 새 일정으로 맞춘다.
-      _runAlarm((s) => s.syncTrip(refreshed), scheduler: scheduler);
+      // 응답을 기다리는 사이 계정이 바뀌었으면 이전 계정의 알람을 되살리지 않는다.
+      _runAlarm((s) => s.syncTripFor(uid, refreshed), scheduler: scheduler);
       if (mounted) setState(() => _trip = refreshed);
       ref.invalidate(tripListProvider);
     } catch (e) {

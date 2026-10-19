@@ -111,7 +111,9 @@ Future<
         tripApiProvider.overrideWithValue(api),
         tripDeleterProvider.overrideWithValue(deleter),
         alarmSchedulerProvider.overrideWithValue(
-            scheduler ?? AlarmScheduler(alarmBackend, now: () => seoulTime(2026, 9, 7, 12))),
+            scheduler ??
+                AlarmScheduler(alarmBackend,
+                    registry: MemoryAlarmRegistry('uid-a'), now: () => seoulTime(2026, 9, 7, 12))),
         notificationPermissionProvider.overrideWithValue(permission ?? FakePermission()),
       ],
       // 목록 provider를 누군가 보고 있어야 invalidate가 다시 조회로 이어진다(여행 목록 탭 역할).
@@ -492,6 +494,50 @@ void main() {
 
       expect(r.alarms.scheduled.keys,
           unorderedEquals([notificationIdFor(3), notificationIdFor(5)]));
+    });
+
+    testWidgets('취소 응답을 기다리는 사이 로그아웃했으면 알람을 되살리지 않는다', (tester) async {
+      final alarms = FakeAlarmBackend();
+      final scheduler = AlarmScheduler(alarms,
+          registry: MemoryAlarmRegistry('uid-a'), now: () => seoulTime(2026, 9, 7, 12));
+      final r = await pumpResultPage(tester,
+          trip: sampleTrip(id: 7, tasks: [
+            task(id: 3, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20), done: true),
+          ]),
+          alarms: alarms,
+          scheduler: scheduler);
+      r.api.holdMarkTaskUndone = Completer<void>();
+
+      await tester.tap(find.text('여행자보험 가입'));
+      await tester.pump();
+      await scheduler.claimFor(null); // 계정 가드가 로그아웃을 보고 정리했다
+
+      r.api.holdMarkTaskUndone!.complete();
+      await tester.pumpAndSettle();
+
+      expect(alarms.scheduled, isEmpty);
+    });
+
+    testWidgets('다시 판정 응답을 기다리는 사이 다른 계정으로 바뀌었으면 예약하지 않는다', (tester) async {
+      final alarms = FakeAlarmBackend();
+      final scheduler = AlarmScheduler(alarms,
+          registry: MemoryAlarmRegistry('uid-a'), now: () => seoulTime(2026, 9, 7, 12));
+      final before = sampleTrip(id: 7, judgementStale: true);
+      final after = sampleTrip(id: 7, tasks: [
+        task(id: 13, title: '여행자보험 가입', dueDate: DateTime(2026, 11, 20)),
+      ]);
+      final r = await pumpResultPage(tester,
+          trip: before, tripAfterRefresh: after, alarms: alarms, scheduler: scheduler);
+      r.api.holdRefreshTrip = Completer<void>();
+
+      await tester.tap(find.text('다시 판정'));
+      await tester.pump();
+      await scheduler.claimFor('uid-b');
+
+      r.api.holdRefreshTrip!.complete();
+      await tester.pumpAndSettle();
+
+      expect(alarms.scheduled, isEmpty);
     });
 
     testWidgets('권한 대화상자가 떠 있는 동안 완료한 일정의 알람은 되살아나지 않는다', (tester) async {
