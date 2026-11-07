@@ -67,6 +67,7 @@ dependencies:
   sensors_plus: ^7.1.1
   pedometer: ^4.2.0
   flutter_activity_recognition: ^4.0.0
+  flutter_foreground_task: ^11.0.3
   device_probe:
     path: ../packages/device_probe
 
