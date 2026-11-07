@@ -83,4 +83,93 @@ void main() {
     expect(formatCsvField(37.56651), '37.56651');
     expect(formatCsvField(1762650000000), '1762650000000');
   });
+
+  test('close 뒤의 add는 무시하고 totalRows에도 세지 않는다', () async {
+    final file = File(p.join(dir.path, 'e.csv'));
+    final writer = await CsvWriter.open(file, ['t_ms']);
+    writer.add([1]);
+    await writer.close();
+    final before = await file.readAsString();
+
+    writer.add([2]);
+
+    expect(writer.totalRows, 1);
+    expect(await file.readAsString(), before);
+  });
+
+  test('실패한 flush가 있어도 이후 flush는 계속 쓴다', () async {
+    final file = File(p.join(dir.path, 'f.csv'));
+    late _FlakySink sink;
+    final writer = await CsvWriter.open(
+      file,
+      ['t_ms'],
+      openSink: (f) => sink = _FlakySink(f.openWrite(mode: FileMode.append)),
+    );
+    // open()이 헤더를 flush하므로 실패는 open이 끝난 뒤에 건다.
+    sink.failingFlushes = 1;
+    writer.add([1]);
+    final failed = writer.flush();
+    await expectLater(failed, throwsA(isA<FileSystemException>()));
+
+    writer.add([2]);
+    await writer.flush();
+    await writer.close();
+
+    expect(await file.readAsLines(), ['t_ms', '1', '2']);
+  });
+
+  test('마지막 flush가 실패해도 close는 파일을 닫고 오류를 알린다', () async {
+    final file = File(p.join(dir.path, 'g.csv'));
+    late _FlakySink sink;
+    final writer = await CsvWriter.open(
+      file,
+      ['t_ms'],
+      openSink: (f) => sink = _FlakySink(f.openWrite(mode: FileMode.append)),
+    );
+    sink.failingFlushes = 1;
+    writer.add([1]);
+
+    // 같은 future를 돌려주므로 동시에 두 번 불러도 둘 다 같은 오류를 받는다.
+    final first = writer.close();
+    final second = writer.close();
+    await expectLater(first, throwsA(isA<FileSystemException>()));
+    await expectLater(second, throwsA(isA<FileSystemException>()));
+
+    // done은 IOSink가 닫힐 때 완료된다 — 핸들이 실제로 닫혔는지 확인한다.
+    await expectLater(sink.done, completes);
+  });
+}
+
+/// 쓰기 실패를 흉내 내는 IOSink 대역. 실제 sink에 모든 호출을 넘기고, flush만
+/// [failingFlushes]번 실패시킨다. CsvWriter가 쓰는 메서드(write, writeln, flush, close, done)만
+/// 직접 구현하고 나머지는 실제 sink로 넘긴다.
+class _FlakySink implements IOSink {
+  _FlakySink(this._inner);
+
+  final IOSink _inner;
+  int failingFlushes = 0;
+
+  @override
+  void write(Object? obj) => _inner.write(obj);
+
+  @override
+  void writeln([Object? object = '']) => _inner.writeln(object);
+
+  @override
+  Future<void> flush() async {
+    if (failingFlushes > 0) {
+      failingFlushes--;
+      throw const FileSystemException('simulated write failure');
+    }
+    return _inner.flush();
+  }
+
+  @override
+  Future<void> close() => _inner.close();
+
+  @override
+  Future<void> get done => _inner.done;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
