@@ -7,6 +7,7 @@ import 'core/theme/app_colors.dart';
 import 'features/checklist/checklist_page.dart';
 import 'features/footsteps/footsteps_detail_page.dart';
 import 'features/footsteps/footsteps_page.dart';
+import 'features/footsteps/lab/lab_page.dart';
 import 'features/footsteps/providers/footsteps_providers.dart';
 import 'features/nearby/providers/nearby_selection_providers.dart';
 import 'features/group/chat_room_page.dart';
@@ -61,6 +62,9 @@ class AppRoutes {
   static String tripOf(int id) => '/visa/trip/$id';
 
   static const footstepsDetail = '/footsteps/detail';
+
+  /// 숨은 실험 화면(연구 R1). 세계지도 아래 요약 문구를 길게 눌러 연다.
+  static const footstepsLab = '/footsteps/lab';
 
   /// 채팅방. `groupChatOf(3)` → `/group/chat/3`. (Plan D Task 3에서 방 id 경로로 바꿨다.)
   static const groupChat = '/group/chat/:roomId';
@@ -127,6 +131,7 @@ GoRouter createRouter({required bool isLoggedIn}) {
             path: AppRoutes.footstepsDetail,
             builder: (_, _) => const FootstepsDetailPage(),
           ),
+          GoRoute(path: AppRoutes.footstepsLab, builder: (_, _) => const LabPage()),
           GoRoute(path: AppRoutes.group, builder: (_, _) => const GroupPage()),
           GoRoute(
             path: AppRoutes.groupChat,
