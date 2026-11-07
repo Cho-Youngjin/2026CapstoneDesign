@@ -45,7 +45,9 @@ class DeviceProbePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val plugged = sticky?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
 
         return mapOf(
-            "chargeUah" to property(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER),
+            // 일부 기기는 미지원 전하량을 MIN_VALUE 대신 0으로 돌려준다. 0μAh는 실제 값일 수 없으므로 null(모름)로 둔다.
+            // currentUa는 0이 실제 측정값일 수 있어 이 규칙을 적용하지 않는다.
+            "chargeUah" to property(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)?.takeIf { it > 0 },
             "currentUa" to property(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW),
             "levelPct" to if (level >= 0 && scale > 0) level * 100 / scale else null,
             "tempC" to if (temperature != Int.MIN_VALUE) temperature / 10.0 else null,

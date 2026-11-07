@@ -29,6 +29,23 @@ void main() {
     expect(reading.plugged, isFalse);
   });
 
+  test('전하량 0은 지원 안 함으로 보고 null로 둔다', () async {
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      return <String, Object?>{
+        'chargeUah': 0,
+        'currentUa': 0,
+        'levelPct': 50,
+        'tempC': 30.0,
+        'plugged': false,
+      };
+    });
+
+    final reading = await const DeviceProbe().readBattery();
+    expect(reading.chargeUah, isNull);
+    // 전류 0은 실제 측정값일 수 있어 그대로 둔다.
+    expect(reading.currentUa, 0);
+  });
+
   test('readDevice는 기종·SDK·앱 버전을 돌려준다', () async {
     messenger.setMockMethodCallHandler(channel, (call) async {
       expect(call.method, 'readDevice');

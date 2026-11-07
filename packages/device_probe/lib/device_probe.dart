@@ -10,8 +10,11 @@ class BatteryReading {
     this.tempC,
   });
 
+  static int? _positiveOrNull(int? v) => (v != null && v > 0) ? v : null;
+
   factory BatteryReading.fromMap(Map<String, Object?> map) => BatteryReading(
-        chargeUah: map['chargeUah'] as int?,
+        // 일부 기기는 미지원 전하량을 MIN_VALUE 대신 0으로 돌려준다. 0μAh는 실제 값일 수 없으므로 '모름'으로 둔다.
+        chargeUah: _positiveOrNull(map['chargeUah'] as int?),
         currentUa: map['currentUa'] as int?,
         levelPct: map['levelPct'] as int?,
         tempC: (map['tempC'] as num?)?.toDouble(),
