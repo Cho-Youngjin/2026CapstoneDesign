@@ -63,6 +63,12 @@ dependencies:
   flutter_local_notifications: ^22.3.1
   stomp_dart_client: ^3.0.1
   timezone: 0.11.1
+  # R1 기록 서비스(설계 2026-11-07 4장): 50Hz 가속도, OS 걸음 센서, 구글 활동 인식, 배터리 전하량.
+  sensors_plus: ^7.1.1
+  pedometer: ^4.2.0
+  flutter_activity_recognition: ^4.0.0
+  device_probe:
+    path: ../packages/device_probe
 
 dev_dependencies:
   flutter_test:

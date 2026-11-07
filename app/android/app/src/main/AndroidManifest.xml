@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Android 13+ 알림 표시 권한(환율 알림, 비자 준비 알람). 환율 알림을 켜거나 여행을 만들 때 요청한다. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- R1 기록 서비스: OS 걸음 센서(pedometer)와 구글 활동 인식. Android 10+는 앞의 것, 9 이하는 뒤의 것을 쓴다. -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
     <application
         android:label="travel_footsteps"
         android:name="${applicationName}"
