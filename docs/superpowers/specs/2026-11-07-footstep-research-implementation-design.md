@@ -114,8 +114,8 @@ research/results/         분석 결과 CSV·그림 (.gitignore, 최종본만 �
 | 파일 | 열 | 수단(후보) |
 |---|---|---|
 | `gps.csv` | `t_ms,fix_t_ms,lat,lng,accuracy_m,speed_mps,bearing_deg,altitude_m` | geolocator, interval 1초, distanceFilter 0, high |
-| `accel.csv` | `t_ms,x,y,z` (m/s², 중력 포함) | sensors_plus, 약 50Hz (20ms) |
-| `os_steps.csv` | `t_ms,kind,value` — `kind`는 `count`(부팅 후 누적) 또는 `detect`(걸음 1회, value=1) | pedometer |
+| `accel.csv` | `t_ms,x,y,z` (m/s², 중력 포함). `t_ms`는 센서 이벤트 시각이고, 기록 시각과 10초 넘게 차이 나면 기록 시각을 쓴다 | sensors_plus, 약 50Hz (20ms) |
+| `os_steps.csv` | `t_ms,kind,value` — `kind`는 `count`(value = 부팅 후 누적 걸음 수) 또는 `status`(value = `walking`·`stopped`·`unknown`, OS 보행 상태) | pedometer |
 | `activity.csv` | `t_ms,type,confidence` — `type`은 `STILL`·`WALKING`·`RUNNING`·`ON_BICYCLE`·`IN_VEHICLE`·`UNKNOWN` | flutter_activity_recognition |
 | `battery.csv` | `t_ms,charge_uah,current_ua,level_pct,temp_c,plugged` (30초마다) | 앱 안의 작은 Kotlin 플러그인 (BatteryManager) |
 | `marks.csv` | `t_ms,kind,value` (아래 표) | 실험 화면 버튼 + 알림 버튼 |
@@ -125,18 +125,19 @@ research/results/         분석 결과 CSV·그림 (.gitignore, 최종본만 �
 
 | kind | value | 입력 위치 |
 |---|---|---|
-| `arrive` / `depart` | 장소 이름(선택) | 화면, 알림 |
-| `board` / `alight` | `bus` 또는 `subway` | 화면, 알림 |
+| `arrive` / `depart` | 장소 이름(선택, 알림 버튼으로 누르면 빈 값) | 화면, 알림 |
+| `board` / `alight` | `board`는 `bus` · `subway` · `vehicle`(알림 버튼으로 눌러 종류 미지정), `alight`는 빈 값 | 화면, 알림 |
 | `count_start` / `count_end` | `count_end`일 때 직접 센 걸음 수 | 화면 |
 | `carry` | `hand` · `pocket` · `bag` | 화면 |
 | `note` | 자유 메모 | 화면 |
 
+- Android 알림 버튼은 최대 3개라서 버튼 두 개를 토글로 쓴다. '도착'을 누르면 '출발'로, '탑승'을 누르면 '하차'로 바뀐다. 화면에서 남긴 표시도 같은 상태를 바꾼다.
 - 파일은 버퍼에 모아 5초마다 쓴다. 서비스가 끝나면 모두 쓰고 닫는다. 비정상 종료 때도 직전까지는 남는다. 2시간 세션이면 약 20MB다.
 - 센서 하나가 실패해도 나머지는 계속 기록한다. 실패는 `meta.json`의 `errors` 배열에 시각과 함께 남긴다.
 
 ### 4-3. 실험 화면과 내보내기
 
-- 발걸음 탭 앱바 제목을 길게 누르면 `/footsteps/lab`이 열린다. 일반 사용자 화면에는 노출하지 않는다.
+- 발걸음 탭 세계지도 아래의 '방문 국가 … 총 걸음' 문구를 길게 누르면 `/footsteps/lab`이 열린다(발걸음 탭에는 앱바 제목이 없다). 일반 사용자 화면에는 노출하지 않는다.
 - 실험 화면에서 할 수 있는 일:
   - 모드·정책 선택, 시작·종료
   - 실시간 값 확인: 최근 GPS 정확도, 걸음 수, 배터리 전하량, 경과 시간
@@ -200,7 +201,7 @@ abstract class StepDetector {
 
 | 구현 | 내용 |
 |---|---|
-| `OsStepDetector` | OS 걸음 이벤트를 센다. 최근 4초 안에 걸음이 있으면 보행, 없으면 정지. 기타 움직임은 구분하지 않는다. |
+| `OsStepDetector` | OS 누적 걸음 수(`count`)를 센다. 최근 4초 안에 누적 값이 늘었거나 OS 상태가 `walking`이면 보행, 아니면 정지. 기타 움직임은 구분하지 않는다. |
 | `BrajdicDetector` | 논문 기준판. 보행 판정은 STD_TH(0.8초 창, 표준편차 0.6), 걸음 검출은 WPD. |
 | `AdaptiveStepDetector` | 제안판. 크기 → 저역통과 → 자기상관 보행 판정(0.4) → 적응형 임계값 피크 → 걸음 주기로 최소 간격 → 연속 N(5~6)걸음 확인 후 소급 카운트. 흔들림은 있는데 박자가 없으면 기타 움직임. |
 
