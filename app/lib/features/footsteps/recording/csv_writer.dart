@@ -21,19 +21,20 @@ class CsvWriter {
 
   /// 파일이 없거나 비어 있으면 헤더를 쓴다. 내용이 있으면 이어 쓴다 — 시스템이 기록 서비스를
   /// 다시 띄워 같은 세션 폴더를 다시 열 때 헤더가 중간에 끼면 재생기가 읽지 못한다.
-  ///
-  /// [openSink]는 테스트가 쓰기 실패를 흉내 낼 때만 넘긴다. 보통은 기본 동작(파일 append)을 쓴다.
+  static Future<CsvWriter> open(File file, List<String> header) =>
+      openWithSink(file, header, (f) => f.openWrite(mode: FileMode.append));
+
+  /// [open]과 같지만 IOSink를 호출자가 만든다. 테스트가 쓰기 실패를 흉내 낼 때만 쓴다 —
+  /// 실제 기록 코드는 [open]을 써야 한다.
   @visibleForTesting
-  static Future<CsvWriter> open(
+  static Future<CsvWriter> openWithSink(
     File file,
-    List<String> header, {
-    IOSink Function(File file)? openSink,
-  }) async {
+    List<String> header,
+    IOSink Function(File file) openSink,
+  ) async {
     await file.parent.create(recursive: true);
     final hasContent = await file.exists() && await file.length() > 0;
-    final sink = openSink != null
-        ? openSink(file)
-        : file.openWrite(mode: FileMode.append);
+    final sink = openSink(file);
     if (!hasContent) {
       sink.writeln(header.join(','));
       await sink.flush();

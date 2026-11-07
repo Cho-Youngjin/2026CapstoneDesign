@@ -100,10 +100,10 @@ void main() {
   test('실패한 flush가 있어도 이후 flush는 계속 쓴다', () async {
     final file = File(p.join(dir.path, 'f.csv'));
     late _FlakySink sink;
-    final writer = await CsvWriter.open(
+    final writer = await CsvWriter.openWithSink(
       file,
       ['t_ms'],
-      openSink: (f) => sink = _FlakySink(f.openWrite(mode: FileMode.append)),
+      (f) => sink = _FlakySink(f.openWrite(mode: FileMode.append)),
     );
     // open()이 헤더를 flush하므로 실패는 open이 끝난 뒤에 건다.
     sink.failingFlushes = 1;
@@ -121,10 +121,10 @@ void main() {
   test('마지막 flush가 실패해도 close는 파일을 닫고 오류를 알린다', () async {
     final file = File(p.join(dir.path, 'g.csv'));
     late _FlakySink sink;
-    final writer = await CsvWriter.open(
+    final writer = await CsvWriter.openWithSink(
       file,
       ['t_ms'],
-      openSink: (f) => sink = _FlakySink(f.openWrite(mode: FileMode.append)),
+      (f) => sink = _FlakySink(f.openWrite(mode: FileMode.append)),
     );
     sink.failingFlushes = 1;
     writer.add([1]);
