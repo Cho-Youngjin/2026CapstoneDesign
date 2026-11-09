@@ -52,4 +52,52 @@ void main() {
     expect(report, contains('rows=2'));
     expect(report, contains('median=1000ms'));
   });
+
+  test('따옴표 안에 줄바꿈이 든 필드는 한 행으로 센다', () {
+    // 메모에 줄바꿈이 들어가면 readAsLines는 한 행을 두 줄로 쪼갠다.
+    final stats = statsFromCsvLines('marks.csv', [
+      't_ms,kind,value',
+      '1000,note,"첫 줄',
+      '둘째 줄"',
+      '2000,arrive,',
+    ]);
+
+    expect(stats.rows, 2);
+    expect(stats.skippedRows, 0);
+    expect(stats.firstMs, 1000);
+    expect(stats.lastMs, 2000);
+  });
+
+  test('시각을 읽을 수 없는 행(서비스가 쓰다 죽은 마지막 줄 등)은 건너뛰고 센다', () {
+    final stats = statsFromCsvLines('gps.csv', [
+      't_ms,lat',
+      '1000,37.5',
+      '2000,37.5',
+      '179422x',
+    ]);
+
+    expect(stats.rows, 2);
+    expect(stats.skippedRows, 1);
+    expect(stats.lastMs, 2000);
+  });
+
+  test('보고서는 건너뛴 행이 있을 때만 skipped를 보여 준다', () {
+    final clean = formatSessionReport([const CsvFileStats(file: 'gps.csv', rows: 2)]);
+    final damaged = formatSessionReport([const CsvFileStats(file: 'gps.csv', rows: 2, skippedRows: 3)]);
+
+    expect(clean, isNot(contains('skipped')));
+    expect(damaged, contains('skipped=3'));
+  });
+
+  test('checkSession은 줄바꿈이 든 필드와 깨진 마지막 줄이 있어도 보고서를 낸다', () async {
+    final dir = await Directory.systemTemp.createTemp('session_check_damaged');
+    addTearDown(() => dir.delete(recursive: true));
+    File(p.join(dir.path, 'marks.csv')).writeAsStringSync(
+      't_ms,kind,value\n1000,note,"가\n나"\n2000,arrive,\n179422x',
+    );
+
+    final marks = (await checkSession(dir)).last;
+    expect(marks.rows, 2);
+    expect(marks.skippedRows, 1);
+  });
 }
