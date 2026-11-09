@@ -1,10 +1,13 @@
 import 'dart:io';
 
+import 'package:footstep_core/footstep_core.dart' show csvRecords, splitCsvLine;
+export 'package:footstep_core/footstep_core.dart' show csvRecords, splitCsvLine;
 import 'package:path/path.dart' as p;
 
 import 'session_schema.dart';
 
-// 이 파일은 dart:io와 path만 쓴다. tool/check_session.dart가 Flutter 없이 `dart run`으로 불러 쓰기 때문이다.
+// 이 파일은 dart:io, path, 순수 Dart 패키지 footstep_core만 쓴다. tool/check_session.dart가 Flutter 없이
+// `dart run`으로 불러 쓰기 때문이다.
 
 /// 세션 파일 하나의 요약. 실기기 점검(설계 4-4)에서 "화면이 꺼진 동안에도 센서가 제 빈도로 값을 냈는가"를
 /// 이 숫자로 판단한다.
@@ -38,68 +41,6 @@ class CsvFileStats {
     final last = lastMs;
     return first == null || last == null ? null : Duration(milliseconds: last - first);
   }
-}
-
-/// 따옴표로 감싼 필드(쉼표·이중 따옴표 포함)를 처리하는 CSV 한 줄 분리. CsvWriter의 서식과 짝이다.
-List<String> splitCsvLine(String line) {
-  final fields = <String>[];
-  final current = StringBuffer();
-  var inQuotes = false;
-  for (var i = 0; i < line.length; i++) {
-    final c = line[i];
-    if (inQuotes) {
-      if (c == '"') {
-        if (i + 1 < line.length && line[i + 1] == '"') {
-          current.write('"');
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        current.write(c);
-      }
-    } else if (c == '"') {
-      inQuotes = true;
-    } else if (c == ',') {
-      fields.add(current.toString());
-      current.clear();
-    } else {
-      current.write(c);
-    }
-  }
-  fields.add(current.toString());
-  return fields;
-}
-
-/// 물리적 줄 목록을 논리적 CSV 행으로 합친다. 따옴표 안의 줄바꿈(메모 등)이 readAsLines에서 두 줄로
-/// 쪼개지므로, 따옴표가 닫히지 않은 줄은 다음 줄과 줄바꿈으로 이어 붙인다. 이미 합쳐진 행을 넣어도 같다.
-List<String> csvRecords(List<String> lines) {
-  final records = <String>[];
-  StringBuffer? open;
-  var openQuotes = 0;
-  for (final line in lines) {
-    final pending = open;
-    if (pending == null) {
-      final quotes = '"'.allMatches(line).length;
-      if (quotes.isEven) {
-        records.add(line);
-      } else {
-        open = StringBuffer(line);
-        openQuotes = quotes;
-      }
-    } else {
-      pending.write('\n');
-      pending.write(line);
-      openQuotes += '"'.allMatches(line).length;
-      if (openQuotes.isEven) {
-        records.add(pending.toString());
-        open = null;
-      }
-    }
-  }
-  // 따옴표가 끝내 안 닫힌 꼬리는 깨진 행으로 그대로 남겨, 호출하는 쪽이 건너뛰게 한다.
-  if (open != null) records.add(open.toString());
-  return records;
 }
 
 CsvFileStats statsFromCsvLines(String file, List<String> lines) {

@@ -1,0 +1,11 @@
+name: footstep_core
+description: 발걸음 연구 공용 로직(수집 정책·걸음 감지·재생기). Flutter 없이 앱과 PC에서 같은 코드로 돈다.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.2
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.33.0
