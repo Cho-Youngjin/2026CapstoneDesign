@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:app/app.dart';
 import 'package:app/features/footsteps/providers/footsteps_providers.dart';
 import 'package:app/features/footsteps/recording/recording_providers.dart';
+import 'package:app/features/footsteps/recording/session_library.dart';
 import 'package:app/features/visa/data/trip_list_providers.dart';
 import 'package:app/router.dart';
 import 'package:flutter/material.dart';
@@ -148,6 +151,7 @@ void main() {
           overrides: [
             tripListProvider.overrideWith((ref) async => const TripListState(trips: [])),
             recordingControllerProvider.overrideWithValue(FakeRecordingController()),
+            sessionLibraryProvider.overrideWithValue(_EmptyLibrary()),
           ],
           child: TravelFootstepsApp(router: router),
         ),
@@ -161,4 +165,12 @@ void main() {
       expect(find.byKey(const Key('lab-start-stop')), findsOneWidget);
     });
   });
+}
+
+class _EmptyLibrary implements SessionLibrary {
+  @override
+  Future<List<SessionSummary>> list() async => const [];
+
+  @override
+  Future<File> zip(SessionSummary session, Directory outDir) => throw UnimplementedError();
 }

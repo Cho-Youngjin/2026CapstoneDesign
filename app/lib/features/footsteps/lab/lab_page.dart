@@ -9,6 +9,7 @@ import '../recording/recording_mode.dart';
 import '../recording/recording_providers.dart';
 import 'lab_marks_panel.dart';
 import 'lab_permissions_panel.dart';
+import 'lab_sessions_panel.dart';
 import 'lab_status_card.dart';
 
 /// 숨은 실험 화면(설계 4-3). 세계지도 아래 '방문 국가 … 총 걸음' 문구를 길게 눌러 연다.
@@ -25,6 +26,7 @@ class _LabPageState extends ConsumerState<LabPage> {
   String? _error;
   RecorderStatus? _status;
   String _carry = CarryPosition.hand;
+  int _sessionsVersion = 0;
   StreamSubscription<RecorderStatus>? _statusSubscription;
 
   @override
@@ -58,6 +60,7 @@ class _LabPageState extends ConsumerState<LabPage> {
           setState(() {
             _running = false;
             _status = null;
+            _sessionsVersion++;
           });
         }
       } else {
@@ -115,6 +118,8 @@ class _LabPageState extends ConsumerState<LabPage> {
             atPlace: _status?.atPlace ?? false,
             onVehicle: _status?.onVehicle ?? false,
           ),
+          const SizedBox(height: 16),
+          LabSessionsPanel(refreshToken: _sessionsVersion),
         ],
       ),
     );

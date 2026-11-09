@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:app/features/footsteps/lab/lab_page.dart';
 import 'package:app/features/footsteps/lab/lab_status_card.dart';
 import 'package:app/features/footsteps/lab/recording_permissions.dart';
 import 'package:app/features/footsteps/recording/recorder_status.dart';
 import 'package:app/features/footsteps/recording/recording_mode.dart';
 import 'package:app/features/footsteps/recording/recording_providers.dart';
+import 'package:app/features/footsteps/recording/session_library.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
@@ -30,6 +33,7 @@ Future<void> pumpLab(
           PermissionItem('신체 활동(걸음·활동 인식)', false),
         ],
       ),
+      sessionLibraryProvider.overrideWithValue(_EmptyLibrary()),
       ...extra,
     ],
     child: const MaterialApp(home: LabPage()),
@@ -114,4 +118,12 @@ void main() {
     expect(formatElapsed(const Duration(minutes: 3, seconds: 5)), '03:05');
     expect(formatElapsed(const Duration(hours: 1, minutes: 2, seconds: 3)), '1:02:03');
   });
+}
+
+class _EmptyLibrary implements SessionLibrary {
+  @override
+  Future<List<SessionSummary>> list() async => const [];
+
+  @override
+  Future<File> zip(SessionSummary session, Directory outDir) => throw UnimplementedError();
 }
