@@ -4,7 +4,7 @@
 
 ## 1. 준비 (처음 한 번)
 
-1. 최신 `research` 브랜치 앱을 설치한다(`app/`에서 `flutter run --debug`).
+1. 최신 `research` 브랜치 앱을 설치한다(`app/`에서 `flutter pub get`을 먼저 실행한 뒤 `flutter run --debug`).
 2. 로그인 → 발걸음 탭 → 세계지도 아래 '방문 국가 … 총 걸음' 문구를 **길게 누른다** → '발걸음 실험' 화면.
 3. '권한 → 확인·요청'에서 위치·신체 활동·알림·배터리 최적화 제외를 모두 허용한다.
 
@@ -21,7 +21,7 @@
 | 버스·지하철을 탐 | 탑승 | 화면(버스/지하철 구분) 또는 알림 버튼(종류 미지정) |
 | 내림 | 하차 | 화면 또는 알림 버튼 |
 | 걸음 세기 시작 | 걸음 세기 시작 | 화면 |
-| 다 셈 | 걸음 세기 끝 → 센 걸음 수 입력 | 화면 |
+| 다 셈 | 걸음 세기 끝 → 센 걸음 수(숫자만) 입력 | 화면 |
 | 폰을 주머니→가방 등으로 옮김 | 휴대 위치 칩 | 화면 |
 
 - 머문 곳은 **10분 이상** 있을 때만 도착·출발을 남긴다(분석 기준 T = 10분).
@@ -32,12 +32,19 @@
 
 ## 3. 꺼내기
 
-- **PC + adb:** 저장소 루트에서 `adb pull /sdcard/Android/data/com.travelfootsteps.app/files/sessions/ research/data/`
+- **PC + adb:** 저장소 루트에서 폴더를 먼저 만들고 가져온다.
+  ```
+  mkdir -p research/data
+  adb pull /sdcard/Android/data/com.travelfootsteps.app/files/sessions/ research/data/
+  ```
+  Git Bash에서는 `/sdcard/...` 경로를 윈도우 경로로 멋대로 바꾸므로 adb 앞에 `MSYS_NO_PATHCONV=1`을 붙인다. 예: `MSYS_NO_PATHCONV=1 adb pull /sdcard/Android/data/com.travelfootsteps.app/files/sessions/ research/data/`
 - **adb가 없으면:** 실험 화면 '세션' 목록에서 공유 버튼 → zip을 팀 드라이브에 올린다.
 
 ## 4. 확인하기
 
 `app/`에서 `dart run tool/check_session.dart ../research/data/sessions/<세션 폴더>`를 실행한다. gps.csv의 median이 1000ms 안팎이고 max가 10초를 넘지 않으면 정상이다.
+
+보고서에 `skipped=N`이 보이면 그 파일에 깨진 행이 N개 있다는 뜻이다(예: 서비스가 도중에 강제 종료됨). 그래도 나머지 행은 쓸 수 있다.
 
 ## 5. 주의
 
