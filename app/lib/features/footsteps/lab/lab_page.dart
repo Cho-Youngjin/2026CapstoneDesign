@@ -7,6 +7,7 @@ import '../recording/mark.dart';
 import '../recording/recorder_status.dart';
 import '../recording/recording_mode.dart';
 import '../recording/recording_providers.dart';
+import 'lab_marks_panel.dart';
 import 'lab_permissions_panel.dart';
 import 'lab_status_card.dart';
 
@@ -70,6 +71,17 @@ class _LabPageState extends ConsumerState<LabPage> {
     }
   }
 
+  void _changeCarry(String position) {
+    if (position == _carry) return;
+    setState(() => _carry = position);
+    // 기록 중이면 바뀐 시각을 표시로 남긴다. 시작 전이면 meta.json의 carryInitial로만 들어간다.
+    if (_running) {
+      ref.read(recordingControllerProvider).sendMark(
+            Mark(at: DateTime.now().toUtc(), kind: MarkKind.carry, value: position),
+          );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final error = _error;
@@ -81,6 +93,9 @@ class _LabPageState extends ConsumerState<LabPage> {
           const LabPermissionsPanel(),
           const SizedBox(height: 16),
           Text('정답 기록 모드', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          const Text('휴대 위치'),
+          LabCarrySelector(value: _carry, onChanged: _changeCarry),
           const SizedBox(height: 8),
           FilledButton(
             key: const Key('lab-start-stop'),
@@ -94,6 +109,12 @@ class _LabPageState extends ConsumerState<LabPage> {
             ),
           const SizedBox(height: 16),
           LabStatusCard(status: _status, running: _running),
+          const SizedBox(height: 16),
+          LabMarksPanel(
+            enabled: _running,
+            atPlace: _status?.atPlace ?? false,
+            onVehicle: _status?.onVehicle ?? false,
+          ),
         ],
       ),
     );
