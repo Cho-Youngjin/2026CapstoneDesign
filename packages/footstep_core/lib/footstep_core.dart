@@ -9,4 +9,5 @@ export 'src/model/fix.dart';
 export 'src/model/readings.dart';
 export 'src/policies/collection_policy.dart';
 export 'src/session/csv.dart';
+export 'src/session/session_reader.dart';
 export 'src/session/session_schema.dart';
