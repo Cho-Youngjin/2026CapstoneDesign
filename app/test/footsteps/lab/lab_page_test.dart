@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:app/features/footsteps/lab/lab_page.dart';
 import 'package:app/features/footsteps/lab/lab_status_card.dart';
 import 'package:app/features/footsteps/lab/recording_permissions.dart';
+import 'package:app/features/footsteps/recording/mark.dart';
 import 'package:app/features/footsteps/recording/recorder_status.dart';
 import 'package:app/features/footsteps/recording/recording_mode.dart';
 import 'package:app/features/footsteps/recording/recording_providers.dart';
@@ -91,6 +92,30 @@ void main() {
     expect(find.text('현장 상태: 이동 중 · 탈것 탑승 중'), findsOneWidget);
     expect(find.text('오류: 1건'), findsOneWidget);
     expect(find.textContaining('경과 03:0'), findsOneWidget);
+  });
+
+  testWidgets('기록 중인 서비스의 휴대 위치를 따라가서, 손을 누르면 carry 표시를 남긴다', (tester) async {
+    final controller = FakeRecordingController()..running = true;
+    await pumpLab(tester, controller);
+
+    controller.statusController.add(RecorderStatus(
+      startedAt: DateTime.now().toUtc(),
+      rowCounts: const {},
+      errorCount: 0,
+      atPlace: false,
+      onVehicle: false,
+      carry: 'pocket',
+    ));
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<ChoiceChip>(find.byKey(const Key('carry-pocket'))).selected, isTrue);
+    expect(tester.widget<ChoiceChip>(find.byKey(const Key('carry-hand'))).selected, isFalse);
+
+    await tester.tap(find.byKey(const Key('carry-hand')));
+    await tester.pumpAndSettle();
+
+    expect(controller.marks.single.kind, MarkKind.carry);
+    expect(controller.marks.single.value, 'hand');
   });
 
   testWidgets('권한 확인을 누르면 결과를 보여 준다', (tester) async {

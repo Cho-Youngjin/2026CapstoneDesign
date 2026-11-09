@@ -34,7 +34,13 @@ class _LabPageState extends ConsumerState<LabPage> {
     super.initState();
     final controller = ref.read(recordingControllerProvider);
     _statusSubscription = controller.statusStream().listen((status) {
-      if (mounted) setState(() => _status = status);
+      if (!mounted) return;
+      setState(() {
+        _status = status;
+        // 서비스가 휴대 위치의 기준이다. 화면이 새로 열렸거나 알림에서 바뀐 경우에도 실제 값을 따른다.
+        final carry = status.carry;
+        if (carry != null) _carry = carry;
+      });
     });
     controller.isRunning().then((running) {
       if (mounted) setState(() => _running = running);

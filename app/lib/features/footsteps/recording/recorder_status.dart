@@ -6,6 +6,7 @@ class RecorderStatus {
     required this.errorCount,
     required this.atPlace,
     required this.onVehicle,
+    this.carry,
     this.lastGpsAccuracyM,
     this.lastOsSteps,
     this.lastChargeUah,
@@ -19,6 +20,9 @@ class RecorderStatus {
   final int errorCount;
   final bool atPlace;
   final bool onVehicle;
+
+  /// 서비스가 알고 있는 지금 휴대 위치. 화면이 이 값으로 선택 칩을 맞춘다.
+  final String? carry;
   final double? lastGpsAccuracyM;
   final int? lastOsSteps;
   final int? lastChargeUah;
@@ -30,6 +34,7 @@ class RecorderStatus {
         'errorCount': errorCount,
         'atPlace': atPlace,
         'onVehicle': onVehicle,
+        'carry': carry,
         'lastGpsAccuracyM': lastGpsAccuracyM,
         'lastOsSteps': lastOsSteps,
         'lastChargeUah': lastChargeUah,
@@ -42,6 +47,7 @@ class RecorderStatus {
         errorCount: json['errorCount'] as int,
         atPlace: json['atPlace'] as bool,
         onVehicle: json['onVehicle'] as bool,
+        carry: json['carry'] as String?,
         lastGpsAccuracyM: (json['lastGpsAccuracyM'] as num?)?.toDouble(),
         lastOsSteps: json['lastOsSteps'] as int?,
         lastChargeUah: json['lastChargeUah'] as int?,

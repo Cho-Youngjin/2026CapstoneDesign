@@ -90,6 +90,7 @@ class GroundTruthRecorder {
       errorCount: _errorCount,
       atPlace: field.atPlace,
       onVehicle: field.onVehicle,
+      carry: field.carry,
       lastGpsAccuracyM: _lastGpsAccuracyM,
       lastOsSteps: _lastOsSteps,
       lastChargeUah: _lastChargeUah,

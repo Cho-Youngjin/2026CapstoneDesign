@@ -63,6 +63,10 @@ class FieldState {
   bool atPlace = false;
   bool onVehicle = false;
 
+  /// 지금 휴대 위치. 시작 값은 meta.json의 carryInitial이고, 이후 `carry` 표시가 바꾼다. 실험 화면은
+  /// 이 값을 서비스에서 받아 쓴다 — 화면이 다시 열려도 실제 기록 중인 위치를 보여 주기 위해서다.
+  String? carry;
+
   Mark nextPlaceMark(DateTime at) =>
       Mark(at: at, kind: atPlace ? MarkKind.depart : MarkKind.arrive);
 
@@ -80,7 +84,9 @@ class FieldState {
         onVehicle = true;
       case MarkKind.alight:
         onVehicle = false;
-      case MarkKind.countStart || MarkKind.countEnd || MarkKind.carry || MarkKind.note:
+      case MarkKind.carry:
+        carry = mark.value;
+      case MarkKind.countStart || MarkKind.countEnd || MarkKind.note:
         break;
     }
   }

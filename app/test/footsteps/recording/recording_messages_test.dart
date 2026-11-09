@@ -39,6 +39,21 @@ void main() {
     expect(decodeStatusMessage(encodeMarkMessage(Mark(at: DateTime.utc(2026), kind: MarkKind.note))), isNull);
   });
 
+  test('상태의 휴대 위치는 json으로 오가고, 키가 없는 옛 json도 읽는다', () {
+    final status = RecorderStatus(
+      startedAt: DateTime.utc(2026, 11, 9),
+      rowCounts: const {'gps.csv': 1},
+      errorCount: 0,
+      atPlace: false,
+      onVehicle: false,
+      carry: 'pocket',
+    );
+
+    expect(RecorderStatus.fromJson(status.toJson()).carry, 'pocket');
+    final old = status.toJson()..remove('carry');
+    expect(RecorderStatus.fromJson(old).carry, isNull);
+  });
+
   test('기록 설정은 json으로 오간다', () {
     const config = RecordingConfig(
       mode: RecordingMode.groundTruth,

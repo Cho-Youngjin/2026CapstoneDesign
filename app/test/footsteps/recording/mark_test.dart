@@ -65,6 +65,22 @@ void main() {
     expect(field.onVehicle, isFalse);
   });
 
+  test('휴대 위치 표시는 carry를 바꾸고 다른 표시는 건드리지 않는다', () {
+    final field = FieldState();
+    expect(field.carry, isNull);
+
+    field.observe(Mark(at: at, kind: MarkKind.carry, value: CarryPosition.pocket));
+    expect(field.carry, CarryPosition.pocket);
+
+    field
+      ..observe(Mark(at: at, kind: MarkKind.arrive))
+      ..observe(Mark(at: at, kind: MarkKind.note, value: '비 옴'));
+    expect(field.carry, CarryPosition.pocket);
+
+    field.observe(Mark(at: at, kind: MarkKind.carry, value: CarryPosition.bag));
+    expect(field.carry, CarryPosition.bag);
+  });
+
   test('걸음 세기·휴대 위치·메모는 현장 상태를 바꾸지 않는다', () {
     final field = FieldState()
       ..observe(Mark(at: at, kind: MarkKind.countStart))
