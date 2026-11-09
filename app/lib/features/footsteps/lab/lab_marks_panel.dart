@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../recording/mark.dart';
@@ -44,10 +45,9 @@ class LabMarksPanel extends ConsumerWidget {
       if (!enabled) return null;
       return () async {
         final at = DateTime.now().toUtc();
-        final text = await _askText(context, title, numeric: numeric);
+        // 빈 값·숫자 아님은 대화상자가 닫히기 전에 걸러 낸다. 여기서 null은 취소뿐이다.
+        final text = await _askText(context, title, numeric: numeric, allowEmpty: allowEmpty);
         if (text == null) return;
-        if (!allowEmpty && text.isEmpty) return;
-        if (numeric && int.tryParse(text) == null) return;
         send(Mark(at: at, kind: kind, value: text));
       };
     }
@@ -87,19 +87,29 @@ class LabMarksPanel extends ConsumerWidget {
   }
 }
 
-Future<String?> _askText(BuildContext context, String title, {bool numeric = false}) =>
+Future<String?> _askText(
+  BuildContext context,
+  String title, {
+  required bool numeric,
+  required bool allowEmpty,
+}) =>
     showDialog<String>(
       context: context,
-      builder: (_) => _TextPromptDialog(title: title, numeric: numeric),
+      builder: (_) => _TextPromptDialog(title: title, numeric: numeric, allowEmpty: allowEmpty),
     );
 
 /// 글 한 줄을 받는 대화상자. 입력 컨트롤러를 대화상자 State가 들고 dispose한다 — pop 직후에 바로
 /// 해제하면 닫히는 애니메이션 동안 TextField가 해제된 컨트롤러를 써서 오류가 난다.
 class _TextPromptDialog extends StatefulWidget {
-  const _TextPromptDialog({required this.title, required this.numeric});
+  const _TextPromptDialog({
+    required this.title,
+    required this.numeric,
+    required this.allowEmpty,
+  });
 
   final String title;
   final bool numeric;
+  final bool allowEmpty;
 
   @override
   State<_TextPromptDialog> createState() => _TextPromptDialogState();
@@ -107,11 +117,26 @@ class _TextPromptDialog extends StatefulWidget {
 
 class _TextPromptDialogState extends State<_TextPromptDialog> {
   final _controller = TextEditingController();
+  String? _errorText;
 
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  /// 잘못된 입력이면 닫지 않고 이유를 보여 준다 — 조용히 버려지면 기록한 줄 착각하게 된다.
+  void _submit() {
+    final text = _controller.text.trim();
+    if (text.isEmpty && !widget.allowEmpty) {
+      setState(() => _errorText = '내용을 입력하세요');
+      return;
+    }
+    if (widget.numeric && !RegExp(r'^\d+$').hasMatch(text)) {
+      setState(() => _errorText = '숫자만 입력하세요');
+      return;
+    }
+    Navigator.of(context).pop(text);
   }
 
   @override
@@ -123,12 +148,14 @@ class _TextPromptDialogState extends State<_TextPromptDialog> {
         controller: _controller,
         autofocus: true,
         keyboardType: widget.numeric ? TextInputType.number : TextInputType.text,
+        inputFormatters: widget.numeric ? [FilteringTextInputFormatter.digitsOnly] : null,
+        decoration: InputDecoration(errorText: _errorText),
       ),
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('취소')),
         TextButton(
           key: const Key('mark-dialog-ok'),
-          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          onPressed: _submit,
           child: const Text('확인'),
         ),
       ],

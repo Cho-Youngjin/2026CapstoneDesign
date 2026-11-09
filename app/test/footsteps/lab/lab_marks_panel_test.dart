@@ -59,7 +59,7 @@ void main() {
     ]);
   });
 
-  testWidgets('걸음 세기 끝은 센 걸음 수를 받는다. 숫자가 아니면 보내지 않는다', (tester) async {
+  testWidgets('걸음 세기 끝은 센 걸음 수를 받는다. 숫자가 아니면 대화상자를 닫지 않고 알린다', (tester) async {
     final controller = FakeRecordingController();
     await pumpLab(tester, controller);
     await _startRecording(tester);
@@ -67,16 +67,34 @@ void main() {
     await tester.tap(find.byKey(const Key('mark-count-start')));
     await tester.tap(find.byKey(const Key('mark-count-end')));
     await tester.pumpAndSettle();
-    await _answerDialog(tester, '152');
-
-    await tester.tap(find.byKey(const Key('mark-count-end')));
-    await tester.pumpAndSettle();
+    // digitsOnly 입력 제한 때문에 '많이'는 빈 칸이 되어 빈 입력 오류가 나온다.
     await _answerDialog(tester, '많이');
 
+    expect(find.byKey(const Key('mark-dialog-field')), findsOneWidget); // 닫히지 않았다
+    expect(find.text('내용을 입력하세요'), findsOneWidget);
+    expect(controller.marks.map((m) => (m.kind, m.value)), [(MarkKind.countStart, '')]);
+
+    await _answerDialog(tester, '152');
+
+    expect(find.byKey(const Key('mark-dialog-field')), findsNothing);
     expect(controller.marks.map((m) => (m.kind, m.value)), [
       (MarkKind.countStart, ''),
       (MarkKind.countEnd, '152'),
     ]);
+  });
+
+  testWidgets('메모가 비어 있으면 대화상자를 닫지 않고 알리며 보내지 않는다', (tester) async {
+    final controller = FakeRecordingController();
+    await pumpLab(tester, controller);
+    await _startRecording(tester);
+
+    await tester.tap(find.byKey(const Key('mark-note')));
+    await tester.pumpAndSettle();
+    await _answerDialog(tester, '');
+
+    expect(find.byKey(const Key('mark-dialog-field')), findsOneWidget);
+    expect(find.text('내용을 입력하세요'), findsOneWidget);
+    expect(controller.marks, isEmpty);
   });
 
   testWidgets('메모는 입력한 글을 보낸다', (tester) async {
