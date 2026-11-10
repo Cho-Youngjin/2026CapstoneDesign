@@ -18,6 +18,7 @@ export 'src/policies/speed_adaptive_policy.dart';
 export 'src/policies/still_suppress_policy.dart';
 export 'src/policies/time_speed_policy.dart';
 export 'src/replay/replay_engine.dart';
+export 'src/replay/replay_output.dart';
 export 'src/replay/replay_result.dart';
 export 'src/session/csv.dart';
 export 'src/session/session_reader.dart';
