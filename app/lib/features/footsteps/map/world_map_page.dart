@@ -45,9 +45,12 @@ final estimatedStepsByCountryProvider = FutureProvider<Map<String, int>>((ref) a
 /// 상위 지도 — 세계지도에 방문국을 채색하고, 하단에 국가별 누적 걸음 카드를 보여준다.
 /// 국가를 탭하면(지도 폴리곤 또는 하단 카드) [onCountryTap]을 호출해 하위 지도로 전환한다.
 class WorldMapPage extends ConsumerWidget {
-  const WorldMapPage({super.key, required this.onCountryTap});
+  const WorldMapPage({super.key, required this.onCountryTap, this.onLabRequested});
 
   final void Function(String iso) onCountryTap;
+
+  /// 요약 문구를 길게 누르면 부른다(숨은 실험 화면 입구, 연구 R1). 일반 사용자에게는 보이지 않는다.
+  final VoidCallback? onLabRequested;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -64,16 +67,22 @@ class WorldMapPage extends ConsumerWidget {
       data: (countryPolygons) => _WorldMapBody(
         countryPolygons: countryPolygons,
         onCountryTap: onCountryTap,
+        onLabRequested: onLabRequested,
       ),
     );
   }
 }
 
 class _WorldMapBody extends ConsumerWidget {
-  const _WorldMapBody({required this.countryPolygons, required this.onCountryTap});
+  const _WorldMapBody({
+    required this.countryPolygons,
+    required this.onCountryTap,
+    this.onLabRequested,
+  });
 
   final List<CountryPolygon> countryPolygons;
   final void Function(String iso) onCountryTap;
+  final VoidCallback? onLabRequested;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -118,9 +127,12 @@ class _WorldMapBody extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '방문 국가 ${visitedByStepsDesc.length} · 총 걸음 ${steps.values.fold(0, (a, b) => a + b)} (이동 거리 기준)',
-                style: AppTextStyles.caption,
+              GestureDetector(
+                onLongPress: onLabRequested,
+                child: Text(
+                  '방문 국가 ${visitedByStepsDesc.length} · 총 걸음 ${steps.values.fold(0, (a, b) => a + b)} (이동 거리 기준)',
+                  style: AppTextStyles.caption,
+                ),
               ),
             ],
           ),

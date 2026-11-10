@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:app/app.dart';
 import 'package:app/features/footsteps/providers/footsteps_providers.dart';
+import 'package:app/features/footsteps/recording/recording_providers.dart';
+import 'package:app/features/footsteps/recording/session_library.dart';
 import 'package:app/features/visa/data/trip_list_providers.dart';
 import 'package:app/router.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +11,8 @@ import 'package:flutter/services.dart' show PlatformViewCreatedCallback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
+
+import 'footsteps/lab/fake_recording_controller.dart';
 
 /// GoogleMap은 실제 플랫폼 뷰를 만들려고 시도하는데, 위젯 테스트 환경에는 그걸 받아줄
 /// 네이티브 플랫폼이 없어 `pumpAndSettle`이 영원히 끝나지 않는다(Plan C Task 8이
@@ -137,5 +143,34 @@ void main() {
       expect(find.text('발걸음'), findsWidgets);
       expect(find.text('준비물'), findsOneWidget); // 탭 라벨만 남는다
     });
+
+    testWidgets('실험 화면 경로(/footsteps/lab)로 가면 실험 화면이 보인다', (tester) async {
+      final router = createRouter(isLoggedIn: true);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            tripListProvider.overrideWith((ref) async => const TripListState(trips: [])),
+            recordingControllerProvider.overrideWithValue(FakeRecordingController()),
+            sessionLibraryProvider.overrideWithValue(_EmptyLibrary()),
+          ],
+          child: TravelFootstepsApp(router: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      router.go(AppRoutes.footstepsLab);
+      await tester.pumpAndSettle();
+
+      expect(find.text('발걸음 실험'), findsOneWidget);
+      expect(find.byKey(const Key('lab-start-stop')), findsOneWidget);
+    });
   });
+}
+
+class _EmptyLibrary implements SessionLibrary {
+  @override
+  Future<List<SessionSummary>> list() async => const [];
+
+  @override
+  Future<File> zip(SessionSummary session, Directory outDir) => throw UnimplementedError();
 }

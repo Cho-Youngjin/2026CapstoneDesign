@@ -5,6 +5,8 @@ app/.flutter-plugins
 app/.flutter-plugins-dependencies
 app/android/local.properties
 app/android/.gradle/
+packages/*/build/
+packages/*/.dart_tool/
 **/google-services.json
 
 # Gradle / Java
@@ -40,3 +42,7 @@ mock-server/
 
 # Claude Code 로컬 설정·워크트리 (개인 환경이라 공유하지 않는다)
 /.claude/
+
+# 연구 수집 데이터(실제 이동 경로)와 분석 산출물 — 절대 커밋하지 않는다(설계 2026-11-07 3-1)
+research/data/
+research/results/
