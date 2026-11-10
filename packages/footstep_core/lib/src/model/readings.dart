@@ -37,3 +37,19 @@ class BatteryLevelReading {
   final int tMs;
   final int levelPct;
 }
+
+/// marks.csv의 행 하나(설계 4-2 관찰 표시). kind는 arrive·depart·board·alight·count_start·count_end·carry·note다.
+class MarkReading {
+  const MarkReading({required this.tMs, required this.kind, required this.value});
+
+  static const countStart = 'count_start';
+  static const countEnd = 'count_end';
+  static const board = 'board';
+  static const alight = 'alight';
+
+  final int tMs;
+  final String kind;
+
+  /// count_end면 직접 센 걸음 수, board면 탈것 종류, arrive면 장소 이름이다. 없으면 빈 문자열이다.
+  final String value;
+}
