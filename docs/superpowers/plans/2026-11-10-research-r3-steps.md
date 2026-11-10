@@ -18,9 +18,10 @@
 - 이권희·김광현·오종택, 「위치 추적을 위한 스마트폰 센서를 이용한 걸음 수 검출에 관한 연구」, JIIBC 18(3), 2018, 식 (4)
   - `Tmax(i+1) = 1/3 × (0.5 × (Pmax(i) + Pmax(i−1)))`
   - `Tmin = 0.94`(중력 단위, 고정)
-- Brajdic & Harle, UbiComp 2013: STD_TH(0.8초 창, 표준편차 0.6), WPD
-  - **WPD의 평활 창과 피크 창 길이는 원문을 아직 확인하지 못했다(ACM 유료).**
-  - 이 계획의 0.2초·0.2초는 출발값이다. 원문을 확인하면 Task 3의 기본값만 바꾼다.
+- Brajdic & Harle, UbiComp 2013 (원문 `바탕화면/2493432.2493449.pdf`)
+  - 표 3: STD_TH의 최적값은 `σthresh = 0.6`, `stdwin = 0.8 s`다.
+  - 표 4: WPD의 최적값은 `MovAvrwin = 0.31 s`(중심 이동 평균), `Peakwin = 0.59 s`다. Peakwin은 봉우리를 찾는 창 크기이고, 창 하나에 봉우리가 하나뿐이다.
+  - 실험 기기는 Galaxy Nexus, 100Hz였다. 이 감지기들은 걸음 구간 안의 걸음 세기로 평가됐고, 탈것은 다루지 않았다.
 
 ## 설계 검증 (Python 시제품, 커밋하지 않음)
 
@@ -30,16 +31,18 @@
 
 | 입력 | 제안판 `adaptive` | 기준판 `brajdic` | 정답 |
 |---|---|---|---|
-| 2Hz 보행 30초 | 59 | 59 | 60 |
+| 2Hz 보행 30초 | 59 | 58 | 60 |
 | 1.5Hz 보행 30초 | 44 | 44 | 45 |
 | 2.4Hz 보행 30초 | 71 | 70 | 72 |
-| 2Hz 보행 30초, 50Hz 입력 | 59 | 59 | 60 |
-| 15초 보행 + 7초 공백 + 15초 보행 | 58 | 58 | 60 |
-| 4초 보행(8걸음) × 3, 사이 3초 정지 | 24 | 27 | 24 |
-| 2초 보행(4걸음) 한 번 | 0 (N=5 미만) | 5 | 4 |
+| 2Hz 보행 30초, 50Hz 입력 | 59 | 58 | 60 |
+| 15초 보행 + 7초 공백 + 15초 보행 | 58 | 56 | 60 |
+| 4초 보행(8걸음) × 3, 사이 3초 정지 | 24 | 26 | 24 |
+| 2초 보행(4걸음) 한 번 | 0 (N=5 미만) | 4 | 4 |
 | 정지 20초 | 0, 첫 사건 990ms 정지 | 0 | 0 |
-| 버스 흉내 60초(엔진 12·17Hz + 0.3Hz 흔들림) | 0, 상태는 기타 움직임만 | 52 | 0 |
-| 실제 세션 | 887 | 952 | OS 걸음 센서 875 |
+| 버스 흉내 60초(엔진 12·17Hz + 0.3Hz 흔들림) | 0, 상태는 기타 움직임만 | 19 | 0 |
+| 실제 세션 | 887 | 922 | OS 걸음 센서 875 |
+
+기준판 값은 논문 표 4의 최적값(0.31초·0.59초)으로 돌린 결과다.
 
 ## Global Constraints
 
@@ -58,7 +61,7 @@
   - 적응형 임계값: Tmin = −0.588 m/s²(0.94g를 0 중심으로 바꾼 값), Tmax = 직전 두 Pmax 합 ÷ 6, 첫 Tmax = 1.0
   - 걸음 대역: 0.7~3Hz. 대역 흔들림 하한 0.3 m/s²
   - 걸음 사이 최대 간격: 1.5초. 최소 간격: 걸음 주기 × 0.6
-  - WPD: 평활 0.2초, 피크 반창 0.2초
+  - WPD: 중심 이동 평균 0.31초, 봉우리 창 0.59초(Brajdic & Harle 표 4)
 - 수집한 세션 데이터(`research/data/`)와 결과는 커밋하지 않는다.
 - 코드 주석은 한국어로 '왜'를 적는다.
 - 패키지 테스트·분석은 `packages/footstep_core/`에서 `dart test`, `dart analyze`로 한다. `flutter analyze`는 이 PC에서 경로 문제로 죽는다.
@@ -634,9 +637,10 @@ git commit -m "feat(footstep_core): 걸음 감지용 신호 도구를 더하고 
   - `abstract interface class StepTimeline { List<int> takeStepTimes(); }`
   - `StepDetector`에 `Map<String, Object> get params;`
   - `OsStepDetector`가 `StepTimeline`을 구현한다. `params`는 `{'walking_window_s': 4.0}`(기본값일 때)이다.
-  - `class BrajdicDetector({double stdThreshold = 0.6, int smoothMs = 200, int peakHalfMs = 200}) implements StepDetector, StepTimeline`
+  - `class BrajdicDetector({double stdThreshold = 0.6, int smoothMs = 310, int peakWindowMs = 590}) implements StepDetector, StepTimeline`
     - `id == 'brajdic'`
-    - `params == {'std_th': 0.6, 'smooth_s': 0.2, 'peak_half_s': 0.2}`
+    - `params == {'std_th': 0.6, 'smooth_s': 0.31, 'peak_win_s': 0.59}`
+    - 걸음 시각은 중심 이동 평균 기준이다. 뒤쪽 이동 평균의 지연인 (평활 표본 수 − 1) × 20ms ÷ 2를 뺀다.
     - `cadenceHz`는 늘 null이다
   - 테스트 도우미(`test/detectors/synthetic.dart`):
     - 합성 신호: `lcg`, `walk`, `still`, `bus`, `stopAndGo`, `shortBurst`, `gapWalk`
@@ -783,7 +787,8 @@ void main() {
   test('기록 공백(7초) 건너편을 한 창에 섞지 않는다', () {
     final detector = BrajdicDetector();
     feed(detector, gapWalk());
-    expect(detector.totalSteps, inInclusiveRange(56, 61));
+    // 공백 뒤 창이 다시 찰 때까지(약 0.8초) 첫 걸음 한두 개는 놓친다.
+    expect(detector.totalSteps, inInclusiveRange(55, 61));
   });
 
   test('정지면 0걸음이고, 0.8초 창이 찬 첫 묶음에서 정지를 한 번 알린다', () {
@@ -822,7 +827,17 @@ void main() {
   test('id와 파라미터', () {
     final detector = BrajdicDetector();
     expect(detector.id, 'brajdic');
-    expect(detector.params, {'std_th': 0.6, 'smooth_s': 0.2, 'peak_half_s': 0.2});
+    expect(detector.params, {'std_th': 0.6, 'smooth_s': 0.31, 'peak_win_s': 0.59});
+  });
+
+  test('걸음 시각은 중심 이동 평균 기준이라 사인 봉우리 근처에 놓인다', () {
+    final detector = BrajdicDetector();
+    feed(detector, walk(10));
+    // 2Hz 사인의 봉우리는 125 + 500k ms다. 격자(20ms)와 잡음 때문에 앞뒤 40ms 안이면 된다.
+    for (final t in detector.takeStepTimes()) {
+      final offset = (t - 125) % 500;
+      expect(offset <= 40 || offset >= 460, isTrue, reason: '걸음 시각 $t');
+    }
   });
 }
 ```
@@ -912,25 +927,32 @@ import 'signal.dart';
 import 'step_detector.dart';
 import 'step_timeline.dart';
 
-/// 논문 기준판 걸음 감지기(Brajdic & Harle, UbiComp 2013의 추천 조합, 설계 5-2).
-/// - 보행 판정 STD_TH: 가속도 크기의 0.8초 창 표준편차가 [stdThreshold]보다 크면 보행이다.
-/// - 걸음 세기 WPD: 크기를 [smoothMs] 이동 평균으로 다듬고, 앞뒤 [peakHalfMs] 안에서 가장 큰 점을 걸음으로 센다.
-///   그 순간 보행 판정이 참일 때만 센다.
-/// 논문에는 기타 움직임(탈것) 구분이 없어서 이 감지기도 정지·보행만 낸다. 그래서 버스 진동을 걸음으로 셀 수 있고,
-/// 그 점이 제안판과 비교하려는 지점이다. 평활·피크 창 길이는 출발값이다(원문 확인 후 바꿀 수 있다).
+/// 논문 기준판 걸음 감지기(Brajdic & Harle, UbiComp 2013의 추천 조합, 설계 5-2). 기본값은 논문의 최적값이다.
+/// - 보행 판정 STD_TH(표 3): 가속도 크기의 0.8초 창 표준편차가 [stdThreshold](0.6)보다 크면 보행이다.
+/// - 걸음 세기 WPD(표 4): 크기를 [smoothMs](0.31초) 중심 이동 평균으로 다듬고, [peakWindowMs](0.59초) 창의
+///   한가운데가 창에서 가장 크면 걸음 하나로 센다(창 하나에 봉우리 하나). 그 순간 보행 판정이 참일 때만 센다.
+/// 논문은 기타 움직임(탈것)을 다루지 않아서 이 감지기도 정지·보행만 낸다. 그래서 버스 진동을 걸음으로 셀 수
+/// 있고, 그 점이 제안판과 비교하려는 지점이다.
 class BrajdicDetector implements StepDetector, StepTimeline {
-  BrajdicDetector({this.stdThreshold = 0.6, this.smoothMs = 200, this.peakHalfMs = 200});
+  BrajdicDetector({this.stdThreshold = 0.6, this.smoothMs = 310, this.peakWindowMs = 590});
 
   final double stdThreshold;
   final int smoothMs;
-  final int peakHalfMs;
+  final int peakWindowMs;
 
   static const _stdWindowMs = 800;
 
   final _grid = MagnitudeGrid();
   final _raw = RecentValues(_stdWindowMs ~/ gridStepMs);
-  late final _smoothing = RecentValues(math.max(1, (smoothMs / gridStepMs).round()));
-  late final int _half = math.max(1, (peakHalfMs / gridStepMs).round());
+  late final int _smoothSamples = math.max(1, (smoothMs / gridStepMs).round());
+  late final _smoothing = RecentValues(_smoothSamples);
+
+  /// 봉우리 창의 한쪽 폭(표본 수). 창 전체는 2 × [_half] + 1 표본이다.
+  late final int _half = math.max(1, (peakWindowMs / gridStepMs / 2).round());
+
+  /// 논문은 중심 이동 평균을 쓴다. 실시간으로는 뒤쪽 이동 평균만 셀 수 있는데, 그것은 중심 이동 평균을
+  /// (표본 수 − 1) ÷ 2 표본만큼 늦춘 것과 같다. 걸음 시각에서 이만큼 빼면 중심 이동 평균의 봉우리 시각이 된다.
+  late final int _delayMs = (_smoothSamples - 1) * gridStepMs ~/ 2;
   final _smoothed = ListQueue<({int tMs, double value})>();
   final _stepTimes = <int>[];
 
@@ -944,7 +966,7 @@ class BrajdicDetector implements StepDetector, StepTimeline {
 
   @override
   Map<String, Object> get params =>
-      {'std_th': stdThreshold, 'smooth_s': smoothMs / 1000, 'peak_half_s': peakHalfMs / 1000};
+      {'std_th': stdThreshold, 'smooth_s': smoothMs / 1000, 'peak_win_s': peakWindowMs / 1000};
 
   @override
   StepState get state => _state;
@@ -1014,7 +1036,7 @@ class BrajdicDetector implements StepDetector, StepTimeline {
     // 봉우리가 확정된 순간의 0.8초 창으로 보행 여부를 본다(STD_TH).
     if (_raw.isFull && stdDev(_raw.toList()) > stdThreshold) {
       _total++;
-      _stepTimes.add(center.tMs);
+      _stepTimes.add(center.tMs - _delayMs);
     }
   }
 }
@@ -1575,7 +1597,7 @@ git commit -m "feat(footstep_core): 제안 걸음 감지기(흔들림·박자 �
     - `int positiveInt(String key, int fallback)`
   - `const detectorIds = ['os', 'brajdic', 'adaptive']`
   - `StepDetector createDetector(String id, [Map<String, String> params = const {}])`. 파라미터는 다음과 같다.
-    - `brajdic`: `std_th`, `smooth_s`, `peak_half_s`
+    - `brajdic`: `std_th`, `smooth_s`, `peak_win_s`
     - `adaptive`: `std_th`, `band_std_th`, `ac_th`, `n_confirm`, `max_gap_s`
   - `Map<String, String> parseKeyValues(Iterable<String> pairs)`(형식이 틀리면 `FormatException`)
   - `ReplaySummary.detectorParams`(기본 `const {}`)
@@ -1593,7 +1615,7 @@ git commit -m "feat(footstep_core): 제안 걸음 감지기(흔들림·박자 �
       expect(createDetector(id).id, id);
     }
     expect(createDetector('brajdic', {'std_th': '0.8', 'smooth_s': '0.1'}).params,
-        {'std_th': 0.8, 'smooth_s': 0.1, 'peak_half_s': 0.2});
+        {'std_th': 0.8, 'smooth_s': 0.1, 'peak_win_s': 0.59});
     expect(createDetector('adaptive', {'n_confirm': '6', 'ac_th': '0.5'}).params,
         {'std_th': 0.6, 'band_std_th': 0.3, 'ac_th': 0.5, 'n_confirm': 6, 'max_gap_s': 1.5});
   });
@@ -1775,11 +1797,11 @@ StepDetector createDetector(String id, [Map<String, String> params = const {}]) 
       reader.allowOnly(const {});
       return OsStepDetector();
     case 'brajdic':
-      reader.allowOnly(const {'std_th', 'smooth_s', 'peak_half_s'});
+      reader.allowOnly(const {'std_th', 'smooth_s', 'peak_win_s'});
       return BrajdicDetector(
         stdThreshold: reader.positive('std_th', 0.6),
-        smoothMs: (reader.positive('smooth_s', 0.2) * 1000).round(),
-        peakHalfMs: (reader.positive('peak_half_s', 0.2) * 1000).round(),
+        smoothMs: (reader.positive('smooth_s', 0.31) * 1000).round(),
+        peakWindowMs: (reader.positive('peak_win_s', 0.59) * 1000).round(),
       );
     case 'adaptive':
       reader.allowOnly(const {'std_th', 'band_std_th', 'ac_th', 'n_confirm', 'max_gap_s'});
@@ -2661,8 +2683,8 @@ dart run footstep_core:steps --session <세션 폴더> --detector os|brajdic|ada
 | 감지기 | 이름 | 기본값 | 뜻 |
 |---|---|---|---|
 | `brajdic` | `std_th` | 0.6 | 보행 판정 표준편차(m/s², 0.8초 창) |
-| `brajdic` | `smooth_s` | 0.2 | 이동 평균 길이(초) — 출발값, 논문 원문 확인 필요 |
-| `brajdic` | `peak_half_s` | 0.2 | 봉우리 판정 반창(초) — 출발값, 논문 원문 확인 필요 |
+| `brajdic` | `smooth_s` | 0.31 | 중심 이동 평균 길이(초, 논문 표 4) |
+| `brajdic` | `peak_win_s` | 0.59 | 봉우리를 찾는 창 크기(초, 논문 표 4). 창 하나에 봉우리 하나 |
 | `adaptive` | `std_th` | 0.6 | 정지/움직임 표준편차(m/s²) |
 | `adaptive` | `band_std_th` | 0.3 | 걸음 대역 흔들림 하한(m/s²) |
 | `adaptive` | `ac_th` | 0.4 | 박자로 보는 자기상관 봉우리 |
@@ -2707,7 +2729,7 @@ dart run footstep_core:steps --session <세션 폴더> --detector os|brajdic|ada
 설계 문서 5-2 표에서 `BrajdicDetector`, `AdaptiveStepDetector` 두 행을 다음으로 바꾼다.
 
 ```markdown
-| `BrajdicDetector` (`brajdic`) | 논문 기준판. 보행 판정은 STD_TH(0.8초 창, 표준편차 0.6), 걸음 검출은 WPD(이동 평균 0.2초, 봉우리 반창 0.2초 — 출발값). 기타 움직임은 구분하지 않는다. |
+| `BrajdicDetector` (`brajdic`) | 논문 기준판. 보행 판정은 STD_TH(0.8초 창, 표준편차 0.6, 논문 표 3), 걸음 검출은 WPD(중심 이동 평균 0.31초, 봉우리 창 0.59초, 논문 표 4). 기타 움직임은 구분하지 않는다. |
 | `AdaptiveStepDetector` (`adaptive`) | 제안판. 20ms 격자 → 걸음 대역(0.7~3Hz) → 흔들림(0.8초 표준편차 0.6, 대역 0.3) + 박자(3초 창 자기상관 **봉우리** 0.4) 판정 → 적응형 임계값 피크(이권희 외 2018 식 (4), Tmin −0.588) → 걸음 주기 0.6배 최소 간격 → 연속 5걸음 확인 후 소급 카운트. 흔들림은 있는데 박자가 없으면 기타 움직임. |
 ```
 
