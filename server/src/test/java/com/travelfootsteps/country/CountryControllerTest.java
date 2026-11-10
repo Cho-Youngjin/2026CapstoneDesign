@@ -93,15 +93,15 @@ class CountryControllerTest {
 
     @Test
     void 준비물_체크리스트는_공통_템플릿에_국가별_항목을_더해_우선순위순으로_반환한다() throws Exception {
-        // 공통 템플릿 14개(V5 8개 + V12 6개) + 베트남 결제 특이사항 1개(V9) = 15개.
+        // 공통 템플릿 14개(V5 8개 + V12 6개) + 베트남 국가별 3개(V9 결제, V15 입국 서류, V16 전압·플러그) = 17개.
         // 국가별 항목은 priority 90이라 공통 항목들(최대 89)보다 뒤에 온다.
         mockMvc.perform(get("/api/countries/VN/checklist").header("Authorization", "Bearer valid-token"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(15))
+                .andExpect(jsonPath("$.length()").value(17))
                 .andExpect(jsonPath("$[0].title").value("플러그 어댑터 준비"))
                 .andExpect(jsonPath("$[0].category").value("POWER"))
-                .andExpect(jsonPath("$[14].title").value("소액권 현지통화 사전 환전"))
-                .andExpect(jsonPath("$[14].category").value("PAYMENT"));
+                .andExpect(jsonPath("$[16].title").value("소액권 현지통화 사전 환전"))
+                .andExpect(jsonPath("$[16].category").value("PAYMENT"));
     }
 
     @Test
