@@ -39,6 +39,16 @@ void main() {
     expect(detector.totalSteps, inInclusiveRange(55, 61));
   });
 
+  test('공백 앞뒤 표본을 한 창에 섞지 않아, 공백 앞 걷기만 돌린 결과와 같다', () {
+    final walkOnly = BrajdicDetector();
+    feed(walkOnly, walk(5));
+    final detector = BrajdicDetector();
+    // 5초 걷기 → 7초 공백 → 정지. 창을 비우지 않으면 공백 앞 걸음 흔들림이 공백 뒤 정지 구간의 보행 판정과
+    // 봉우리에 섞여 가짜 걸음이 생긴다.
+    feed(detector, [...walk(5), ...still(5, t0: 12000)]);
+    expect(detector.takeStepTimes(), walkOnly.takeStepTimes());
+  });
+
   test('정지면 0걸음이고, 0.8초 창이 찬 첫 묶음에서 정지를 한 번 알린다', () {
     final detector = BrajdicDetector();
     final updates = feed(detector, still(20));
