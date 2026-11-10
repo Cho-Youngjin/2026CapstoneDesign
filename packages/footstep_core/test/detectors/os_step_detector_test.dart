@@ -11,7 +11,10 @@ void main() {
   test('첫 누적값은 기준이고, 늘어나면 보행과 걸음 수를 알린다', () {
     final detector = OsStepDetector();
 
-    expect(detector.onOsStep(count(1000, 1520)), isNull);
+    // 첫 읽기는 정지 상태를 처음 알리는 사건이다(걸음 수는 기준이라 0).
+    final first = detector.onOsStep(count(1000, 1520))!;
+    expect(first.state, StepState.still);
+    expect(first.totalSteps, 0);
     final update = detector.onOsStep(count(2000, 1525))!;
 
     expect(update.tMs, 2000);
@@ -61,5 +64,59 @@ void main() {
     detector.onOsStep(count(3000, 3));
     final update = detector.onOsStep(count(4000, 8))!;
     expect(update.totalSteps, 15);
+  });
+
+  group('첫 분류', () {
+    test('정지로 시작하면 첫 OS 걸음 읽기에서 정지를 정확히 한 번 알린다', () {
+      final detector = OsStepDetector();
+
+      final first = detector.onOsStep(count(1000, 700))!;
+      expect(first.tMs, 1000);
+      expect(first.state, StepState.still);
+      expect(first.totalSteps, 0);
+
+      // 이후 같은 정지 상태는 다시 알리지 않는다.
+      expect(detector.onOsStep(count(2000, 700)), isNull);
+      expect(detector.onOsStep(status(3000, 'stopped')), isNull);
+      expect(detector.onAccel(4000, const []), isNull);
+    });
+
+    test('OS 상태 읽기가 첫 입력이어도 첫 분류를 알린다', () {
+      final detector = OsStepDetector();
+
+      expect(detector.onOsStep(status(1000, 'stopped'))!.state, StepState.still);
+      expect(detector.onOsStep(status(2000, 'stopped')), isNull);
+    });
+
+    test('OS 걸음 읽기가 오기 전에는 가속도 묶음만으로 분류하지 않는다', () {
+      final detector = OsStepDetector();
+
+      expect(detector.onAccel(1000, const []), isNull);
+      expect(detector.onAccel(9000, const []), isNull);
+      expect(detector.onOsStep(count(10000, 5))!.state, StepState.still);
+    });
+
+    test('받아들이지 못한 읽기(숫자가 아닌 누적값)는 첫 분류가 되지 않는다', () {
+      final detector = OsStepDetector();
+
+      expect(detector.onOsStep(OsStepReading(tMs: 1000, kind: OsStepReading.count, value: 'x')), isNull);
+      expect(detector.onOsStep(count(2000, 5))!.state, StepState.still);
+    });
+
+    test('첫 분류 뒤에는 이전처럼 바뀔 때만 알린다', () {
+      final detector = OsStepDetector();
+
+      expect(detector.onOsStep(count(1000, 100))!.state, StepState.still);
+      expect(detector.onOsStep(count(2000, 104))!.state, StepState.walking);
+      expect(detector.onAccel(5000, const []), isNull);
+      expect(detector.onAccel(6500, const [])!.state, StepState.still);
+    });
+
+    test('보행으로 시작하면 첫 분류가 보행이고 중복해서 알리지 않는다', () {
+      final detector = OsStepDetector();
+
+      expect(detector.onOsStep(status(1000, 'walking'))!.state, StepState.walking);
+      expect(detector.onOsStep(status(2000, 'walking')), isNull);
+    });
   });
 }

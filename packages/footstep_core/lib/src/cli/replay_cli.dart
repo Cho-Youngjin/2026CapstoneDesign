@@ -50,7 +50,7 @@ Future<int> runReplayCli(List<String> arguments, {StringSink? out, StringSink? e
   }
 
   final ttffSeconds = double.tryParse(args.option('ttff')!);
-  if (ttffSeconds == null || ttffSeconds < 0) return usageError('--ttff는 0 이상의 초여야 합니다.');
+  if (ttffSeconds == null || !ttffSeconds.isFinite || ttffSeconds < 0) return usageError('--ttff는 0 이상의 초여야 합니다.');
 
   final params = <String, String>{};
   for (final pair in args.multiOption('param')) {

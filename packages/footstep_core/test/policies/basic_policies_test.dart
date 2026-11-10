@@ -72,5 +72,14 @@ void main() {
       expect(policy.id, 'still_suppress');
       expect(policy.params, {'interval_s': 120});
     });
+
+    test('onStart는 이전 실행의 걸음 상태를 지운다', () {
+      final policy = StillSuppressPolicy()..onStart(const PolicyContext(nowMs: 0));
+      policy.onEvent(step(1000, StepState.still), const PolicyContext(nowMs: 1000));
+
+      policy.onStart(const PolicyContext(nowMs: 0)); // 같은 인스턴스를 다시 쓴다
+      expect(policy.onEvent(const Wakeup(tMs: 60000, tag: 'tick'), const PolicyContext(nowMs: 60000)),
+          [const RequestFix(), const WakeAt(tMs: 120000, tag: 'tick')]);
+    });
   });
 }

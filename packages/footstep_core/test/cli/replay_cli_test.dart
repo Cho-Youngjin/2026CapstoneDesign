@@ -69,6 +69,16 @@ void main() {
     expect(summary['ttff_ms'], 5000);
   });
 
+  test('--ttff가 NaN·Infinity·음수면 64를 돌려준다', () async {
+    for (final bad in ['NaN', 'Infinity', '-1']) {
+      final code = await runReplayCli([
+        '--session', session.path, '--policy', 'fixed_1m', '--ttff', bad, '--out', p.join(root.path, 'o'),
+      ], out: StringBuffer(), err: err);
+      expect(code, 64, reason: '--ttff $bad');
+    }
+    expect(err.toString(), contains('--ttff'));
+  });
+
   test('--param 형식이 틀리면 64를 돌려준다', () async {
     final code = await runReplayCli([
       '--session', session.path, '--policy', 'time_speed', '--param', 'e_m', '--out', p.join(root.path, 'o'),

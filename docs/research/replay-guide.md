@@ -33,7 +33,7 @@ dart run footstep_core:replay --session <세션 폴더> --policy <정책 id> --o
 | 파일 | 내용 |
 |---|---|
 | `fixes.csv` | `t_ms,lat,lng,accuracy_m,steps_since_prev,state,kind` — 정책이 남긴 점. kind는 `single`(단발) 또는 `continuous` |
-| `actions.csv` | `t_ms,action,args` — 정책이 낸 할 일 전부 |
+| `actions.csv` | `t_ms,action,args` — 정책이 낸 할 일 전부. 이미 응답을 기다리는 중이라 무시된 `request_fix`도 그대로 남으므로, 측위 요청 수는 행 수가 아니라 `summary.json`의 `fix_requests`를 쓴다 |
 | `summary.json` | 측위 요청·성공·실패 수, 연속 측위 점 수, 추정 GPS 켜짐 시간(`gps_on_s`), 시간당 점 수 |
 
 ## 해석할 때 주의

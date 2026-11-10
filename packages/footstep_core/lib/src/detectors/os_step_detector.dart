@@ -19,6 +19,14 @@ class OsStepDetector implements StepDetector {
   String _lastStatus = 'unknown';
   StepState _state = StepState.still;
 
+  /// OS 걸음 읽기(누적값 또는 상태)를 한 번이라도 받아들였는가. 그 전의 '정지'는 기본값일 뿐 관측이
+  /// 아니므로 정책에는 '걸음 정보 없음'으로 남겨야 한다.
+  bool _hasOsInput = false;
+
+  /// 첫 분류를 정책에 알렸는가. 정지로 시작한 세션도 첫 읽기에서 한 번은 알려야 정지 억제 정책이
+  /// 처음부터 정지를 안다.
+  bool _announced = false;
+
   @override
   String get id => 'os';
 
@@ -37,6 +45,7 @@ class OsStepDetector implements StepDetector {
     if (reading.kind == OsStepReading.count) {
       final value = int.tryParse(reading.value);
       if (value == null) return null;
+      _hasOsInput = true;
       final base = _base ??= value;
       final total = value - base;
       if (total < _total) {
@@ -49,6 +58,7 @@ class OsStepDetector implements StepDetector {
       }
     } else if (reading.kind == OsStepReading.status) {
       _lastStatus = reading.value;
+      _hasOsInput = true;
     }
     return _update(reading.tMs, stepsChanged: increased);
   }
@@ -60,11 +70,14 @@ class OsStepDetector implements StepDetector {
   void onFix() => _totalAtLastFix = _total;
 
   StepUpdate? _update(int tMs, {required bool stepsChanged}) {
+    // OS 걸음 읽기를 받기 전에는 가속도 묶음만으로 분류하지 않는다.
+    if (!_hasOsInput) return null;
     final last = _lastIncreaseMs;
     final recentlyStepped = last != null && tMs - last <= walkingWindowMs;
     final next =
         recentlyStepped || _lastStatus == 'walking' ? StepState.walking : StepState.still;
-    if (next == _state && !stepsChanged) return null;
+    if (next == _state && !stepsChanged && _announced) return null;
+    _announced = true;
     _state = next;
     return StepUpdate(
       tMs: tMs,

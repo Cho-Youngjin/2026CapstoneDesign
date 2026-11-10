@@ -19,8 +19,11 @@ class StillSuppressPolicy implements CollectionPolicy {
   Map<String, Object> get params => {'interval_s': intervalMs ~/ 1000};
 
   @override
-  List<PolicyAction> onStart(PolicyContext ctx) =>
-      [const RequestFix(), WakeAt(tMs: ctx.nowMs + intervalMs, tag: _tag)];
+  List<PolicyAction> onStart(PolicyContext ctx) {
+    // 같은 인스턴스를 다시 써도 이전 실행의 걸음 상태가 남아 첫 판단을 흐리지 않게 한다.
+    _state = null;
+    return [const RequestFix(), WakeAt(tMs: ctx.nowMs + intervalMs, tag: _tag)];
+  }
 
   @override
   List<PolicyAction> onEvent(PolicyEvent event, PolicyContext ctx) {

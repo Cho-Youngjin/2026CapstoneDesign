@@ -26,6 +26,13 @@ void main() {
     expect(() => createPolicy('time_speed', {'e_m': '-5'}), throwsArgumentError);
   });
 
+  test('NaN·Infinity 파라미터는 ArgumentError다', () {
+    expect(() => createPolicy('time_speed', {'e_m': 'NaN'}), throwsArgumentError);
+    expect(() => createPolicy('time_speed', {'e_m': 'Infinity'}), throwsArgumentError);
+    expect(() => createPolicy('still_suppress', {'interval_s': 'Infinity'}), throwsArgumentError);
+    expect(() => createPolicy('still_suppress', {'interval_s': 'NaN'}), throwsArgumentError);
+  });
+
   test('걸음 감지기 id로 감지기를 만든다', () {
     expect(detectorIds, ['os']);
     expect(createDetector('os').id, 'os');

@@ -122,7 +122,9 @@ void main() {
         OsStepDetector());
 
     final updates = policy.events.whereType<StepUpdate>().toList();
-    expect(updates.map((u) => (u.tMs, u.state)), [(1000, StepState.walking), (5990, StepState.still)]);
+    // 첫 OS 걸음 읽기(0ms)에서 정지로 시작했음을 알리고, 걸음이 늘면 보행, 4초 넘게 멈추면 다시 정지다.
+    expect(updates.map((u) => (u.tMs, u.state)),
+        [(0, StepState.still), (1000, StepState.walking), (5990, StepState.still)]);
   });
 
   test('측위 기록에 직전 측위 이후 걸음 수와 상태가 들어간다', () {
@@ -181,9 +183,101 @@ void main() {
     expect(json['duration_s'], 3600.0);
     expect(json['total_fixes'], 13);
     expect(json['fixes_per_hour'], 13.0);
+    expect(json['gps_on_s'], 0.0); // ttff 0이면 켜자마자 응답이 와 켜진 시간이 없다
+    expect(json['fix_requests'], 13);
+    expect(json['fix_successes'], 13);
+    expect(json['fix_failures'], 0);
   });
 
   test('기록이 없는 세션은 ArgumentError다', () {
     expect(() => replaySession(session(), _Scripted(), OsStepDetector()), throwsArgumentError);
+  });
+
+  test('연속 측위가 세션 끝까지 켜져 있으면 켜진 시간이 끝 시각까지 센다', () {
+    // continuous_10m 기준선의 GPS 켜짐 시간은 이 경로로만 잡힌다.
+    final policy = _Scripted(startActions: [const StartContinuous(intervalMs: 1000)]);
+
+    final result = replaySession(session(fixes: everySecond(0, 10000)), policy, OsStepDetector());
+
+    expect(result.summary.gpsOnMs, 10000);
+    expect(result.summary.continuousFixes, 11);
+  });
+
+  test('응답을 기다리는 중의 RequestFix는 무시한다', () {
+    final policy = _Scripted(
+      startActions: [const WakeAt(tMs: 2500, tag: 'a')],
+      onWake: {'a': [const RequestFix(), const RequestFix()]},
+    );
+
+    final result = replaySession(session(fixes: everySecond(0, 10000)), policy, OsStepDetector(),
+        config: const ReplayConfig(ttffMs: 2000));
+
+    expect(result.summary.fixRequests, 1);
+    expect(result.summary.fixSuccesses, 1);
+    expect(result.fixes, hasLength(1));
+    expect(policy.events.whereType<FixResult>(), hasLength(1));
+    expect(result.summary.gpsOnMs, 2500); // 켜진 시간도 한 번만 센다
+    // 무시된 요청도 actions에는 정책이 낸 그대로 남는다.
+    expect(result.actions.where((a) => a.action is RequestFix), hasLength(2));
+  });
+
+  test('연속 측위 중 StartContinuous를 또 내면 스트림을 새로 시작하고 켜진 시간은 겹쳐 세지 않는다', () {
+    final policy = _Scripted(
+      startActions: [
+        const StartContinuous(intervalMs: 1000, distanceFilterM: 1000),
+        const WakeAt(tMs: 5000, tag: 'restart'),
+        const WakeAt(tMs: 10000, tag: 'stop'),
+      ],
+      onWake: {
+        'restart': [const StartContinuous(intervalMs: 1000, distanceFilterM: 1000)],
+        'stop': [const StopContinuous()],
+      },
+    );
+
+    // 같은 자리라 1000m 거리 필터에 걸려 첫 점 말고는 나오지 않는다 — 다시 시작하면 첫 점이 또 나온다.
+    final result = replaySession(session(fixes: everySecond(0, 20000)), policy, OsStepDetector());
+
+    expect(result.fixes.map((f) => f.tMs), [0, 5000]);
+    expect(result.summary.continuousFixes, 2);
+    expect(result.summary.gpsOnMs, 10000);
+  });
+
+  test('정지로 시작한 세션에서 still_suppress는 주기 측위를 건너뛴다', () {
+    // 5분 동안 걸음 수가 그대로다. 첫 OS 걸음 읽기에서 정지가 알려지면 시작 때 한 번만 측위한다.
+    final data = session(
+      fixes: everySecond(0, 300000),
+      osSteps: [count(0, 700), count(150000, 700), count(300000, 700)],
+    );
+
+    final result = replaySession(data, StillSuppressPolicy(), OsStepDetector());
+
+    expect(result.summary.fixRequests, 1);
+    expect(result.fixes.single.tMs, 0);
+    expect(result.fixes.single.state, 'still');
+    // 비교: 고정 주기는 같은 세션에서 6번(0~5분) 측위한다.
+    final fixed = replaySession(
+        data, FixedIntervalPolicy(id: 'fixed_1m', intervalMs: 60000), OsStepDetector());
+    expect(fixed.summary.fixRequests, 6);
+  });
+
+  group('재생 설정 검증', () {
+    final data = session(fixes: everySecond(0, 10000));
+
+    test('음수 ttffMs는 ArgumentError다', () {
+      expect(
+          () => replaySession(data, _Scripted(), OsStepDetector(),
+              config: const ReplayConfig(ttffMs: -1)),
+          throwsArgumentError);
+    });
+
+    test('0 이하의 accelBatchMs는 ArgumentError다', () {
+      for (final bad in [0, -1000]) {
+        expect(
+            () => replaySession(data, _Scripted(), OsStepDetector(),
+                config: ReplayConfig(accelBatchMs: bad)),
+            throwsArgumentError,
+            reason: 'accelBatchMs=$bad');
+      }
+    });
   });
 }

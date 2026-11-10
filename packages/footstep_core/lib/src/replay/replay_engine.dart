@@ -29,8 +29,15 @@ ReplayResult replaySession(
   CollectionPolicy policy,
   StepDetector detector, {
   ReplayConfig config = const ReplayConfig(),
-}) =>
-    _Replay(data, policy, detector, config).run();
+}) {
+  // 음수 ttff는 응답이 과거로 예약돼 시계가 거꾸로 가고 GPS 켜짐 시간이 음수가 된다. 묶음 길이가 0 이하면
+  // 가속도 묶음이 만들어지지 않거나 표본마다 쪼개진다. 조용히 틀린 결과를 내느니 바로 알린다.
+  if (config.ttffMs < 0) throw ArgumentError('ttffMs는 0 이상이어야 합니다: ${config.ttffMs}');
+  if (config.accelBatchMs <= 0) {
+    throw ArgumentError('accelBatchMs는 양수여야 합니다: ${config.accelBatchMs}');
+  }
+  return _Replay(data, policy, detector, config).run();
+}
 
 sealed class _External {
   const _External(this.tMs, this.order);

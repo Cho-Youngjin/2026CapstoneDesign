@@ -3,6 +3,7 @@ import '../events/policy_event.dart';
 import '../model/fix.dart';
 
 /// 정책이 판단할 때 쓰는 현재 정보. [lastFix]는 실행기가 마지막으로 정책에 알린 위치다(단발·연속 모두).
+/// 정책이 FixResult나 ContinuousFix를 받는 시점에는 [lastFix]가 이미 지금 전달되는 그 위치와 같다.
 class PolicyContext {
   const PolicyContext({required this.nowMs, this.lastFix});
 

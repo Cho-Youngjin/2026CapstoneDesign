@@ -26,7 +26,7 @@ CollectionPolicy createPolicy(String id, [Map<String, String> params = const {}]
     final raw = params[key];
     if (raw == null) return fallback;
     final value = double.tryParse(raw);
-    if (value == null || value <= 0) throw ArgumentError('$key는 양수여야 합니다: $raw');
+    if (value == null || !value.isFinite || value <= 0) throw ArgumentError('$key는 양수여야 합니다: $raw');
     return value;
   }
 
