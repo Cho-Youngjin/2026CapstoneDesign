@@ -119,4 +119,15 @@ void main() {
       expect(detector.onOsStep(status(2000, 'walking')), isNull);
     });
   });
+
+  test('늘어난 걸음은 읽은 시각으로 걸음 시각에 남고, 가져가면 비운다', () {
+    final detector = OsStepDetector()
+      ..onOsStep(count(1000, 100))
+      ..onOsStep(count(2000, 103))
+      ..onOsStep(count(3000, 105));
+
+    expect(detector.takeStepTimes(), [2000, 2000, 2000, 3000, 3000]);
+    expect(detector.takeStepTimes(), isEmpty);
+    expect(detector.params, {'walking_window_s': 4.0});
+  });
 }
