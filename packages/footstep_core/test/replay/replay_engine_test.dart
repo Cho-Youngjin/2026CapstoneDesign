@@ -179,6 +179,22 @@ void main() {
     expect(result.fixes.map((f) => f.state), ['walking', 'walking']);
   });
 
+  test('측위와 같은 시각의 걸음은 다음 측위 구간에 들어간다(직전 측위 이상, 이번 측위 미만)', () {
+    final policy = _Scripted(
+      startActions: [const WakeAt(tMs: 2000, tag: 'a'), const WakeAt(tMs: 4000, tag: 'b')],
+      onWake: {'a': [const RequestFix()], 'b': [const RequestFix()]},
+    );
+    final data = session(
+      fixes: everySecond(0, 5000),
+      osSteps: [count(0, 0), count(2000, 10), count(3000, 15)],
+    );
+
+    final result = replaySession(data, policy, OsStepDetector());
+
+    expect(result.fixes.map((f) => f.tMs), [2000, 4000]);
+    expect(result.fixes.map((f) => f.stepsSincePrev), [0, 15]);
+  });
+
   test('제안판 감지기가 연속 걸음을 확인하기 전에 측위해도 그 앞 걸음이 steps_since_prev에 남는다', () {
     // 걷기 시작 2초 만에 측위한다. 제안판은 박자 창(3초)이 차고 연속 5걸음을 확인한 뒤 앞 걸음을 소급해 센다.
     final policy = _Scripted(

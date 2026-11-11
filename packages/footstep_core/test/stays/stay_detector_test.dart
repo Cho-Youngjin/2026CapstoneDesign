@@ -146,6 +146,16 @@ void main() {
 
     test('시각순이 아닌 점이나 0 이하의 반경·시간은 ArgumentError다', () {
       expect(() => detectStays([at(1, 0), at(0, 0)]), throwsArgumentError);
+      // 정지 구간이 겹치거나(감싼 구간 안의 짧은 구간) 순서가 뒤집히거나 끝이 시작보다 앞서면 멈춘다.
+      expect(() => detectStays([at(0, 0)], stillSpans: const [TimeSpan(0, 100), TimeSpan(1, 2)]),
+          throwsArgumentError);
+      expect(() => detectStays([at(0, 0)], stillSpans: const [TimeSpan(10, 20), TimeSpan(0, 5)]),
+          throwsArgumentError);
+      expect(() => detectStays([at(0, 0)], stillSpans: const [TimeSpan(5, 1)]), throwsArgumentError);
+      // 맞닿은 구간은 괜찮다.
+      expect(detectStays([at(0, 0)], stillSpans: const [TimeSpan(0, 5), TimeSpan(5, 9)]), isEmpty);
+      // 양수지만 밀리초로 0이 되는 시간도 설정 단계에서 막는다.
+      expect(() => createStayParams({'min_stay_s': '0.0004'}), throwsArgumentError);
       expect(() => detectStays([at(0, 0)], params: const StayParams(radiusM: 0)), throwsArgumentError);
       expect(() => detectStays([at(0, 0)], params: const StayParams(minDurationMs: 0)), throwsArgumentError);
     });

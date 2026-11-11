@@ -31,11 +31,12 @@ class StayParams {
 /// CLI의 `--stay-param k=v`로 설정을 만든다. 모르는 키나 잘못된 값은 ArgumentError다.
 StayParams createStayParams([Map<String, String> params = const {}]) {
   final reader = ParamReader('머문 곳 묶기', params)..allowOnly(const {'radius_m', 'min_stay_s', 'use_still'});
+  // 아주 작은 min_stay_s(예: 0.0004)는 양수지만 밀리초로 반올림하면 0이다 — CLI가 인자 오류로 알리게 여기서 검사한다.
   return StayParams(
     radiusM: reader.positive('radius_m', 100),
     minDurationMs: (reader.positive('min_stay_s', 600) * 1000).round(),
     useStillIntervals: reader.flag('use_still', true),
-  );
+  )..check();
 }
 
 /// 시각 구간 [startMs, endMs](양 끝 포함).
@@ -109,6 +110,14 @@ List<Stay> detectStays(
   params.check();
   for (var k = 1; k < points.length; k++) {
     if (points[k].tMs < points[k - 1].tMs) throw ArgumentError('점이 시각순이 아닙니다: ${points[k].tMs}');
+  }
+  // 정지 구간이 겹치거나 뒤집히면 이분 탐색이 감싼 구간을 놓쳐 머문 곳을 조용히 잃는다 — 그 전에 멈춘다.
+  for (var k = 0; k < stillSpans.length; k++) {
+    final span = stillSpans[k];
+    if (span.endMs < span.startMs) throw ArgumentError('정지 구간의 끝이 시작보다 앞섭니다: $span');
+    if (k > 0 && span.startMs < stillSpans[k - 1].endMs) {
+      throw ArgumentError('정지 구간이 시각순이 아니거나 겹칩니다: ${stillSpans[k - 1]}, $span');
+    }
   }
   final spans = params.useStillIntervals ? stillSpans : const <TimeSpan>[];
 
