@@ -29,6 +29,13 @@ void main() {
       'suppress_still': true,
       'vehicle_probe': false,
     });
+    expect(createPolicy('step_budget', {'use_steps': 'true', 'suppress_still': '1', 'vehicle_probe': 'false'}).params, {
+      'e_m': 50.0,
+      'stride_m': 0.75,
+      'use_steps': true,
+      'suppress_still': true,
+      'vehicle_probe': false,
+    });
     expect(() => createPolicy('step_budget', {'use_steps': 'no'}), throwsArgumentError);
     expect(() => createPolicy('step_budget', {'e_m': '0'}), throwsArgumentError);
   });
