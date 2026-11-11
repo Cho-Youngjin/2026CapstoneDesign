@@ -89,6 +89,49 @@ class RouteReconstructionServiceTest {
     }
 
     @Test
+    void 공백이_정확히_십분이면_자른다() {
+        List<TrackPoint> points = List.of(walking(0, 0, 0), walking(600, 100, 0));
+        RouteReconstructionService service = new RouteReconstructionService(new GridOsrm());
+
+        assertThat(service.reconstruct(request(ReconstructMethod.STRAIGHT, points, List.of())).segments())
+                .extracting(RouteSegment::kind).containsExactly(SegmentKind.ESTIMATED);
+    }
+
+    @Test
+    void 공백_사이에_혼자_남은_점도_양쪽_공백을_estimated로_이어_끊기지_않는다() {
+        // 0초, 900초, 1800초: 점마다 10분 넘게 떨어져 도보 구간 없이 공백 두 개만 남는다.
+        List<TrackPoint> points = List.of(walking(0, 0, 0), walking(900, 100, 0), walking(1800, 200, 0));
+        RouteReconstructionService service = new RouteReconstructionService(new GridOsrm());
+
+        List<RouteSegment> segments = service.reconstruct(request(ReconstructMethod.STRAIGHT, points, List.of())).segments();
+
+        assertThat(segments).extracting(RouteSegment::kind).containsExactly(SegmentKind.ESTIMATED, SegmentKind.ESTIMATED);
+        List<GeoPoint> first = segments.get(0).coords();
+        List<GeoPoint> second = segments.get(1).coords();
+        assertAt(first.get(0), 0, 0);
+        assertAt(first.get(first.size() - 1), 100, 0);
+        assertAt(second.get(0), 100, 0);
+        assertAt(second.get(second.size() - 1), 200, 0);
+    }
+
+    @Test
+    void 머문_곳_중심은_osrm_match_radius에서_반경_상한으로_보내_도로에서_떨어진_중심도_버리지_않게_한다() {
+        GeoPoint a = at(0, 0);
+        List<TrackPoint> points = List.of(
+                new TrackPoint(0L, a.lat(), a.lng(), 5.0, null, null),
+                new TrackPoint(120_000L, a.lat(), a.lng(), 5.0, null, null),   // 머문 곳 안: 중심 하나로 바뀐다
+                new TrackPoint(300_000L, a.lat(), a.lng(), 8.0, null, null));
+        GeoPoint c = at(0, 30);
+        List<StayInput> stays = List.of(new StayInput(60_000L, 240_000L, c.lat(), c.lng()));
+        GridOsrm osrm = new GridOsrm();
+        RouteReconstructionService service = new RouteReconstructionService(osrm);
+
+        service.reconstruct(request(ReconstructMethod.OSRM_MATCH_RADIUS, points, stays));
+
+        assertThat(osrm.lastRadiuses).containsExactly(5.0, 50.0, 8.0);
+    }
+
+    @Test
     void 탈것_상태로_도착한_점까지는_vehicle_구간으로_나눈다() {
         List<TrackPoint> points = List.of(walking(0, 0, 0), walking(60, 100, 0),
                 p(120, 200, 0, null, "vehicle"), p(180, 300, 0, null, "vehicle"), walking(240, 300, 100));

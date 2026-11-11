@@ -30,6 +30,11 @@ public class RouteReconstructionService {
     static final String COUNTRY = "KR";
     static final long GAP_MS = 10 * 60 * 1000L;
 
+    // 머문 곳 중심은 건물 안일 때가 많아 도로에서 수십 m 떨어져 있다. 정확도를 비워 두면 osrm_match_radius가 최소
+    // 반경(5m)으로 보내 OSRM이 그 점을 버리고, 경로가 머문 곳에서 시작·끝나지 않는다. 그래서 반경 상한(50m)을 준다
+    // (hmm_steps에서는 방사 확률이 넓어져 가장 가까운 도로에 덜 끌린다).
+    static final double STAY_CENTER_ACCURACY_M = 50.0;
+
     private final OsrmClient osrmClient;
     private final Map<ReconstructMethod, Reconstructor> reconstructors = new EnumMap<>(ReconstructMethod.class);
 
@@ -84,7 +89,7 @@ public class RouteReconstructionService {
         for (int k = 0; k < sortedStays.size(); k++) {
             StayInput s = sortedStays.get(k);
             TrackPoint first = firstInside[k];
-            out.add(new Waypoint(s.arrive(), s.leave(), new GeoPoint(s.lat(), s.lng()), null,
+            out.add(new Waypoint(s.arrive(), s.leave(), new GeoPoint(s.lat(), s.lng()), STAY_CENTER_ACCURACY_M,
                     first == null ? null : first.stepsSincePrev(), first == null ? null : first.state()));
         }
         // List.sort는 안정 정렬이라 시각이 같으면 넣은 순서(측위 점, 머문 곳)를 지킨다.
