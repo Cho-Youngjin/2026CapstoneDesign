@@ -417,15 +417,53 @@ void main() {
         v,
         const WakeAt(tMs: 69000, tag: 'vehicle#3'),
         place: (t) => 0.003 + 0.0000027 * (t - 64000) / 1000,
-        maxFixes: 15,
+        maxFixes: 25,
       );
-      expect(times, hasLength(15));
-      expect(last.single, isA<WakeAt>().having((w) => w.tag, 'tag', 'vehicle#18'));
+      // 약 6분: 약 167초마다 E(50m)도 벗어나 느슨한 5분 기준도 다시 시작된다.
+      expect(times, hasLength(25));
+      expect(last.single, isA<WakeAt>().having((w) => w.tag, 'tag', 'vehicle#28'));
       expect(p.stateLabel, 'vehicle');
     });
   });
 
   group('멈춤·폭주 방지', () {
+    test('GPS가 오차보다 크게 흔들려 한 자리로 보이지 않아도, E 안에 5분 넘게 머물면 정지로 바꾼다(잘못 본 탈것)', () {
+      final (p, v) = inVehicle(); // 64초 측위(0.003°)를 탈것으로 잘못 봤다
+      p.onEvent(step(66000, StepState.still), at(66000, v));
+
+      // 0.003° 둘레에서 ±0.00014°(약 ±16m)로 번갈아 흔들린다: 앞 측위와 약 31m라 두 오차의 합(10m) 밖이지만,
+      // 탈것으로 본 곳에서 E(50m) 안이다.
+      final (times, last) = ride(
+        p,
+        v,
+        const WakeAt(tMs: 69000, tag: 'vehicle#3'),
+        place: (t) => 0.003 + (((t - 70000) ~/ 14500).isEven ? 0.00014 : -0.00014),
+      );
+      // 정지 66초부터 5분이 지난 374.5초 측위에서 정지로 바꾼다.
+      expect(times, hasLength(22));
+      expect(times.last, 374500);
+      expect(last, [const WakeAt(tMs: 674500, tag: 'check#25')]);
+      expect(p.stateLabel, 'still');
+    });
+
+    test('탈것이 달려와 다른 곳에 서고 GPS가 크게 흔들려도, 선 곳에서 5분이 지나면 정지로 바꾼다', () {
+      final (p, v) = inVehicle();
+      p.onEvent(step(66000, StepState.still), at(66000, v));
+
+      // 초당 0.0001°(약 11m/s)로 달리다 100초에 0.0066°에 서고, 그 뒤로는 ±0.00014°(약 ±16m)로 흔들린다.
+      double place(int t) {
+        if (t < 100000) return 0.003 + 0.0001 * (t - 64000) / 1000;
+        return 0.0066 + (((t - 100000) ~/ 14500).isEven ? 0.00014 : -0.00014);
+      }
+
+      final (times, last) = ride(p, v, const WakeAt(tMs: 69000, tag: 'vehicle#3'), place: place, maxFixes: 40);
+      // 선 뒤 첫 측위(100초)부터 5분이 지난 410.5초 측위에서 정지로 바꾼다.
+      expect(times.first, 70000);
+      expect(times.last, 410500);
+      expect(last, [const WakeAt(tMs: 710500, tag: 'check#31')]);
+      expect(p.stateLabel, 'still');
+    });
+
     test('탈것 측위를 기다리는 중에 걷기 시작하면 그 응답으로 탈것 예약을 다시 걸지 않는다', () {
       final (p, v) = inVehicle();
       expect(p.onEvent(wake(69000, 'vehicle#3'), at(69000, v)), [const RequestFix()]);

@@ -21,6 +21,7 @@ enum _Purpose { start, budget, stay, check, probe1, probe2, vehicle }
 ///   이상이면 탈것이다. 아니면 정지처럼 다룬다.
 /// - 탈것: time_speed 규칙('오차 + 속도 × 경과 시간 > E'가 되는 시각에 잰다)으로 잰다. 걸음이 다시 나오면 보행이다.
 ///   감지기 정지와 측위상 한 자리가 둘 다 2분 넘게 이어질 때만 정지로 본다(빨간불·정류장 정차는 탈것 그대로).
+///   GPS가 크게 흔들려 한 자리로 보이지 않아도, E 안에 5분 넘게 머물면 정지로 본다(잘못 본 탈것이 오래 남지 않게).
 /// - 측위가 거듭 실패하면(지하철·실내) 다시 시도하는 간격을 30초 → 1분 → 2분 → 5분으로 늘린다.
 /// - 배터리가 20% 미만이면 E를 2배로 키운다.
 class StepBudgetPolicy implements CollectionPolicy, ReportsState {
@@ -94,6 +95,9 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   /// 탈것에서 마지막으로 움직인 것이 확인된 측위. 뒤따르는 측위가 이 위치의 두 오차 안에 머물면 멈춰 있는 것이다.
   Fix? _stopFix;
 
+  /// 탈것에서 E 넘게 움직인 것이 마지막으로 확인된 측위. [_stopFix]보다 느슨한 멈춤 기준이다.
+  Fix? _longStopFix;
+
   /// 걸음 감지기가 마지막으로 알린 상태와, 정지가 시작된 시각(정지가 아니면 null). 탈것에서 벗어날지 판단할 때 쓴다.
   StepState? _detectorState;
   int? _stillSinceMs;
@@ -133,6 +137,7 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     _previousVehicleFix = null;
     _vehicleSpeedMps = 0;
     _stopFix = null;
+    _longStopFix = null;
     _detectorState = null;
     _stillSinceMs = null;
     _armedTag = null;
@@ -259,14 +264,23 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
         return _holdAt(fix);
       case _Purpose.vehicle:
         final previous = _previousVehicleFix;
-        final stop = _stopFix;
         final stillSince = _stillSinceMs;
         // 멈춤은 예산(E)이 아니라 오차로 본다: 시속 10km로 기어가는 버스도 13.5초면 E 안이지만 서 있는 것은 아니다.
-        if (stop == null || !_within(stop, fix)) {
-          _stopFix = fix; // 움직였다: 여기서부터 멈춘 시간을 다시 잰다.
-        } else if (stillSince != null && fix.tMs - math.max(stillSince, stop.tMs) >= vehicleStopMs) {
-          // 감지기 정지와 측위상 한 자리가 둘 다 2분 넘게 이어졌다 — 탈것에서 내려 멈췄거나 잘못 본 탈것이다.
-          // 감지기 시계만 보면 안 된다: OS 걸음 센서판은 달리는 버스 안에서도 늘 정지라 첫 정류장에서 놓친다.
+        final stop = _stopFix;
+        final inPlace = stop != null && _within(stop, fix);
+        if (!inPlace) _stopFix = fix; // 움직였다: 여기서부터 멈춘 시간을 다시 잰다.
+        // GPS가 알린 오차보다 크게 흔들리면 위 기준이 계속 다시 시작된다. 그래서 E 안에 5분 넘게 머무는 것도 멈춘
+        // 것으로 본다 — 잘못 본 탈것(실내 GPS 튐)이 13.5초마다 재며 오래 남지 않게 한다.
+        final longStop = _longStopFix;
+        final nearby = longStop != null && !_moved(longStop, fix);
+        if (!nearby) _longStopFix = fix;
+        // 감지기 시계만 보면 안 된다: OS 걸음 센서판은 달리는 버스 안에서도 늘 정지라 첫 정류장에서 놓친다.
+        final stopped =
+            stillSince != null &&
+            ((stop != null && inPlace && fix.tMs - math.max(stillSince, stop.tMs) >= vehicleStopMs) ||
+                (longStop != null && nearby && fix.tMs - math.max(stillSince, longStop.tMs) >= stillCheckMs));
+        if (stopped) {
+          // 감지기 정지와 측위상 머묾이 이어졌다 — 탈것에서 내려 멈췄거나 잘못 본 탈것이다.
           _setMode(_Mode.still);
           return _holdAt(fix);
         }
@@ -283,6 +297,7 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     _vehicleSpeedMps = speedMps;
     _previousVehicleFix = fix;
     _stopFix = fix;
+    _longStopFix = fix;
     return _armVehicle(fix);
   }
 
