@@ -76,6 +76,40 @@ void main() {
     expect(detector.totalSteps, inInclusiveRange(56, 61));
   });
 
+  test('공백 앞뒤 표본을 섞지 않아, 공백 앞 걷기만 돌린 결과와 같다', () {
+    final walkOnly = AdaptiveStepDetector();
+    feed(walkOnly, walk(10));
+    final expected = walkOnly.takeStepTimes();
+    expect(expected, isNotEmpty);
+
+    final detector = AdaptiveStepDetector();
+    // 10초 걷기 → 7초 공백 → 정지. 공백에서 창·필터·후보를 비우지 않으면, 공백 앞에서 넘다 만 봉우리가
+    // 공백 뒤 표본으로 확정돼 걸음이 하나 더 생긴다.
+    feed(detector, [...walk(10), ...still(5, t0: 17000)]);
+    expect(detector.takeStepTimes(), expected);
+  });
+
+  test('걸음 주기의 0.6배보다 가까운 봉우리는 한 걸음 안의 굴곡으로 보고 버린다', () {
+    final detector = AdaptiveStepDetector();
+    feed(detector, twoBumpWalk(30));
+    // 정답 42걸음. 최소 간격 규칙이 없으면 80걸음 넘게 센다.
+    expect(detector.totalSteps, inInclusiveRange(40, 48));
+  });
+
+  test('걷다 멈춘 뒤의 흔들림 한 번은 세지 않는다(확인된 뒤에도 보행 상태일 때만 센다)', () {
+    final detector = AdaptiveStepDetector();
+    feed(detector, stopThenBump());
+    expect(detector.totalSteps, inInclusiveRange(20, 22));
+    expect(detector.takeStepTimes().where((t) => t >= 11000), isEmpty);
+  });
+
+  test('박자 창(3초)이 차기 전에는 기타 움직임으로 알리지 않는다', () {
+    final detector = AdaptiveStepDetector();
+    final updates = feed(detector, walk(30));
+    expect(updates.first.tMs, 3990);
+    expect(updates.map((u) => u.state).toSet(), {StepState.walking});
+  });
+
   test('onFix는 마지막 측위 이후 걸음 수를 0으로 되돌리고, OS 걸음 읽기는 무시한다', () {
     final detector = AdaptiveStepDetector();
     feed(detector, walk(10));

@@ -90,3 +90,36 @@ List<StepUpdate> feed(StepDetector detector, List<AccelReading> readings) => [
       for (final batch in accelBatches(readings, 1000))
         ?detector.onAccel(batch.last.tMs, batch),
     ];
+
+/// 한 걸음(1.4Hz)에 봉우리가 둘인 보행 흉내: 기본 박자 + 걸음 대역 안의 강한 2배 박자(2.8Hz).
+/// 정답 걸음 수 = 1.4 × 초. 걸음 주기보다 한참 가까운 봉우리를 버리지 않으면 거의 2배로 센다.
+List<AccelReading> twoBumpWalk(int seconds, {int seed = 71}) {
+  final noise = lcg(seed);
+  return [
+    for (var i = 0; i < seconds * 100; i++)
+      _magnitude(
+          i * 10,
+          9.81 +
+              1.5 * math.sin(2 * math.pi * 1.4 * (i / 100)) +
+              3.5 * math.sin(2 * math.pi * 2.8 * (i / 100)) +
+              0.2 * (_next(noise) - 0.5)),
+  ];
+}
+
+/// 10.2초까지 걷다(2Hz) 멈추고, 11.1초에 폰이 한 번 흔들린다(0.5초짜리 봉우리 하나). 16초 길이.
+/// 멈춘 뒤의 흔들림은 걸음이 아니다.
+List<AccelReading> stopThenBump({int seed = 1}) {
+  final noise = lcg(seed);
+  return [
+    for (var i = 0; i < 1600; i++)
+      _magnitude(
+          i * 10,
+          9.81 +
+              (i * 10 < 10200
+                  ? 3 * math.sin(2 * math.pi * 2 * i / 100)
+                  : (i * 10 >= 11100 && i * 10 < 11600)
+                      ? 3 * math.sin(2 * math.pi * 2 * (i * 10 - 11100) / 1000)
+                      : 0.0) +
+              0.2 * (_next(noise) - 0.5)),
+  ];
+}
