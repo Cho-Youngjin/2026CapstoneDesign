@@ -26,3 +26,5 @@ export 'src/replay/replay_result.dart';
 export 'src/session/csv.dart';
 export 'src/session/session_reader.dart';
 export 'src/session/session_schema.dart';
+export 'src/steps/step_run.dart';
+export 'src/steps/steps_output.dart';
