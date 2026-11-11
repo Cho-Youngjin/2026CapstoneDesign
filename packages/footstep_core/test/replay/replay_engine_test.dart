@@ -214,6 +214,44 @@ void main() {
     expect(result.fixes.single.stepsSincePrev, 9);
   });
 
+  group('머문 곳', () {
+    // 2분 동안 남쪽 168m에서 걸어와(1.4m/s) A에서 11분 머문 뒤(2~13분), 북쪽으로 2분 걸어간다(15분에 168m).
+    // OS 걸음 읽기는 1초마다이고, 걷는 동안 초당 2걸음씩 는다.
+    const degPerMeter = 1 / 111195.08;
+    double northAt(int s) => s <= 120 ? (s - 120) * 1.4 : (s <= 780 ? 0 : (s - 780) * 1.4);
+    final data = SessionData(
+      sessionId: 'stay',
+      fixes: [
+        for (var s = 0; s <= 900; s++) gps(s * 1000, lat: 37.5 + northAt(s) * degPerMeter),
+      ],
+      osSteps: [
+        for (var s = 0; s <= 900; s++)
+          count(s * 1000, s <= 120 ? 2 * s : (s <= 780 ? 240 : 240 + 2 * (s - 780))),
+      ],
+    );
+    FixedIntervalPolicy every5m() => FixedIntervalPolicy(id: 'fixed_5m', intervalMs: 300000);
+
+    test('5분마다 잰 점 두 개뿐이어도 감지기 정지 구간으로 머문 곳과 도착·출발 시각을 잡는다', () {
+      final result = replaySession(data, every5m(), OsStepDetector());
+
+      expect(result.fixes.map((f) => f.tMs), [0, 300000, 600000, 900000]);
+      final stay = result.stays.single;
+      // 마지막 걸음(120초) 4초 뒤 다음 읽기(125초)에 정지, 781초에 걸음이 다시 늘어 보행이다.
+      expect((stay.arriveMs, stay.leaveMs, stay.nPoints), (125000, 781000, 2));
+      expect(haversineMeters(stay.lat, stay.lng, 37.5, 127.0), lessThan(0.5));
+      expect(result.summary.toJson()['stays'], 1);
+    });
+
+    test('점만으로 묶으면(use_still=false) 두 점 사이 5분이라 머문 곳이 아니다', () {
+      final result = replaySession(data, every5m(), OsStepDetector(),
+          config: const ReplayConfig(stays: StayParams(useStillIntervals: false)));
+
+      expect(result.stays, isEmpty);
+      expect(result.summary.toJson()['stay_params'],
+          {'radius_m': 100.0, 'min_stay_s': 600.0, 'use_still': false});
+    });
+  });
+
   test('1분 고정 주기로 10분을 재생하면 측위 11번(0분~10분)이다', () {
     final data = session(fixes: everySecond(0, 600000));
 
@@ -258,6 +296,9 @@ void main() {
     expect(json['fix_requests'], 13);
     expect(json['fix_successes'], 13);
     expect(json['fix_failures'], 0);
+    // 한 시간 내내 같은 자리라 측위 13개가 머문 곳 하나로 묶인다.
+    expect(json['stay_params'], {'radius_m': 100.0, 'min_stay_s': 600.0, 'use_still': true});
+    expect(json['stays'], 1);
   });
 
   test('기록이 없는 세션은 ArgumentError다', () {
@@ -349,6 +390,13 @@ void main() {
                 config: ReplayConfig(accelBatchMs: bad)),
             throwsArgumentError,
             reason: 'accelBatchMs=$bad');
+      }
+    });
+
+    test('0 이하의 머문 곳 반경·시간은 재생 전에 ArgumentError다', () {
+      for (final bad in [const StayParams(radiusM: 0), const StayParams(minDurationMs: -1)]) {
+        expect(() => replaySession(data, _Scripted(), OsStepDetector(), config: ReplayConfig(stays: bad)),
+            throwsArgumentError);
       }
     });
   });
