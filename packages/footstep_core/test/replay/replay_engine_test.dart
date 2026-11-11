@@ -243,7 +243,8 @@ void main() {
   });
 
   test('정지로 시작한 세션에서 still_suppress는 주기 측위를 건너뛴다', () {
-    // 5분 동안 걸음 수가 그대로다. 첫 OS 걸음 읽기에서 정지가 알려지면 시작 때 한 번만 측위한다.
+    // 5분 동안 걸음 수가 그대로다. 첫 OS 걸음 읽기에서 정지가 알려지면, 시작 때와 첫 정지 확인(1분) 때만
+    // 측위하고 두 번째 연속 정지 확인부터 건너뛴다(Zhuang 외 2010). 확인 측위(5분)는 세션 끝(5분) 뒤라 없다.
     final data = session(
       fixes: everySecond(0, 300000),
       osSteps: [count(0, 700), count(150000, 700), count(300000, 700)],
@@ -251,9 +252,9 @@ void main() {
 
     final result = replaySession(data, StillSuppressPolicy(), OsStepDetector());
 
-    expect(result.summary.fixRequests, 1);
-    expect(result.fixes.single.tMs, 0);
-    expect(result.fixes.single.state, 'still');
+    expect(result.summary.fixRequests, 2);
+    expect(result.fixes.map((f) => f.tMs), [0, 60000]);
+    expect(result.fixes.map((f) => f.state), ['still', 'still']);
     // 비교: 고정 주기는 같은 세션에서 6번(0~5분) 측위한다.
     final fixed = replaySession(
         data, FixedIntervalPolicy(id: 'fixed_1m', intervalMs: 60000), OsStepDetector());

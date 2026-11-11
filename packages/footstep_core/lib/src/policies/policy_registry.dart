@@ -39,8 +39,11 @@ CollectionPolicy createPolicy(String id, [Map<String, String> params = const {}]
       reader.allowOnly(const {'e_m'});
       return TimeSpeedPolicy(errorBudgetM: reader.positive('e_m', 50));
     case 'still_suppress':
-      reader.allowOnly(const {'interval_s'});
-      return StillSuppressPolicy(intervalMs: (reader.positive('interval_s', 60) * 1000).round());
+      reader.allowOnly(const {'interval_s', 'verify_s'});
+      return StillSuppressPolicy(
+        intervalMs: (reader.positive('interval_s', 60) * 1000).round(),
+        verifyMs: (reader.positive('verify_s', 300) * 1000).round(),
+      );
     case 'activity_gated':
       reader.allowOnly(const {});
       return ActivityGatedPolicy();

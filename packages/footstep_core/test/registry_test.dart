@@ -16,7 +16,9 @@ void main() {
 
   test('파라미터를 받는 정책은 값을 바꿀 수 있다', () {
     expect(createPolicy('time_speed', {'e_m': '25'}).params, {'e_m': 25.0});
-    expect(createPolicy('still_suppress', {'interval_s': '120'}).params, {'interval_s': 120});
+    expect(createPolicy('still_suppress', {'interval_s': '120'}).params,
+        {'interval_s': 120, 'verify_s': 300});
+    expect(createPolicy('still_suppress', {'verify_s': '600'}).params, {'interval_s': 60, 'verify_s': 600});
   });
 
   test('모르는 정책·파라미터·잘못된 숫자는 ArgumentError다', () {
