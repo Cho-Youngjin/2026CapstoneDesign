@@ -39,6 +39,7 @@ class ReplaySummary {
     required this.policyId,
     required this.policyParams,
     required this.detectorId,
+    this.detectorParams = const {},
     required this.ttffMs,
     required this.startMs,
     required this.endMs,
@@ -53,6 +54,9 @@ class ReplaySummary {
   final String policyId;
   final Map<String, Object> policyParams;
   final String detectorId;
+
+  /// 걸음 감지기 파라미터. 감지기 파라미터를 바꿔 가며 재생한 결과를 구분하려고 남긴다.
+  final Map<String, Object> detectorParams;
   final int ttffMs;
   final int startMs;
   final int endMs;
@@ -75,6 +79,7 @@ class ReplaySummary {
         'policy_id': policyId,
         'policy_params': policyParams,
         'detector_id': detectorId,
+        'detector_params': detectorParams,
         'ttff_ms': ttffMs,
         'start_ms': startMs,
         'end_ms': endMs,

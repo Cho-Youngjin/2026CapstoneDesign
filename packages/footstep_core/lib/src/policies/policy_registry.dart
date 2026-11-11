@@ -1,3 +1,4 @@
+import '../params.dart';
 import 'activity_gated_policy.dart';
 import 'collection_policy.dart';
 import 'continuous_policy.dart';
@@ -12,51 +13,36 @@ const policyIds = [
   'speed_adaptive', 'time_speed', 'still_suppress', 'activity_gated',
 ];
 
-/// id와 파라미터(문자열 k=v)로 정책을 만든다. 모르는 id·파라미터, 양수가 아닌 숫자는 ArgumentError다 —
-/// 실험 설정 오타로 엉뚱한 기본값이 조용히 쓰이는 것을 막는다.
+/// id와 파라미터(문자열 k=v)로 정책을 만든다. 모르는 id·파라미터, 양수가 아닌 숫자는 ArgumentError다.
 CollectionPolicy createPolicy(String id, [Map<String, String> params = const {}]) {
-  void allowOnly(Set<String> keys) {
-    final unknown = params.keys.where((k) => !keys.contains(k)).toList();
-    if (unknown.isNotEmpty) {
-      throw ArgumentError('정책 $id에 없는 파라미터: ${unknown.join(', ')}');
-    }
-  }
-
-  double positive(String key, double fallback) {
-    final raw = params[key];
-    if (raw == null) return fallback;
-    final value = double.tryParse(raw);
-    if (value == null || !value.isFinite || value <= 0) throw ArgumentError('$key는 양수여야 합니다: $raw');
-    return value;
-  }
-
+  final reader = ParamReader('정책 $id', params);
   switch (id) {
     case 'hourly':
-      allowOnly(const {});
+      reader.allowOnly(const {});
       return FixedIntervalPolicy(id: id, intervalMs: 3600000);
     case 'fixed_30s':
-      allowOnly(const {});
+      reader.allowOnly(const {});
       return FixedIntervalPolicy(id: id, intervalMs: 30000);
     case 'fixed_1m':
-      allowOnly(const {});
+      reader.allowOnly(const {});
       return FixedIntervalPolicy(id: id, intervalMs: 60000);
     case 'fixed_5m':
-      allowOnly(const {});
+      reader.allowOnly(const {});
       return FixedIntervalPolicy(id: id, intervalMs: 300000);
     case 'continuous_10m':
-      allowOnly(const {});
+      reader.allowOnly(const {});
       return ContinuousPolicy();
     case 'speed_adaptive':
-      allowOnly(const {});
+      reader.allowOnly(const {});
       return SpeedAdaptivePolicy();
     case 'time_speed':
-      allowOnly(const {'e_m'});
-      return TimeSpeedPolicy(errorBudgetM: positive('e_m', 50));
+      reader.allowOnly(const {'e_m'});
+      return TimeSpeedPolicy(errorBudgetM: reader.positive('e_m', 50));
     case 'still_suppress':
-      allowOnly(const {'interval_s'});
-      return StillSuppressPolicy(intervalMs: (positive('interval_s', 60) * 1000).round());
+      reader.allowOnly(const {'interval_s'});
+      return StillSuppressPolicy(intervalMs: (reader.positive('interval_s', 60) * 1000).round());
     case 'activity_gated':
-      allowOnly(const {});
+      reader.allowOnly(const {});
       return ActivityGatedPolicy();
     default:
       throw ArgumentError('알 수 없는 정책: $id (가능: ${policyIds.join(', ')})');

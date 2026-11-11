@@ -17,6 +17,7 @@ class SessionData {
     this.osSteps = const [],
     this.activities = const [],
     this.battery = const [],
+    this.marks = const [],
     this.skippedRows = 0,
   });
 
@@ -26,6 +27,9 @@ class SessionData {
   final List<OsStepReading> osSteps;
   final List<ActivityReading> activities;
   final List<BatteryLevelReading> battery;
+
+  /// 관찰 표시(설계 4-2). 사람이 누른 시각이라 [startMs]·[endMs]에는 넣지 않는다 — 재생 범위는 센서 기록이 정한다.
+  final List<MarkReading> marks;
 
   /// 읽지 못해 건너뛴 행 수(서비스가 쓰다 죽어 잘린 줄 등).
   final int skippedRows;
@@ -86,6 +90,7 @@ Future<SessionData> readSession(Directory dir) async {
       await load(SessionSchema.activityFile, _parseActivity, (ActivityReading a) => a.tMs);
   final battery =
       await load(SessionSchema.batteryFile, _parseBattery, (BatteryLevelReading b) => b.tMs);
+  final marks = await load(SessionSchema.marksFile, _parseMark, (MarkReading m) => m.tMs);
 
   return SessionData(
     sessionId: p.basename(dir.path),
@@ -94,6 +99,7 @@ Future<SessionData> readSession(Directory dir) async {
     osSteps: osSteps,
     activities: activities,
     battery: battery,
+    marks: marks,
     skippedRows: skipped,
   );
 }
@@ -162,4 +168,12 @@ BatteryLevelReading? _parseBattery(List<String> f) {
   final level = int.tryParse(f[3]);
   if (t == null || level == null) return null;
   return BatteryLevelReading(tMs: t, levelPct: level);
+}
+
+MarkReading? _parseMark(List<String> f) {
+  if (f.length < 2) return null;
+  final t = int.tryParse(f[0]);
+  final kind = f[1];
+  if (t == null || kind.isEmpty) return null;
+  return MarkReading(tMs: t, kind: kind, value: f.length > 2 ? f[2] : '');
 }

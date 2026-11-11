@@ -8,6 +8,7 @@ import '../model/fix.dart';
 import '../model/readings.dart';
 import '../policies/collection_policy.dart';
 import '../session/session_reader.dart';
+import 'accel_batches.dart';
 import 'replay_result.dart';
 
 /// 재생 설정(설계 5-4).
@@ -167,6 +168,7 @@ class _Replay {
         policyId: policy.id,
         policyParams: policy.params,
         detectorId: detector.id,
+        detectorParams: detector.params,
         ttffMs: config.ttffMs,
         startMs: start,
         endMs: end,
@@ -184,7 +186,7 @@ class _Replay {
   List<_External> _buildTimeline() {
     final items = <_External>[
       for (final fix in data.fixes) _GpsRow(fix),
-      ..._accelBatches(),
+      for (final batch in accelBatches(data.accel, config.accelBatchMs)) _AccelBatch(batch),
       for (final reading in data.osSteps) _OsStep(reading),
       for (final reading in data.activities) _Activity(reading),
       ..._batteryChanges(),
@@ -199,21 +201,6 @@ class _Replay {
       return byKind != 0 ? byKind : a.compareTo(b);
     });
     return [for (final i in order) items[i]];
-  }
-
-  Iterable<_AccelBatch> _accelBatches() sync* {
-    var batch = <AccelReading>[];
-    int? windowStart;
-    for (final reading in data.accel) {
-      final start = windowStart ??= reading.tMs;
-      if (reading.tMs - start >= config.accelBatchMs && batch.isNotEmpty) {
-        yield _AccelBatch(batch);
-        batch = <AccelReading>[];
-        windowStart = reading.tMs;
-      }
-      batch.add(reading);
-    }
-    if (batch.isNotEmpty) yield _AccelBatch(batch);
   }
 
   Iterable<_Battery> _batteryChanges() sync* {

@@ -6,6 +6,9 @@ import '../model/readings.dart';
 abstract interface class StepDetector {
   String get id;
 
+  /// 결과 파일(summary.json·step_summary.json)에 남기는 파라미터. 같은 결과를 다시 만들 수 있게 한다.
+  Map<String, Object> get params;
+
   StepState get state;
 
   int get totalSteps;

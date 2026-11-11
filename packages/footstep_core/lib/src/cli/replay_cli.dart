@@ -4,6 +4,7 @@ import 'package:args/args.dart';
 
 import '../detectors/detector_registry.dart';
 import '../detectors/step_detector.dart';
+import 'key_values.dart';
 import '../policies/collection_policy.dart';
 import '../policies/policy_registry.dart';
 import '../replay/replay_engine.dart';
@@ -12,7 +13,8 @@ import '../replay/replay_result.dart';
 import '../session/session_reader.dart';
 
 const _usage = '사용법: dart run footstep_core:replay --session <세션 폴더> --policy <정책 id> '
-    '--out <결과 폴더> [--param k=v ...] [--detector os] [--ttff 초]';
+    '--out <결과 폴더> [--param k=v ...] [--detector os|brajdic|adaptive] '
+    '[--detector-param k=v ...] [--ttff 초]';
 
 /// 재생기 CLI(설계 5-4). 종료 코드는 sysexits 관례를 따른다: 0 성공, 64 사용법 오류,
 /// 65 기록 없는 세션, 66 세션 폴더 없음. 테스트가 출력을 확인할 수 있게 [out]·[err]를 받는다.
@@ -24,6 +26,8 @@ Future<int> runReplayCli(List<String> arguments, {StringSink? out, StringSink? e
     ..addOption('policy', help: '정책 id (${policyIds.join(', ')})')
     ..addMultiOption('param', help: '정책 파라미터 k=v (여러 번 줄 수 있다)', splitCommas: false)
     ..addOption('detector', defaultsTo: 'os', help: '걸음 감지기 (${detectorIds.join(', ')})')
+    ..addMultiOption('detector-param',
+        help: '걸음 감지기 파라미터 k=v (여러 번 줄 수 있다)', splitCommas: false)
     ..addOption('ttff', defaultsTo: '0', help: '측위 지연(초): 0·5·10')
     ..addOption('out', help: '결과 폴더(fixes.csv, actions.csv, summary.json)');
 
@@ -52,18 +56,20 @@ Future<int> runReplayCli(List<String> arguments, {StringSink? out, StringSink? e
   final ttffSeconds = double.tryParse(args.option('ttff')!);
   if (ttffSeconds == null || !ttffSeconds.isFinite || ttffSeconds < 0) return usageError('--ttff는 0 이상의 초여야 합니다.');
 
-  final params = <String, String>{};
-  for (final pair in args.multiOption('param')) {
-    final i = pair.indexOf('=');
-    if (i <= 0) return usageError('--param은 k=v 형식이어야 합니다: $pair');
-    params[pair.substring(0, i)] = pair.substring(i + 1);
+  final Map<String, String> params;
+  final Map<String, String> detectorParams;
+  try {
+    params = parseKeyValues(args.multiOption('param'));
+    detectorParams = parseKeyValues(args.multiOption('detector-param'));
+  } on FormatException catch (e) {
+    return usageError(e.message);
   }
 
   late final CollectionPolicy policy;
   late final StepDetector detector;
   try {
     policy = createPolicy(policyId, params);
-    detector = createDetector(args.option('detector')!);
+    detector = createDetector(args.option('detector')!, detectorParams);
   } on ArgumentError catch (e) {
     return usageError('${e.message}');
   }
