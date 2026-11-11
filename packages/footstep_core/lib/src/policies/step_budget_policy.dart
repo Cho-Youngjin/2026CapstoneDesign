@@ -20,7 +20,7 @@ enum _Purpose { start, budget, stay, check, probe1, probe2, vehicle }
 /// - 기타 움직임: 30초 이어지면 30초 간격 확인 측위 두 번으로 속도를 보고, 두 위치가 오차보다 멀고 시속 12km
 ///   이상이면 탈것이다. 아니면 정지처럼 다룬다.
 /// - 탈것: time_speed 규칙('오차 + 속도 × 경과 시간 > E'가 되는 시각에 잰다)으로 잰다. 걸음이 다시 나오면 보행이다.
-///   정지는 30초 넘게 이어지고 측위로도 움직이지 않았을 때만 정지로 본다(신호 대기는 탈것 그대로).
+///   감지기 정지와 측위상 한 자리가 둘 다 2분 넘게 이어질 때만 정지로 본다(빨간불·정류장 정차는 탈것 그대로).
 /// - 측위가 거듭 실패하면(지하철·실내) 다시 시도하는 간격을 30초 → 1분 → 2분 → 5분으로 늘린다.
 /// - 배터리가 20% 미만이면 E를 2배로 키운다.
 class StepBudgetPolicy implements CollectionPolicy, ReportsState {
@@ -55,8 +55,12 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   static const vehicleSpeedMps = 12 / 3.6;
 
   /// 정지·기타 움직임이 이만큼 이어져야 그 상태로 측위한다. 폰을 만지거나 신호에 잠깐 멈출 때마다 상태가 몇 초
-  /// 단위로 바뀌는데, 바뀔 때마다 재면 실제 세션의 첫 1분에만 15번을 쟀다. 탈것에서 정지로 바꿀 때도 같은 시간을 쓴다.
+  /// 단위로 바뀌는데, 바뀔 때마다 재면 실제 세션의 첫 1분에만 15번을 쟀다.
   static const settleMs = 30000;
+
+  /// 탈것에서 정지로 바꾸려면 감지기 정지와 측위상 한 자리가 둘 다 이만큼 이어져야 한다. 빨간불·정류장 정차(보통
+  /// 40초~2분)마다 탈것을 놓으면, 다시 찾는 동안(제안판 감지기 약 1분, OS판 최대 5분) 버스가 수백 m~수 km를 간다.
+  static const vehicleStopMs = 120000;
 
   /// 정지 중 확인 측위 간격.
   static const stillCheckMs = 300000;
@@ -86,6 +90,9 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   Fix? _anchor;
   Fix? _previousVehicleFix;
   double _vehicleSpeedMps = 0;
+
+  /// 탈것에서 마지막으로 움직인 것이 확인된 측위. 뒤따르는 측위가 이 위치의 두 오차 안에 머물면 멈춰 있는 것이다.
+  Fix? _stopFix;
 
   /// 걸음 감지기가 마지막으로 알린 상태와, 정지가 시작된 시각(정지가 아니면 null). 탈것에서 벗어날지 판단할 때 쓴다.
   StepState? _detectorState;
@@ -125,6 +132,7 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     _anchor = null;
     _previousVehicleFix = null;
     _vehicleSpeedMps = 0;
+    _stopFix = null;
     _detectorState = null;
     _stillSinceMs = null;
     _armedTag = null;
@@ -155,8 +163,8 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     }
     final next = switch (state) {
       StepState.walking => _Mode.walking,
-      // 탈것 안의 정지(신호 대기)와 흔들림(진동)은 탈것 그대로다. 탈것에서 벗어나는 것은 걸음이 나오거나, 정지가
-      // 30초 넘게 이어지고 측위로도 움직이지 않았음을 확인했을 때다(_onFix의 탈것 처리).
+      // 탈것 안의 정지(신호 대기)와 흔들림(진동)은 탈것 그대로다. 탈것에서 벗어나는 것은 걸음이 나오거나, 감지기
+      // 정지와 측위상 한 자리가 둘 다 2분 넘게 이어졌을 때다(_onFix의 탈것 처리).
       StepState.still => _mode == _Mode.vehicle ? _Mode.vehicle : _Mode.still,
       StepState.otherMotion => _mode == _Mode.vehicle ? _Mode.vehicle : _Mode.otherMotion,
     };
@@ -241,9 +249,9 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
         return _arm(_Purpose.probe2, fix.tMs + probeGapMs);
       case _Purpose.probe2:
         final anchor = _anchor;
-        // 두 위치가 서로의 오차(와 예산)보다 멀어야 움직인 것이다. 오차가 큰 두 위치(예: 각 60m)는 가만히 있어도
-        // 30초 만에 100m 넘게 떨어져 보여, 속도만 보면 탈것으로 잘못 본다.
-        if (anchor != null && _moved(anchor, fix)) {
+        // 두 위치가 서로의 오차보다 멀어야 움직인 것이다. 오차가 큰 두 위치(예: 각 60m)는 가만히 있어도 30초 만에
+        // 100m 넘게 떨어져 보여, 속도만 보면 탈것으로 잘못 본다. 탈것 기준은 속도(시속 12km)라 E와 묶지 않는다.
+        if (anchor != null && !_within(anchor, fix)) {
           final speed = _speedBetween(anchor, fix);
           if (speed >= vehicleSpeedMps) return _becomeVehicle(speed, fix);
         }
@@ -251,10 +259,14 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
         return _holdAt(fix);
       case _Purpose.vehicle:
         final previous = _previousVehicleFix;
+        final stop = _stopFix;
         final stillSince = _stillSinceMs;
-        if (previous != null && stillSince != null && fix.tMs - stillSince >= settleMs && _within(previous, fix)) {
-          // 감지기가 30초 넘게 정지이고 직전 탈것 측위와 두 오차 안에서 겹친다 — 탈것에서 내려 멈췄거나 오래 섰다.
-          // 예산(E)이 아니라 오차로 보는 까닭: 시속 10km로 기어가는 버스도 13.5초면 E 안이지만 서 있는 것은 아니다.
+        // 멈춤은 예산(E)이 아니라 오차로 본다: 시속 10km로 기어가는 버스도 13.5초면 E 안이지만 서 있는 것은 아니다.
+        if (stop == null || !_within(stop, fix)) {
+          _stopFix = fix; // 움직였다: 여기서부터 멈춘 시간을 다시 잰다.
+        } else if (stillSince != null && fix.tMs - math.max(stillSince, stop.tMs) >= vehicleStopMs) {
+          // 감지기 정지와 측위상 한 자리가 둘 다 2분 넘게 이어졌다 — 탈것에서 내려 멈췄거나 잘못 본 탈것이다.
+          // 감지기 시계만 보면 안 된다: OS 걸음 센서판은 달리는 버스 안에서도 늘 정지라 첫 정류장에서 놓친다.
           _setMode(_Mode.still);
           return _holdAt(fix);
         }
@@ -270,6 +282,7 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     _setMode(_Mode.vehicle);
     _vehicleSpeedMps = speedMps;
     _previousVehicleFix = fix;
+    _stopFix = fix;
     return _armVehicle(fix);
   }
 
