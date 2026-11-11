@@ -6,6 +6,7 @@ import 'package:app/features/footsteps/lab/recording_permissions.dart';
 import 'package:app/features/footsteps/recording/mark.dart';
 import 'package:app/features/footsteps/recording/policy_choice.dart';
 import 'package:app/features/footsteps/recording/recorder_status.dart';
+import 'package:app/features/footsteps/recording/recording_config.dart';
 import 'package:app/features/footsteps/recording/recording_mode.dart';
 import 'package:app/features/footsteps/recording/recording_providers.dart';
 import 'package:app/features/footsteps/recording/session_library.dart';
@@ -126,6 +127,24 @@ void main() {
     await pumpLab(tester, controller);
 
     expect(find.text('기록 종료'), findsOneWidget);
+  });
+
+  testWidgets('정책 실행 중에 화면을 다시 열면 기본값이 아니라 지금 도는 설정을 보여 준다', (tester) async {
+    final controller = FakeRecordingController()
+      ..running = true
+      ..config = const RecordingConfig(
+        mode: RecordingMode.policy,
+        sessionDir: 'sessions/x-policy',
+        carryInitial: 'hand',
+        policy: PolicyChoice(policyId: 'still_suppress', detectorId: 'os', policyParams: {'interval_s': '120'}),
+      );
+    await pumpLab(tester, controller);
+
+    final mode = tester.widget<SegmentedButton<RecordingMode>>(find.byKey(const Key('lab-mode')));
+    expect(mode.selected, {RecordingMode.policy});
+    expect(tester.widget<DropdownButton<String>>(find.byKey(const Key('lab-policy'))).value, 'still_suppress');
+    expect(tester.widget<DropdownButton<String>>(find.byKey(const Key('lab-detector'))).value, 'os');
+    expect(tester.widget<TextField>(find.byKey(const Key('lab-policy-params'))).controller!.text, 'interval_s=120');
   });
 
   testWidgets('서비스가 보낸 상태를 보여 준다', (tester) async {

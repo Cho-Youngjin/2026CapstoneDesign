@@ -27,6 +27,10 @@ abstract interface class RecordingController {
   Future<void> stop();
   void sendMark(Mark mark);
   Stream<RecorderStatus> statusStream();
+
+  /// 지금 도는 기록의 설정(시작할 때 저장한 것). 기록 중이 아니거나 읽을 수 없으면 null이다. 기록 중에 실험 화면을
+  /// 다시 열었을 때 어떤 모드·정책으로 도는지 보여 주는 데 쓴다.
+  Future<RecordingConfig?> activeConfig();
 }
 
 const _recordingServiceId = 7101;
@@ -120,6 +124,19 @@ class ForegroundRecordingController implements RecordingController {
 
   @override
   void sendMark(Mark mark) => FlutterForegroundTask.sendDataToTask(encodeMarkMessage(mark));
+
+  @override
+  Future<RecordingConfig?> activeConfig() async {
+    if (!await FlutterForegroundTask.isRunningService) return null;
+    final raw = await FlutterForegroundTask.getData<String>(key: RecordingConfig.storageKey);
+    if (raw == null) return null;
+    try {
+      return RecordingConfig.fromJson((jsonDecode(raw) as Map).cast<String, Object?>());
+    } catch (_) {
+      // 앞 버전이 저장한 다른 모양의 설정이면 보여 줄 수 없을 뿐, 기록은 서비스가 이어 간다.
+      return null;
+    }
+  }
 
   @override
   Stream<RecorderStatus> statusStream() {

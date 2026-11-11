@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:footstep_core/footstep_core.dart' show createDetector, createPolicy, parseKeyValues;
+import 'package:footstep_core/footstep_core.dart'
+    show createDetector, createPolicy, detectorIds, parseKeyValues, policyIds;
 
 import '../recording/mark.dart';
 import '../recording/policy_choice.dart';
 import '../recording/recorder_status.dart';
+import '../recording/recording_config.dart';
 import '../recording/recording_mode.dart';
 import '../recording/recording_providers.dart';
 import 'lab_marks_panel.dart';
@@ -49,9 +51,26 @@ class _LabPageState extends ConsumerState<LabPage> {
         if (carry != null) _carry = carry;
       });
     });
-    controller.isRunning().then((running) {
-      if (mounted) setState(() => _running = running);
+    controller.isRunning().then((running) async {
+      if (!mounted) return;
+      setState(() => _running = running);
+      if (!running) return;
+      // 기록 중에 화면을 다시 열면, 고르는 칸이 기본값이 아니라 지금 도는 세션의 설정을 보여 줘야 한다.
+      final config = await controller.activeConfig();
+      if (mounted && config != null) setState(() => _showConfig(config));
     });
+  }
+
+  void _showConfig(RecordingConfig config) {
+    _mode = config.mode;
+    final policy = config.policy;
+    if (policy == null) return;
+    // 목록에 없는 이름(앞 버전의 설정)을 고르면 목록 상자가 그려지지 않으니 그때는 기본값을 둔다.
+    if (policyIds.contains(policy.policyId)) _policyId = policy.policyId;
+    if (detectorIds.contains(policy.detectorId)) _detectorId = policy.detectorId;
+    _paramsController.text = [
+      for (final entry in policy.policyParams.entries) '${entry.key}=${entry.value}',
+    ].join(' ');
   }
 
   @override
