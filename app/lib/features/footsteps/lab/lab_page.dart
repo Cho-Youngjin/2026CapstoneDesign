@@ -2,12 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:footstep_core/footstep_core.dart' show createDetector, createPolicy, parseKeyValues;
 
 import '../recording/mark.dart';
+import '../recording/policy_choice.dart';
 import '../recording/recorder_status.dart';
 import '../recording/recording_mode.dart';
 import '../recording/recording_providers.dart';
 import 'lab_marks_panel.dart';
+import 'lab_mode_panel.dart';
 import 'lab_permissions_panel.dart';
 import 'lab_sessions_panel.dart';
 import 'lab_status_card.dart';
@@ -26,6 +29,10 @@ class _LabPageState extends ConsumerState<LabPage> {
   String? _error;
   RecorderStatus? _status;
   String _carry = CarryPosition.hand;
+  RecordingMode _mode = RecordingMode.groundTruth;
+  String _policyId = 'step_budget';
+  String _detectorId = 'adaptive';
+  final _paramsController = TextEditingController();
   int _sessionsVersion = 0;
   StreamSubscription<RecorderStatus>? _statusSubscription;
 
@@ -50,6 +57,7 @@ class _LabPageState extends ConsumerState<LabPage> {
   @override
   void dispose() {
     _statusSubscription?.cancel();
+    _paramsController.dispose();
     super.dispose();
   }
 
@@ -70,7 +78,8 @@ class _LabPageState extends ConsumerState<LabPage> {
           });
         }
       } else {
-        await controller.start(mode: RecordingMode.groundTruth, carryInitial: _carry);
+        final policy = _mode == RecordingMode.policy ? _policyChoice() : null;
+        await controller.start(mode: _mode, carryInitial: _carry, policy: policy);
         if (mounted) setState(() => _running = true);
       }
     } catch (e) {
@@ -78,6 +87,17 @@ class _LabPageState extends ConsumerState<LabPage> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// 화면에서 고른 정책 설정. 시작 전에 footstep_core 목록으로 한 번 만들어 보아, 파라미터 오타는 서비스를 켜기 전에
+  /// 알린다(서비스 안에서 실패하면 알림만 잠깐 떴다 사라진다).
+  PolicyChoice _policyChoice() {
+    final params = parseKeyValues(
+      _paramsController.text.split(RegExp(r'\s+')).where((pair) => pair.isNotEmpty),
+    );
+    createPolicy(_policyId, params);
+    createDetector(_detectorId);
+    return PolicyChoice(policyId: _policyId, policyParams: params, detectorId: _detectorId);
   }
 
   void _changeCarry(String position) {
@@ -101,7 +121,18 @@ class _LabPageState extends ConsumerState<LabPage> {
         children: [
           const LabPermissionsPanel(),
           const SizedBox(height: 16),
-          Text('정답 기록 모드', style: Theme.of(context).textTheme.titleMedium),
+          Text('기록 모드', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          LabModePanel(
+            mode: _mode,
+            policyId: _policyId,
+            detectorId: _detectorId,
+            paramsController: _paramsController,
+            enabled: !_running && !_busy,
+            onModeChanged: (mode) => setState(() => _mode = mode),
+            onPolicyChanged: (id) => setState(() => _policyId = id),
+            onDetectorChanged: (id) => setState(() => _detectorId = id),
+          ),
           const SizedBox(height: 8),
           const Text('휴대 위치'),
           LabCarrySelector(value: _carry, onChanged: _changeCarry),

@@ -39,6 +39,8 @@ class LabStatusCard extends StatelessWidget {
             Text('OS 누적 걸음: ${s.lastOsSteps ?? '-'}'),
             Text('배터리: ${s.lastLevelPct ?? '-'}% · 전하량 ${charge == null ? '지원 안 함' : '$charge μAh'}'),
             Text('현장 상태: ${s.atPlace ? '장소 안' : '이동 중'} · ${s.onVehicle ? '탈것 탑승 중' : '도보'}'),
+            if (s.policyState != null)
+              Text('정책 상태: ${s.policyState} · 측위 뒤 걸음: ${s.stepsSinceFix ?? '-'}'),
             Text('오류: ${s.errorCount}건'),
           ],
         ),
