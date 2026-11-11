@@ -22,6 +22,34 @@ void main() {
     expect(finder.maxThreshold, closeTo(0.665, 0.001));
   });
 
+  test('Tmax는 봉우리 하나로는 안 바뀌고, 크기가 다른 두 봉우리의 평균으로 바뀌어 약한 봉우리를 거른다', () {
+    final finder = AdaptivePeakFinder();
+
+    // 첫 봉우리(3.0): 넘고 → 골짜기 → 0으로 돌아오면 확정. 직전 봉우리가 없어 Tmax는 그대로다.
+    expect(finder.add(0, 3.0), isNull);
+    expect(finder.add(20, -1.0), isNull);
+    expect(finder.add(40, 0.0), 0);
+    expect(finder.maxThreshold, 1.0);
+
+    // 둘째 봉우리(6.0): Tmax = (3 + 6) / 6 = 1.5. 한쪽 봉우리만 쓰는 식이면 1.0이나 2.0이 된다.
+    expect(finder.add(60, 6.0), isNull);
+    expect(finder.add(80, -1.0), isNull);
+    expect(finder.add(100, 0.0), 60);
+    expect(finder.maxThreshold, closeTo(1.5, 1e-9));
+
+    // 처음 Tmax(1.0)는 넘지만 바뀐 Tmax(1.5)에 못 미치는 봉우리는 후보가 아니다.
+    expect(finder.add(120, 1.2), isNull);
+    expect(finder.add(140, -1.0), isNull);
+    expect(finder.add(160, 0.0), isNull);
+    expect(finder.maxThreshold, closeTo(1.5, 1e-9));
+
+    // 다음 봉우리(2.0)는 확정되고 Tmax = (6 + 2) / 6이 된다.
+    expect(finder.add(180, 2.0), isNull);
+    expect(finder.add(200, -1.0), isNull);
+    expect(finder.add(220, 0.0), 180);
+    expect(finder.maxThreshold, closeTo(8 / 6, 1e-9));
+  });
+
   test('Tmax(처음 1.0)를 넘지 못하는 작은 흔들림은 후보가 아니다', () {
     expect(feedSine(AdaptivePeakFinder(), amplitude: 0.5), isEmpty);
   });
