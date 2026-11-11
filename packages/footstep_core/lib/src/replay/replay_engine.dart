@@ -168,6 +168,7 @@ class _Replay {
         policyId: policy.id,
         policyParams: policy.params,
         detectorId: detector.id,
+        detectorParams: detector.params,
         ttffMs: config.ttffMs,
         startMs: start,
         endMs: end,

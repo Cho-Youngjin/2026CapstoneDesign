@@ -33,9 +33,22 @@ void main() {
     expect(() => createPolicy('still_suppress', {'interval_s': 'NaN'}), throwsArgumentError);
   });
 
-  test('걸음 감지기 id로 감지기를 만든다', () {
-    expect(detectorIds, ['os']);
-    expect(createDetector('os').id, 'os');
-    expect(() => createDetector('adaptive'), throwsArgumentError);
+  test('설계 문서 5-4의 걸음 감지기 id로 감지기를 만든다', () {
+    expect(detectorIds, ['os', 'brajdic', 'adaptive']);
+    for (final id in detectorIds) {
+      expect(createDetector(id).id, id);
+    }
+    expect(createDetector('brajdic', {'std_th': '0.8', 'smooth_s': '0.1'}).params,
+        {'std_th': 0.8, 'smooth_s': 0.1, 'peak_win_s': 0.59});
+    expect(createDetector('adaptive', {'n_confirm': '6', 'ac_th': '0.5'}).params,
+        {'std_th': 0.6, 'band_std_th': 0.3, 'ac_th': 0.5, 'n_confirm': 6, 'max_gap_s': 1.5});
+  });
+
+  test('모르는 감지기·파라미터·잘못된 숫자는 ArgumentError다', () {
+    expect(() => createDetector('nope'), throwsArgumentError);
+    expect(() => createDetector('os', {'std_th': '0.6'}), throwsArgumentError);
+    expect(() => createDetector('adaptive', {'n_confirm': '2.5'}), throwsArgumentError);
+    expect(() => createDetector('adaptive', {'n_confirm': '0'}), throwsArgumentError);
+    expect(() => createDetector('brajdic', {'std_th': 'NaN'}), throwsArgumentError);
   });
 }

@@ -85,4 +85,28 @@ void main() {
     ], out: out, err: err);
     expect(code, 64);
   });
+
+  test('--detector와 --detector-param이 재생과 summary.json에 들어간다', () async {
+    final outDir = p.join(root.path, 'out3');
+    final code = await runReplayCli([
+      '--session', session.path, '--policy', 'still_suppress', '--detector', 'adaptive',
+      '--detector-param', 'n_confirm=6', '--out', outDir,
+    ], out: out, err: err);
+
+    expect(code, 0, reason: err.toString());
+    final summary =
+        jsonDecode(File(p.join(outDir, 'summary.json')).readAsStringSync()) as Map<String, Object?>;
+    expect(summary['detector_id'], 'adaptive');
+    expect((summary['detector_params'] as Map)['n_confirm'], 6);
+  });
+
+  test('--detector-param 형식이 틀리거나 모르는 파라미터면 64를 돌려준다', () async {
+    for (final bad in ['n_confirm', 'nope=1']) {
+      final code = await runReplayCli([
+        '--session', session.path, '--policy', 'fixed_1m', '--detector', 'adaptive',
+        '--detector-param', bad, '--out', p.join(root.path, 'o'),
+      ], out: StringBuffer(), err: err);
+      expect(code, 64, reason: '--detector-param $bad');
+    }
+  });
 }
