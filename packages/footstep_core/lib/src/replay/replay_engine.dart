@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../detectors/step_detector.dart';
+import '../detectors/step_timeline.dart';
 import '../events/policy_action.dart';
 import '../events/policy_event.dart';
 import '../geo.dart';
@@ -161,7 +162,7 @@ class _Replay {
     if (pending != null) _gpsOnMs += end - pending.requestMs;
 
     return ReplayResult(
-      fixes: List.unmodifiable(_fixes),
+      fixes: List.unmodifiable(_recountSteps(_fixes)),
       actions: List.unmodifiable(_actions),
       summary: ReplaySummary(
         sessionId: data.sessionId,
@@ -279,6 +280,34 @@ class _Replay {
   String _stateLabel() {
     if (policy case ReportsState(:final stateLabel)) return stateLabel;
     return detector.state.name;
+  }
+
+  /// fixes.csv의 steps_since_prev를 걸음 시각으로 다시 센다: 직전 측위 시각 이상 ~ 이 측위 시각 미만의 걸음 수.
+  ///
+  /// 정책에 알린 stepsSinceLastFix는 그 순간까지 센 걸음뿐이다. 제안판 감지기는 연속 5걸음을 확인한 뒤 앞선 걸음을
+  /// 소급해 세므로, 걷기 시작하고 몇 초 안에 측위하면 그 앞 걸음은 측위 이전 몫으로 늦게 셈해져 어느 행에도
+  /// 남지 않았다. 정책은 미래를 보면 안 되므로 그대로 두고, 결과 파일만 재생이 끝난 뒤 바로잡는다. 걸음 시각을
+  /// 모르는 감지기는 알린 값을 그대로 쓴다.
+  List<FixRecord> _recountSteps(List<FixRecord> fixes) {
+    if (detector case final StepTimeline timeline) {
+      final times = timeline.takeStepTimes()..sort();
+      final recounted = <FixRecord>[];
+      var next = 0;
+      for (final record in fixes) {
+        final from = next;
+        while (next < times.length && times[next] < record.tMs) {
+          next++;
+        }
+        recounted.add(FixRecord(
+          fix: record.fix,
+          stepsSincePrev: next - from,
+          state: record.state,
+          kind: record.kind,
+        ));
+      }
+      return recounted;
+    }
+    return fixes;
   }
 
   void _deliverStep(StepUpdate? update) {

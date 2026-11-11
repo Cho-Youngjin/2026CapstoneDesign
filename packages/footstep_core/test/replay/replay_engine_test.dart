@@ -1,6 +1,42 @@
 import 'package:footstep_core/footstep_core.dart';
 import 'package:test/test.dart';
 
+import '../detectors/synthetic.dart';
+
+/// 걸음 시각을 모르는 감지기 흉내: 가속도 묶음마다 3걸음씩 늘었다고 알린다.
+class _NoTimeline implements StepDetector {
+  int _total = 0;
+  int _atFix = 0;
+
+  @override
+  String get id => 'no_timeline';
+
+  @override
+  Map<String, Object> get params => const {};
+
+  @override
+  StepState get state => StepState.walking;
+
+  @override
+  int get totalSteps => _total;
+
+  @override
+  int get stepsSinceLastFix => _total - _atFix;
+
+  @override
+  StepUpdate? onAccel(int tMs, List<AccelReading> batch) {
+    _total += 3;
+    return StepUpdate(
+        tMs: tMs, state: StepState.walking, totalSteps: _total, stepsSinceLastFix: stepsSinceLastFix);
+  }
+
+  @override
+  StepUpdate? onOsStep(OsStepReading reading) => null;
+
+  @override
+  void onFix() => _atFix = _total;
+}
+
 /// 정해 둔 할 일을 돌려주고 받은 사건을 모으는 시험용 정책.
 class _Scripted implements CollectionPolicy {
   _Scripted({this.startActions = const [], this.onWake = const {}});
@@ -141,6 +177,41 @@ void main() {
 
     expect(result.fixes.map((f) => f.stepsSincePrev), [10, 5]);
     expect(result.fixes.map((f) => f.state), ['walking', 'walking']);
+  });
+
+  test('제안판 감지기가 연속 걸음을 확인하기 전에 측위해도 그 앞 걸음이 steps_since_prev에 남는다', () {
+    // 걷기 시작 2초 만에 측위한다. 제안판은 박자 창(3초)이 차고 연속 5걸음을 확인한 뒤 앞 걸음을 소급해 센다.
+    final policy = _Scripted(
+      startActions: [const WakeAt(tMs: 2000, tag: 'a'), const WakeAt(tMs: 10000, tag: 'b')],
+      onWake: {'a': [const RequestFix()], 'b': [const RequestFix()]},
+    );
+    final data = SessionData(sessionId: 'walk', fixes: everySecond(0, 20000), accel: walk(20));
+
+    final result = replaySession(data, policy, AdaptiveStepDetector());
+
+    // 같은 감지기를 정책 없이 돌려 얻은 걸음 시각으로 구간마다 센 값과 같아야 한다.
+    final times = runDetector(data, AdaptiveStepDetector()).stepTimes;
+    final beforeFirst = times.where((t) => t < 2000).length;
+    expect(beforeFirst, greaterThan(0));
+    expect(result.fixes.map((f) => f.tMs), [2000, 10000]);
+    expect(result.fixes.map((f) => f.stepsSincePrev),
+        [beforeFirst, times.where((t) => t >= 2000 && t < 10000).length]);
+  });
+
+  test('걸음 시각을 모르는 감지기는 측위 때 알린 걸음 수를 그대로 쓴다', () {
+    final policy = _Scripted(
+      startActions: [const WakeAt(tMs: 2500, tag: 'a')],
+      onWake: {'a': [const RequestFix()]},
+    );
+    final data = session(
+      fixes: everySecond(0, 5000),
+      accel: [for (var t = 0; t <= 5000; t += 10) AccelReading(tMs: t, x: 0, y: 9.81, z: 0)],
+    );
+
+    final result = replaySession(data, policy, _NoTimeline());
+
+    // 3초 응답 전에 끝난 묶음(0.99·1.99·2.99초) 세 개 × 3걸음.
+    expect(result.fixes.single.stepsSincePrev, 9);
   });
 
   test('1분 고정 주기로 10분을 재생하면 측위 11번(0분~10분)이다', () {
