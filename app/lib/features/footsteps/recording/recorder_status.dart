@@ -11,6 +11,8 @@ class RecorderStatus {
     this.lastOsSteps,
     this.lastChargeUah,
     this.lastLevelPct,
+    this.policyState,
+    this.stepsSinceFix,
   });
 
   final DateTime startedAt;
@@ -28,6 +30,12 @@ class RecorderStatus {
   final int? lastChargeUah;
   final int? lastLevelPct;
 
+  /// 정책 실행 모드에서 정책이 보는 지금 상태(fixes.csv의 state와 같은 이름). 정답 기록 모드에서는 null이다.
+  final String? policyState;
+
+  /// 정책 실행 모드에서 마지막 측위 뒤 걸음 수.
+  final int? stepsSinceFix;
+
   Map<String, Object?> toJson() => {
         'startedAt': startedAt.millisecondsSinceEpoch,
         'rowCounts': rowCounts,
@@ -39,6 +47,8 @@ class RecorderStatus {
         'lastOsSteps': lastOsSteps,
         'lastChargeUah': lastChargeUah,
         'lastLevelPct': lastLevelPct,
+        'policyState': policyState,
+        'stepsSinceFix': stepsSinceFix,
       };
 
   factory RecorderStatus.fromJson(Map<String, Object?> json) => RecorderStatus(
@@ -52,5 +62,7 @@ class RecorderStatus {
         lastOsSteps: json['lastOsSteps'] as int?,
         lastChargeUah: json['lastChargeUah'] as int?,
         lastLevelPct: json['lastLevelPct'] as int?,
+        policyState: json['policyState'] as String?,
+        stepsSinceFix: json['stepsSinceFix'] as int?,
       );
 }
