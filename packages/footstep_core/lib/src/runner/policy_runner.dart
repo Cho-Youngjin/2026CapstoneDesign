@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import '../detectors/os_step_detector.dart';
 import '../detectors/step_detector.dart';
 import '../events/policy_action.dart';
 import '../events/policy_event.dart';
@@ -112,6 +113,16 @@ class PolicyRunner {
   void addActivity(ActivityReading reading) {
     if (!_running) return;
     _deliver(ActivityUpdate(tMs: reading.tMs, type: reading.type, confidence: reading.confidence));
+  }
+
+  /// OS 센서판 걸음 감지기의 시계를 지금으로 넘긴다. 이 감지기는 마지막 걸음 뒤 [OsStepDetector.walkingWindowMs]가
+  /// 지나야 정지로 바뀌고, 그 시각을 가속도 묶음 시각으로 안다. 그런데 정책 실행 모드는 배터리를 아끼려고 OS
+  /// 센서판에 가속도를 켜지 않는다. 안드로이드 걸음 센서는 멈춘 지 약 2초 뒤 'stopped'를 한 번 보내고 조용해지므로,
+  /// 시계를 넘겨 주지 않으면 멈춘 뒤에도 영영 보행으로 남는다. 기록 서비스의 주기(5초)마다 부른다 — 그래서 정지로
+  /// 바뀌는 시각이 재생(1초 묶음)보다 최대 5초 늦을 수 있다. 가속도를 듣는 감지기에는 아무것도 하지 않는다.
+  void advanceDetectorClock() {
+    if (!_running || detector is! OsStepDetector) return;
+    _deliverStep(_guard(() => detector.onAccel(clock(), const []), null));
   }
 
   /// 배터리 잔량은 바뀔 때만 정책에 알린다(재생기와 같은 규칙).

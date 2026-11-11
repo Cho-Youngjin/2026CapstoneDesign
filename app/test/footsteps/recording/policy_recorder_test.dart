@@ -228,6 +228,23 @@ void main() {
       expect(r.status.stepsSinceFix, 12);
     });
 
+    test('OS 센서판은 가속도 없이 기록 서비스의 주기를 시계로 써서, 멈춘 뒤 정지로 바뀐다', () async {
+      final r = await recorder(const PolicyChoice(policyId: 'step_budget', detectorId: 'os'));
+      await r.start();
+      expect(sources.accelController.hasListener, isFalse);
+
+      sources.stepsController
+        ..add(OsStepSample(at: now, kind: OsStepKind.count, value: '100'))
+        ..add(OsStepSample(at: now.add(const Duration(seconds: 1)), kind: OsStepKind.count, value: '112'))
+        ..add(OsStepSample(at: now.add(const Duration(seconds: 3)), kind: OsStepKind.status, value: 'stopped'));
+      await _settle();
+      expect(r.status.policyState, 'walking');
+
+      now = now.add(const Duration(seconds: 6)); // 마지막 걸음 뒤 5초
+      await r.tick();
+      expect(r.status.policyState, 'still');
+    });
+
     test('가속도는 1초 묶음으로 걸음 감지기에 가서 정책 상태를 바꾼다', () async {
       final r = await recorder(const PolicyChoice(policyId: 'step_budget', detectorId: 'adaptive'));
       await r.start();

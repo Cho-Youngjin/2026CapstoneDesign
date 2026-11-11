@@ -60,4 +60,5 @@ Git Bash에서는 `/sdcard` 경로가 바뀌지 않게 `MSYS_NO_PATHCONV=1`을 �
 - `fix_failures`가 많으면(실내·지하철) 정책이 다시 시도하는 간격을 늘렸는지 `actions.csv`로 본다.
 - `meta.json`의 errors에 `restarted by system`이 있으면 그 회차는 분석에서 뺀다. 시스템이 기록 서비스를 다시 띄우면 정책이 처음부터 다시 돌고, `summary.json`은 다시 시작한 뒤만 센다.
 - 안드로이드는 속도가 없는 위치를 속도 0으로 준다(멈춤과 구분되지 않는다). 속도를 쓰는 기준 정책(`time_speed`·`speed_adaptive`)을 해석할 때 참고한다.
+- OS 센서판(`os`)은 가속도를 켜지 않아, 기록 서비스 주기(5초)를 시계로 써서 정지를 판정한다. 그래서 정지로 바뀌는 시각이 재생(1초 가속도 묶음)보다 최대 5초 늦을 수 있다.
 - 결과 폴더(`research/results/`)와 세션(`research/data/`)은 커밋하지 않는다.

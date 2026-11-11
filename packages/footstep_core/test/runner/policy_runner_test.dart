@@ -259,6 +259,35 @@ void main() {
     expect(updates.single.state, StepState.still);
   });
 
+  test('가속도 없이 도는 OS 센서판 감지기는 시계를 넘겨 받아야 멈춘 뒤 정지로 바뀐다', () {
+    final policy = _Scripted();
+    final r = runner(policy)..start();
+    r.addOsStep(const OsStepReading(tMs: 100, kind: OsStepReading.count, value: '100'));
+    r.addOsStep(const OsStepReading(tMs: 1000, kind: OsStepReading.count, value: '112'));
+    // 안드로이드는 멈춘 지 약 2초 뒤 'stopped'를 한 번 보낸다. 아직 마지막 걸음 뒤 4초 안이라 보행이다.
+    r.addOsStep(const OsStepReading(tMs: 3000, kind: OsStepReading.status, value: 'stopped'));
+    expect(r.stateLabel, 'walking');
+
+    now = 4000; // 마지막 걸음 뒤 3초: 아직 보행
+    r.advanceDetectorClock();
+    expect(r.stateLabel, 'walking');
+
+    now = 6000; // 기록 서비스의 다음 주기: 4초가 지나 정지
+    r.advanceDetectorClock();
+    expect(r.stateLabel, 'still');
+    expect(policy.events.whereType<StepUpdate>().last.state, StepState.still);
+  });
+
+  test('가속도를 듣는 감지기에는 시계 넘기기가 아무 일도 하지 않는다', () {
+    final policy = _Scripted();
+    final r = runner(policy, detector: AdaptiveStepDetector())..start();
+
+    now = 5000;
+    r.advanceDetectorClock();
+    expect(policy.events, isEmpty);
+    expect(errors, isEmpty);
+  });
+
   test('배터리 잔량은 바뀔 때만 알린다', () {
     final policy = _Scripted();
     final r = runner(policy)..start();

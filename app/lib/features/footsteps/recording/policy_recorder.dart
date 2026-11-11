@@ -91,6 +91,8 @@ class PolicyRecorder implements SessionRecorder {
 
   @override
   Future<void> tick() async {
+    // OS 센서판 감지기는 가속도 없이 이 주기를 시계로 써야 멈춘 뒤 정지로 바뀐다(PolicyRunner.advanceDetectorClock).
+    if (needs.osSteps) _runner.advanceDetectorClock();
     final last = _lastBatteryAt;
     if (last == null || clock().difference(last) >= batteryInterval) await _readBattery();
     await files.flushAll();
