@@ -85,6 +85,16 @@ List<AccelReading> shortBurst() => [
 /// 15초 보행 → 7초 기록 공백(서비스 재시작) → 15초 보행. 정답 60걸음.
 List<AccelReading> gapWalk() => [...walk(15), ...walk(15, t0: 22000, seed: 2)];
 
+/// 폰 만지기 흉내(100Hz): 걸음 대역 안의 불규칙한 흔들림(저역 통과한 잡음). 박자가 없다.
+List<AccelReading> handling(int seconds, {int t0 = 0, int seed = 31}) {
+  final noise = lcg(seed);
+  var y = 0.0;
+  return [
+    for (var i = 0; i < seconds * 100; i++)
+      _magnitude(t0 + i * 10, 9.81 + 14 * (y += 0.08 * ((_next(noise) - 0.5) - y))),
+  ];
+}
+
 /// 재생기와 같은 1초 묶음으로 감지기에 넣고, 나온 StepUpdate를 모은다.
 List<StepUpdate> feed(StepDetector detector, List<AccelReading> readings) => [
       for (final batch in accelBatches(readings, 1000))

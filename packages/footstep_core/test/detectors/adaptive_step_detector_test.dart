@@ -110,6 +110,28 @@ void main() {
     expect(updates.map((u) => u.state).toSet(), {StepState.walking});
   });
 
+  test('박자 없는 흔들림 동안 모인 후보는 버려, 곧이어 걷기 시작해도 소급 카운트에 섞이지 않는다', () {
+    final detector = AdaptiveStepDetector();
+    // 12초 폰 만지기 → 바로 걷기 10초. 버리지 않으면 만지는 동안의 후보 5개가 걸음으로 세진다.
+    feed(detector, [...handling(12), ...walk(10, t0: 12000, seed: 3)]);
+    final times = detector.takeStepTimes();
+    expect(times.where((t) => t < 12000), isEmpty);
+    expect(times, hasLength(inInclusiveRange(17, 21)));
+  });
+
+  test('측위가 연속 걸음 확인 전에 오면, 소급해 센 측위 이전 걸음은 측위 이후 걸음 수에 넣지 않는다', () {
+    final detector = AdaptiveStepDetector();
+    final readings = walk(10);
+    feed(detector, readings.where((r) => r.tMs < 2000).toList());
+    expect(detector.totalSteps, 0); // 아직 연속 걸음 확인 전
+    detector.onFix();
+    feed(detector, readings.where((r) => r.tMs >= 2000).toList());
+
+    final times = detector.takeStepTimes();
+    expect(times.where((t) => t < 2000), isNotEmpty); // 측위 전에 걸은 걸음도 결국 센다
+    expect(detector.stepsSinceLastFix, times.where((t) => t >= 2000).length);
+  });
+
   test('onFix는 마지막 측위 이후 걸음 수를 0으로 되돌리고, OS 걸음 읽기는 무시한다', () {
     final detector = AdaptiveStepDetector();
     feed(detector, walk(10));

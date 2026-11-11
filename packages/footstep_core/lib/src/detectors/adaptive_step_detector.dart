@@ -10,7 +10,7 @@ import 'step_timeline.dart';
 /// 2. 흔들림(0.8초 창 크기 표준편차)이 작으면 정지다.
 /// 3. 흔들리는데 박자(3초 창 정규화 자기상관의 봉우리)가 있으면 보행, 없으면 기타 움직임(탈것·폰 만지기)이다. 박자 창이 차기 전에는 판정하지 않는다.
 /// 4. 적응형 임계값(이권희 외 2018)으로 걸음 후보를 찾고, 걸음 주기의 0.6배보다 가까운 후보는 버린다.
-/// 5. 연속 N걸음이 모이고 보행이면 그 걸음들을 소급해 센다. 확인된 뒤에는 보행 상태인 동안 걸음을 바로 센다.
+/// 5. 연속 N걸음이 모이고 보행이면 그 걸음들을 소급해 센다. 기타 움직임으로 판정된 동안 모인 후보는 버린다. 확인된 뒤에는 보행 상태인 동안 걸음을 바로 센다.
 /// 버스 진동처럼 흔들림만 있고 박자가 없는 움직임에서는 확인이 일어나지 않아 걸음을 세지 않는다.
 class AdaptiveStepDetector implements StepDetector, StepTimeline {
   AdaptiveStepDetector({
@@ -72,6 +72,8 @@ class AdaptiveStepDetector implements StepDetector, StepTimeline {
 
   int _total = 0;
   int _totalAtLastFix = 0;
+  int? _lastSampleMs;
+  int? _fixMarkMs;
   StepState _state = StepState.still;
   bool _announced = false;
 
@@ -141,6 +143,11 @@ class AdaptiveStepDetector implements StepDetector, StepTimeline {
       _pending.clear();
       _confirmed = true;
     }
+    if (next == StepState.otherMotion) {
+      // 박자 없는 흔들림(탈것 진동·폰 만지기)으로 판정된 동안 모인 후보는 걸음이 아니다. 남겨 두면 곧이어
+      // 걷기 시작할 때 소급 카운트에 섞여, 탈것 구간 안에 가짜 걸음이 최대 2N개 생긴다.
+      _pending.clear();
+    }
 
     if (next == null) {
       // 상태는 그대로 두되, 이 묶음에서 걸음 수가 늘었으면(공백 직전에 센 걸음) 그것은 알린다.
@@ -169,7 +176,12 @@ class AdaptiveStepDetector implements StepDetector, StepTimeline {
   StepUpdate? onOsStep(OsStepReading reading) => null;
 
   @override
-  void onFix() => _totalAtLastFix = _total;
+  void onFix() {
+    _totalAtLastFix = _total;
+    // 아직 확인을 기다리는 후보는 모두 이 측위보다 먼저 걸은 걸음이다. 나중에 소급해 셀 때 측위 이후 걸음에
+    // 넣지 않도록, 지금까지 본 마지막 표본 시각을 경계로 남긴다.
+    _fixMarkMs = _lastSampleMs;
+  }
 
   @override
   List<int> takeStepTimes() {
@@ -180,6 +192,7 @@ class AdaptiveStepDetector implements StepDetector, StepTimeline {
 
   void _addSample(GridSample sample) {
     if (sample.afterGap) _restart();
+    _lastSampleMs = sample.tMs;
     _shake.add(sample.magnitude);
     final low = _lowPass.filter(sample.magnitude, steadyOutput: sample.magnitude);
     final band = _highPass.filter(low, steadyOutput: 0);
@@ -209,6 +222,9 @@ class AdaptiveStepDetector implements StepDetector, StepTimeline {
   void _count(List<int> times) {
     _stepTimes.addAll(times);
     _total += times.length;
+    final mark = _fixMarkMs;
+    // 측위 경계 이전에 걸은 걸음(소급분)은 측위 이전 구간 몫이다 — 측위 이후 걸음 수에 넣지 않는다.
+    if (mark != null) _totalAtLastFix += times.where((t) => t <= mark).length;
   }
 
   /// 처음이나 기록 공백 뒤: 창·필터·후보를 비운다. 걸음 수와 마지막 걸음 시각은 이어 간다.
