@@ -60,6 +60,8 @@ class PolicyRecorder implements SessionRecorder {
 
   @override
   Future<void> start() async {
+    // 두 번 불러도 센서를 두 번 구독하지 않는다(실행기도 한 번만 시작한다).
+    if (_startedAt != null) return;
     _startedAt = clock();
     _runner.start();
     if (needs.accel) {
@@ -125,20 +127,28 @@ class PolicyRecorder implements SessionRecorder {
 
   @override
   Future<void> stop() async {
-    for (final subscription in _subscriptions) {
-      await subscription.cancel();
-    }
-    _subscriptions.clear();
-    final summary = await _runner.stop();
     try {
-      await files.summaryFile.writeAsString(
-        const JsonEncoder.withIndent('  ').convert(summary.toJson()),
-        flush: true,
-      );
-    } catch (e) {
-      _reportError('summary', e);
+      for (final subscription in _subscriptions) {
+        try {
+          await subscription.cancel();
+        } catch (e) {
+          // 센서 하나를 끊다 실패해도(플랫폼 채널) 요약을 쓰고 파일을 닫는다 — R6가 읽는 summary.json을 잃지 않게.
+          _reportError('stop', e);
+        }
+      }
+      _subscriptions.clear();
+      final summary = await _runner.stop();
+      try {
+        await files.summaryFile.writeAsString(
+          const JsonEncoder.withIndent('  ').convert(summary.toJson()),
+          flush: true,
+        );
+      } catch (e) {
+        _reportError('summary', e);
+      }
+    } finally {
+      await files.closeAll();
     }
-    await files.closeAll();
   }
 
   Future<void> _readBattery() async {

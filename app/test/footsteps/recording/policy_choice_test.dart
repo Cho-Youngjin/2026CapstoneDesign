@@ -16,6 +16,21 @@ void main() {
     expect(back, _choice);
     expect(back.hashCode, _choice.hashCode);
     expect(back == const PolicyChoice(policyId: 'step_budget', detectorId: 'adaptive'), isFalse);
+    // 파라미터 하나만 달라도 다른 선택이다(정책 파라미터·감지기 파라미터 각각).
+    const otherPolicyParams = PolicyChoice(
+      policyId: 'step_budget',
+      policyParams: {'e_m': '50'},
+      detectorId: 'adaptive',
+      detectorParams: {'n_confirm': '6'},
+    );
+    const otherDetectorParams = PolicyChoice(
+      policyId: 'step_budget',
+      policyParams: {'e_m': '25'},
+      detectorId: 'adaptive',
+      detectorParams: {'n_confirm': '5'},
+    );
+    expect(_choice == otherPolicyParams, isFalse);
+    expect(_choice == otherDetectorParams, isFalse);
   });
 
   test('걸음 정보를 쓰는 정책만 걸음 감지기의 센서를 켜고, 활동 인식은 activity_gated만 켠다', () {
