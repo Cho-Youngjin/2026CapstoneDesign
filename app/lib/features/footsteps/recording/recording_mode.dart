@@ -1,6 +1,7 @@
 /// 기록 서비스 모드. 한 번에 하나만 돈다(설계 4-1) — 두 모드를 같이 돌리면 배터리 측정이 오염된다.
-/// R4가 `policy`, R7이 `trip`을 더한다.
-enum RecordingMode { groundTruth }
+/// `groundTruth`는 모든 센서를 최대 빈도로 저장하고(R1), `policy`는 고른 정책 하나만 돌려 측위 결과와 배터리만
+/// 저장한다(R4, 배터리 실험). R7이 `trip`을 더한다.
+enum RecordingMode { groundTruth, policy }
 
 String _two(int n) => n.toString().padLeft(2, '0');
 

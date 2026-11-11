@@ -7,14 +7,14 @@ import 'package:device_probe/device_probe.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:path/path.dart' as p;
 
-import 'ground_truth_recorder.dart';
 import 'mark.dart';
-import 'plugin_sensor_sources.dart';
 import 'recording_config.dart';
 import 'recording_messages.dart';
-import 'session_files.dart';
 import 'session_marks.dart';
 import 'session_meta.dart';
+import 'session_recorder.dart';
+import 'session_recorder_factory.dart';
+import 'session_schema.dart';
 
 const placeButtonId = 'mark_place';
 const vehicleButtonId = 'mark_vehicle';
@@ -32,9 +32,10 @@ void recordingStartCallback() {
 }
 
 /// 기록 서비스 본체. 화면과 다른 isolate에서 돌므로 Riverpod 등 화면 쪽 상태를 쓰지 않는다.
-/// R1은 정답 기록 모드만 있다. R4·R7이 [RecordingConfig.mode]로 갈라 다른 기록기를 붙인다.
+/// [RecordingConfig.mode]에 맞는 기록기(정답 기록·정책 실행)를 붙이고, 모드와 상관없는 일(meta.json, 알림 버튼,
+/// 5초 tick, 화면 상태 전달)만 맡는다.
 class RecordingTaskHandler extends TaskHandler {
-  GroundTruthRecorder? _recorder;
+  SessionRecorder? _recorder;
   SessionMetaStore? _metaStore;
   SessionMeta? _meta;
 
@@ -55,23 +56,18 @@ class RecordingTaskHandler extends TaskHandler {
       final sessionDir = Directory(config.sessionDir);
       // 열기 전에 읽는다. 시스템이 서비스를 다시 띄운 경우 marks.csv에 이전 표시가 남아 있다.
       final previousMarks = await readSessionMarks(sessionDir);
-      final files = await SessionFiles.open(sessionDir);
-      _metaStore = files.meta;
-      _meta = await files.meta.read() ?? await _newMeta(config);
+      final metaStore = SessionMetaStore(File(p.join(sessionDir.path, SessionSchema.metaFile)));
+      _metaStore = metaStore;
+      _meta = await metaStore.read() ?? await _newMeta(config);
       if (starter == TaskStarter.system) {
         // 시스템이 서비스를 죽였다 다시 띄웠다. 같은 세션 폴더에 이어 쓰되, 공백 구간을 분석에서 알 수 있게 남긴다.
         _meta = _meta!.withError(
           SessionError(at: _now(), source: 'service', message: 'restarted by system'),
         );
       }
-      await files.meta.write(_meta!);
+      await metaStore.write(_meta!);
 
-      final recorder = GroundTruthRecorder(
-        sources: PluginSensorSources(),
-        files: files,
-        clock: _now,
-        onError: _addError,
-      );
+      final recorder = await openSessionRecorder(config, sessionDir, clock: _now, onError: _addError);
       _recorder = recorder;
       // 새 기록기의 토글 상태는 비어 있다. 이어 쓰는 세션이면 이미 남은 표시를 다시 흘려 넣어(marks.csv에는
       // 다시 쓰지 않는다) 도착/출발·탑승/하차 버튼과 휴대 위치가 끊기기 전 상태에서 이어지게 한다.
@@ -125,6 +121,7 @@ class RecordingTaskHandler extends TaskHandler {
       startedAt: _now(),
       carryInitial: config.carryInitial,
       note: config.note,
+      policy: config.policy,
     );
   }
 
@@ -145,7 +142,7 @@ class RecordingTaskHandler extends TaskHandler {
     unawaited(_tickAndReport(recorder));
   }
 
-  Future<void> _tickAndReport(GroundTruthRecorder recorder) async {
+  Future<void> _tickAndReport(SessionRecorder recorder) async {
     // tick을 기다리지 않고 부르므로, 실패하면 오류가 잡히지 않은 채 서비스 isolate 밖으로 샌다.
     // 세션 오류로 남기고, 화면 상태는 tick 성공 여부와 상관없이 계속 보낸다.
     try {
