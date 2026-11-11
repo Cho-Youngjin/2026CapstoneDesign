@@ -43,7 +43,8 @@ public interface OsrmClient {
 
     /**
      * 점마다 GPS 표준편차(radiuses, m)와 시각(timestamps, 초)을 함께 넘기는 Map Matching. 둘 다 points와 길이가
-     * 같아야 하고, null이면 그 옵션을 보내지 않는다(OSRM 기본 반경 5m). 실패하면 빈 리스트.
+     * 같아야 하고, null이면 그 옵션을 보내지 않는다(OSRM 기본 반경 5m). 시각은 앞 점보다 커야 한다 — OSRM은
+     * 늘어나는 시각만 받는다. 실패하면(잘못된 반경 포함) 빈 리스트.
      */
     default List<GeoPoint> match(String country, List<GeoPoint> points, List<Double> radiuses, List<Long> timestamps) {
         return List.of();

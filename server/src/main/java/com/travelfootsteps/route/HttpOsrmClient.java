@@ -106,6 +106,10 @@ public class HttpOsrmClient implements OsrmClient {
                 || (timestamps != null && timestamps.size() != points.size())) {
             return List.of();
         }
+        // 반경에 null·NaN·무한대가 섞이면 URL을 만들다 예외가 난다. 인터페이스 약속대로 예외 대신 빈 결과로 끝낸다.
+        if (radiuses != null && radiuses.stream().anyMatch(r -> r == null || !Double.isFinite(r) || r < 0)) {
+            return List.of();
+        }
 
         List<GeoPoint> out = new ArrayList<>();
         // 구간 경계에서 선이 끊기지 않게 좌표 1점을 겹쳐서 자른다(그래서 step은 한계 - 1).
@@ -182,6 +186,10 @@ public class HttpOsrmClient implements OsrmClient {
         if (timestamps != null) {
             url.append("&timestamps=").append(timestamps.stream().map(String::valueOf)
                     .collect(Collectors.joining(";")));
+            // 시각을 주면 OSRM은 기본값(gaps=split)으로 시각이 크게 벌어진 곳에서 궤적을 쪼갠다. 드문 측위(수십 초~
+            // 몇 분 간격)는 자주 쪼개져 점 하나짜리 조각이 버려지고 경로가 끊긴다. 10분 넘는 공백은 복원 서비스가 이미
+            // 따로 잘라 넘기므로(estimated), 여기서는 한 궤적으로 맞추게 한다.
+            url.append("&gaps=ignore");
         }
         JsonNode data = get(url.toString());
         if (data == null || !"Ok".equals(data.path("code").asText())) return List.of();

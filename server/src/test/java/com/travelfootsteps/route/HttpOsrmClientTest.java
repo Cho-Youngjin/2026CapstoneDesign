@@ -182,7 +182,7 @@ class HttpOsrmClientTest {
 
     @Test
     void match에_점마다_반경과_시각을_넘기면_radiuses와_timestamps로_보낸다() {
-        server.expect(requestTo(containsString("radiuses=5;12.5;50&timestamps=100;160;220")))
+        server.expect(requestTo(containsString("radiuses=5;12.5;50&timestamps=100;160;220&gaps=ignore")))
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withSuccess("""
                         {"code":"Ok","matchings":[{"geometry":{"coordinates":[[139.0,35.0],[139.1,35.1]]}}]}
@@ -217,6 +217,57 @@ class HttpOsrmClientTest {
 
         assertThat(client.match("JP", two, List.of(5.0), null)).isEmpty();
         assertThat(client.match("JP", two, null, List.of(1L, 2L, 3L))).isEmpty();
+        server.verify();
+    }
+
+    @Test
+    void match에_반경이_null이나_NaN이면_예외_없이_호출하지_않고_빈_결과다() {
+        List<GeoPoint> two = List.of(new GeoPoint(35.0, 139.0), new GeoPoint(35.1, 139.1));
+        List<Double> withNull = new ArrayList<>();
+        withNull.add(5.0);
+        withNull.add(null);
+
+        assertThat(client.match("JP", two, withNull, null)).isEmpty();
+        assertThat(client.match("JP", two, List.of(5.0, Double.NaN), null)).isEmpty();
+        server.verify();
+    }
+
+    @Test
+    void match는_궤적을_나눠_보낼_때_반경과_시각도_같은_경계로_자른다() {
+        // 150점: 첫 구간은 0~99번, 둘째 구간은 99~149번(1점 겹침). 반경·시각이 점과 어긋나면 둘째 구간이 99번이
+        // 아닌 값으로 시작한다.
+        List<GeoPoint> trace = new ArrayList<>();
+        List<Double> radiuses = new ArrayList<>();
+        List<Long> timestamps = new ArrayList<>();
+        for (int i = 0; i < 150; i++) {
+            trace.add(new GeoPoint(35.0 + i * 0.0001, 139.0 + i * 0.0001));
+            radiuses.add(5.0 + i);
+            timestamps.add(1000L + i);
+        }
+        String ok = """
+                {"code":"Ok","matchings":[{"geometry":{"coordinates":[[139.0,35.0],[139.1,35.1]]}}]}
+                """;
+        server.expect(requestTo(containsString("radiuses=5;6;7;")))
+                .andExpect(requestTo(containsString("timestamps=1000;1001;")))
+                .andRespond(withSuccess(ok, MediaType.APPLICATION_JSON));
+        server.expect(requestTo(containsString("radiuses=104;105;")))
+                .andExpect(requestTo(containsString("timestamps=1099;1100;")))
+                .andRespond(withSuccess(ok, MediaType.APPLICATION_JSON));
+
+        List<GeoPoint> matched = client.match("JP", trace, radiuses, timestamps);
+
+        server.verify();
+        assertThat(matched).hasSize(3);
+    }
+
+    @Test
+    void nearestCandidates는_OSRM이_실패하거나_number가_1보다_작으면_빈_결과다() {
+        server.expect(requestTo(startsWith("http://jp.osrm:5002/nearest/v1/foot/")))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"code\":\"NoSegment\"}"));
+
+        assertThat(client.nearestCandidates("JP", new GeoPoint(35.0, 139.0), 5, 200)).isEmpty();
+        assertThat(client.nearestCandidates("JP", new GeoPoint(35.0, 139.0), 0, 200)).isEmpty();
         server.verify();
     }
 
