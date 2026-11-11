@@ -56,7 +56,7 @@
 | `step_budget` | os | — | 18 | 8초 |
 | `step_budget` | adaptive | — | 16 | 9초 |
 | `step_budget` | brajdic | — | 17 | 10초 |
-| `step_budget` | adaptive | `e_m=25` | 35 | 23초 |
+| `step_budget` | adaptive | `e_m=25` | 35 | 24초 |
 | `step_budget` | adaptive | `e_m=100` | 9 | 5초 |
 | `step_budget` | adaptive | `use_steps=false` | 20 | 10초 |
 | `step_budget` | adaptive | `suppress_still=false` | 29 | 25초 |
@@ -66,6 +66,13 @@
 - 처음에는 정지·기타 움직임이 시작되자마자 쟀다.
 - 그런데 제안판 감지기는 폰을 만지는 동안 상태가 몇 초 단위로 바뀐다. 그래서 첫 1분에만 15번을 쟀고, 전체는 42회였다.
 - 30초 유지 조건을 넣자 16회가 되었고, E를 25·50·100m로 바꾸면 35·16·9회로 단조롭게 바뀐다.
+
+**Task 2 검토 뒤 고친 규칙 (2026-11-11, 사용자 결정).** 계획 첫판의 `step_budget`에서 검토가 찾은 문제를 고쳤다. 위 표는 고친 코드로 다시 잰 값이다. 바뀐 칸은 `e_m=25`의 GPS 켜짐(23초 → 24초)뿐이다.
+- 보행에도 마지막 측위 뒤 최소 5초를 둔다. 오차만으로 E를 넘는 곳(빌딩 숲·실내)에서 걸음 사건(약 1초)마다 다시 재면 연속 측위와 같아진다. time_speed와 같은 규칙이다.
+- 탈것에서 `still` 한 번으로 탈것 상태를 잃지 않는다. 감지기 정지가 30초 넘게 이어지고, 직전 탈것 측위와 두 오차 안(그 자리)일 때만 정지로 바꾼다. 빨간불은 탈것 그대로다.
+- `suppress_still=false`를 정지와, 정지처럼 다루는 기타 움직임(느린 확인 측위 뒤, `vehicle_probe=false`) 모두에 적용한다. 그래야 정지 억제의 효과를 온전히 잰다.
+- 확인 측위 두 위치는 예산과 두 오차의 합보다 멀어야 움직인 것으로 본다. 각 60m 오차의 두 위치가 30초에 100m 떨어져 보여도 탈것이 아니다.
+- 멈춤·폭주를 막는 장치(상태가 바뀌면 까닭 초기화, 실패 뒤 까닭 유지, 막힌 요청의 까닭 기억, 정지 억제 끄기의 다시 예약)마다 지우면 실패하는 테스트를 더했다.
 
 ## Global Constraints
 
@@ -85,6 +92,10 @@
     - 대기 5초~10분
     - 실패 재시도 30초 → 1분 → 2분 → 5분
     - 배터리 20% 미만이면 E×2
+    - 보행도 마지막 측위 뒤 최소 5초
+    - 탈것 → 정지: 감지기 정지 30초 이상 + 직전 탈것 측위와 두 오차 안일 때만(신호 대기는 탈것 유지)
+    - 확인 측위 두 위치는 예산과 두 오차의 합보다 멀어야 움직인 것
+    - `suppress_still=false`는 정지와 정지처럼 다루는 기타 움직임 모두에 적용
 - `still_suppress`(Zhuang) 값은 다음과 같다.
   - 확인 주기 `interval_s`는 60이다.
   - 직전·이번 확인이 모두 정지여야 건너뛴다.
@@ -389,7 +400,7 @@ import 'package:test/test.dart';
 StepUpdate step(int tMs, StepState state, [int steps = 0]) =>
     StepUpdate(tMs: tMs, state: state, totalSteps: steps, stepsSinceLastFix: steps);
 
-/// 기준 위치(북위 37.5°)에서 [dLat]도 북쪽. 0.003°는 약 334m다.
+/// 기준 위치(북위 37.5°)에서 [dLat]도 북쪽. 0.001°는 약 111m, 0.003°는 약 334m다.
 Fix fixAt(int tMs, {double dLat = 0, double accuracyM = 5}) =>
     Fix(tMs: tMs, lat: 37.5 + dLat, lng: 127.0, accuracyM: accuracyM);
 
@@ -408,6 +419,19 @@ Wakeup wake(int tMs, String tag) => Wakeup(tMs: tMs, tag: tag);
   final f0 = fixAt(1000);
   p.onEvent(ok(f0), at(1000, f0));
   return (p, f0);
+}
+
+/// 기타 움직임의 확인 측위로 탈것이 된 정책과 마지막 탈것 측위(64초). 다음 깨우기는 69초의 `vehicle#3`이다.
+(StepBudgetPolicy, Fix) inVehicle() {
+  final (p, f0) = started();
+  p.onEvent(step(2000, StepState.otherMotion), at(2000, f0));
+  p.onEvent(wake(32000, 'probe1#1'), at(32000, f0));
+  final probe1 = fixAt(33000);
+  p.onEvent(ok(probe1), at(33000, probe1));
+  p.onEvent(wake(63000, 'probe2#2'), at(63000, probe1));
+  final probe2 = fixAt(64000, dLat: 0.003);
+  p.onEvent(ok(probe2), at(64000, probe2));
+  return (p, probe2);
 }
 
 void main() {
@@ -442,27 +466,38 @@ void main() {
       expect(p.onEvent(step(34000, StepState.walking, 1), at(34000, f1)), isEmpty);
     });
 
-    test('배터리가 20% 미만이면 E를 2배로 보고, 다시 오르면 되돌린다', () {
+    test('측위 오차만으로 E를 넘어도(빌딩 숲) 마지막 측위 뒤 5초 안에는 다시 재지 않는다', () {
+      final p = StepBudgetPolicy();
+      p.onStart(at(0));
+      final f0 = fixAt(1000, accuracyM: 60);
+      p.onEvent(ok(f0), at(1000, f0));
+
+      expect(p.onEvent(step(2000, StepState.walking, 1), at(2000, f0)), isEmpty);
+      expect(p.onEvent(step(5999, StepState.walking, 6), at(5999, f0)), isEmpty);
+      expect(p.onEvent(step(6000, StepState.walking, 7), at(6000, f0)), [const RequestFix()]);
+    });
+
+    test('배터리가 20% 미만이면 E를 2배로 보고, 20% 이상이 되면 되돌린다', () {
       final (p, f0) = started();
       p.onEvent(step(2000, StepState.walking), at(2000, f0));
       p.onEvent(const BatteryLevel(tMs: 2500, pct: 19), at(2500, f0));
 
       // 5 + 126 × 0.75 = 99.5 ≤ 100
-      expect(p.onEvent(step(3000, StepState.walking, 126), at(3000, f0)), isEmpty);
+      expect(p.onEvent(step(7000, StepState.walking, 126), at(7000, f0)), isEmpty);
       // 5 + 127 × 0.75 = 100.25 > 100
-      expect(p.onEvent(step(4000, StepState.walking, 127), at(4000, f0)), [const RequestFix()]);
+      expect(p.onEvent(step(8000, StepState.walking, 127), at(8000, f0)), [const RequestFix()]);
 
-      final f1 = fixAt(5000);
-      p.onEvent(ok(f1), at(5000, f1));
-      p.onEvent(const BatteryLevel(tMs: 5500, pct: 50), at(5500, f1));
-      expect(p.onEvent(step(6000, StepState.walking, 61), at(6000, f1)), [const RequestFix()]);
+      final f1 = fixAt(9000);
+      p.onEvent(ok(f1), at(9000, f1));
+      p.onEvent(const BatteryLevel(tMs: 9500, pct: 20), at(9500, f1));
+      // 5 + 61 × 0.75 = 50.75 > 50
+      expect(p.onEvent(step(15000, StepState.walking, 61), at(15000, f1)), [const RequestFix()]);
     });
 
     test('걸음 수를 쓰지 않으면(절제) 걷기 속도 1.4m/s로 짐작해 오차가 E를 넘는 시각에 잰다', () {
       final (p, f0) = started(StepBudgetPolicy(useSteps: false));
       // (50 − 5) / 1.4 = 32.143초. 걸음 수는 보지 않는다.
-      expect(p.onEvent(step(2000, StepState.walking, 999), at(2000, f0)),
-          [const WakeAt(tMs: 33143, tag: 'budget#1')]);
+      expect(p.onEvent(step(2000, StepState.walking, 999), at(2000, f0)), [const WakeAt(tMs: 33143, tag: 'budget#1')]);
       expect(p.onEvent(wake(33143, 'budget#1'), at(33143, f0)), [const RequestFix()]);
 
       final f1 = fixAt(34000);
@@ -473,8 +508,7 @@ void main() {
   group('정지', () {
     test('정지가 30초 이어지면 한 번 재어 머문 곳을 남기고, 그 뒤로는 5분마다 확인만 한다', () {
       final (p, f0) = started();
-      expect(p.onEvent(step(2000, StepState.still), at(2000, f0)),
-          [const WakeAt(tMs: 32000, tag: 'stay#1')]);
+      expect(p.onEvent(step(2000, StepState.still), at(2000, f0)), [const WakeAt(tMs: 32000, tag: 'stay#1')]);
       expect(p.stateLabel, 'still');
       expect(p.onEvent(wake(32000, 'stay#1'), at(32000, f0)), [const RequestFix()]);
 
@@ -510,8 +544,11 @@ void main() {
 
     test('정지 억제를 끄면(절제) 정지해도 걷기 속도로 짐작해 계속 잰다', () {
       final (p, f0) = started(StepBudgetPolicy(suppressStill: false));
-      expect(p.onEvent(step(2000, StepState.still), at(2000, f0)),
-          [const WakeAt(tMs: 33143, tag: 'budget#1')]);
+      expect(p.onEvent(step(2000, StepState.still), at(2000, f0)), [const WakeAt(tMs: 33143, tag: 'budget#1')]);
+      expect(p.onEvent(wake(33143, 'budget#1'), at(33143, f0)), [const RequestFix()]);
+
+      final f1 = fixAt(34000);
+      expect(p.onEvent(ok(f1), at(34000, f1)), [const WakeAt(tMs: 66143, tag: 'budget#2')]);
     });
 
     test('상태가 바뀌면 앞 상태에서 예약한 깨우기는 무시한다', () {
@@ -529,8 +566,7 @@ void main() {
   group('기타 움직임과 탈것', () {
     test('30초 이어지면 30초 간격 확인 측위 두 번의 속도를 보고, 시속 12km 이상이면 탈것이며 탈것 진동은 다시 확인하지 않는다', () {
       final (p, f0) = started();
-      expect(p.onEvent(step(2000, StepState.otherMotion), at(2000, f0)),
-          [const WakeAt(tMs: 32000, tag: 'probe1#1')]);
+      expect(p.onEvent(step(2000, StepState.otherMotion), at(2000, f0)), [const WakeAt(tMs: 32000, tag: 'probe1#1')]);
       expect(p.stateLabel, 'otherMotion');
       expect(p.onEvent(wake(32000, 'probe1#1'), at(32000, f0)), [const RequestFix()]);
 
@@ -569,54 +605,185 @@ void main() {
       expect(p.stateLabel, 'otherMotion');
     });
 
+    test('확인 측위 두 위치가 서로의 오차 안이면 빨라 보여도 탈것으로 보지 않는다', () {
+      final (p, f0) = started();
+      p.onEvent(step(2000, StepState.otherMotion), at(2000, f0));
+      p.onEvent(wake(32000, 'probe1#1'), at(32000, f0));
+      final probe1 = fixAt(33000, accuracyM: 60);
+      p.onEvent(ok(probe1), at(33000, probe1));
+      p.onEvent(wake(63000, 'probe2#2'), at(63000, probe1));
+
+      // 약 111m / 31초 ≈ 3.6m/s로 시속 12km를 넘지만, 두 오차의 합(120m) 안이다.
+      final probe2 = fixAt(64000, dLat: 0.001, accuracyM: 60);
+      expect(p.onEvent(ok(probe2), at(64000, probe2)), [const WakeAt(tMs: 364000, tag: 'check#3')]);
+      expect(p.stateLabel, 'otherMotion');
+    });
+
     test('탈것 확인을 끄면(절제) 기타 움직임을 정지처럼 다룬다', () {
       final (p, f0) = started(StepBudgetPolicy(vehicleProbe: false));
-      expect(p.onEvent(step(2000, StepState.otherMotion), at(2000, f0)),
-          [const WakeAt(tMs: 32000, tag: 'stay#1')]);
+      expect(p.onEvent(step(2000, StepState.otherMotion), at(2000, f0)), [const WakeAt(tMs: 32000, tag: 'stay#1')]);
       expect(p.onEvent(wake(32000, 'stay#1'), at(32000, f0)), [const RequestFix()]);
       final stay = fixAt(33000);
       expect(p.onEvent(ok(stay), at(33000, stay)), [const WakeAt(tMs: 333000, tag: 'check#2')]);
       expect(p.stateLabel, 'otherMotion');
     });
+
+    test('정지 억제를 끄면(절제) 정지처럼 다루는 기타 움직임도 걷기 속도로 짐작해 계속 잰다', () {
+      final (p, f0) = started(StepBudgetPolicy(suppressStill: false, vehicleProbe: false));
+      expect(p.onEvent(step(2000, StepState.otherMotion), at(2000, f0)), [const WakeAt(tMs: 33143, tag: 'budget#1')]);
+      expect(p.onEvent(wake(33143, 'budget#1'), at(33143, f0)), [const RequestFix()]);
+      final f1 = fixAt(34000);
+      expect(p.onEvent(ok(f1), at(34000, f1)), [const WakeAt(tMs: 66143, tag: 'budget#2')]);
+    });
+
+    test('정지 억제를 끄면(절제) 느린 확인 측위 뒤에도 5분 확인 대신 계속 잰다', () {
+      final (p, f0) = started(StepBudgetPolicy(suppressStill: false));
+      p.onEvent(step(2000, StepState.otherMotion), at(2000, f0));
+      p.onEvent(wake(32000, 'probe1#1'), at(32000, f0));
+      final probe1 = fixAt(33000);
+      p.onEvent(ok(probe1), at(33000, probe1));
+      p.onEvent(wake(63000, 'probe2#2'), at(63000, probe1));
+
+      final probe2 = fixAt(64000);
+      // (50 − 5) / 1.4 = 32.143초 뒤
+      expect(p.onEvent(ok(probe2), at(64000, probe2)), [const WakeAt(tMs: 96143, tag: 'budget#3')]);
+      expect(p.onEvent(wake(96143, 'budget#3'), at(96143, probe2)), [const RequestFix()]);
+      final f2 = fixAt(97000);
+      expect(p.onEvent(ok(f2), at(97000, f2)), [const WakeAt(tMs: 129143, tag: 'budget#4')]);
+    });
+
+    test('정지 억제를 꺼도, 기타 움직임 전에 낸 요청의 응답이 확인 측위 예약을 덮어쓰지 않는다', () {
+      final (p, f0) = started(StepBudgetPolicy(suppressStill: false));
+      p.onEvent(step(2000, StepState.walking), at(2000, f0));
+      expect(p.onEvent(step(40000, StepState.walking, 61), at(40000, f0)), [const RequestFix()]);
+      expect(p.onEvent(step(41000, StepState.otherMotion), at(41000, f0)), [const WakeAt(tMs: 71000, tag: 'probe1#1')]);
+
+      final f1 = fixAt(42000);
+      expect(p.onEvent(ok(f1), at(42000, f1)), isEmpty);
+      expect(p.onEvent(wake(71000, 'probe1#1'), at(71000, f1)), [const RequestFix()]);
+    });
+
+    test('탈것에서 잠깐 정지(신호 대기)는 탈것 그대로다', () {
+      final (p, v) = inVehicle();
+      expect(p.onEvent(step(66000, StepState.still), at(66000, v)), isEmpty);
+      expect(p.stateLabel, 'vehicle');
+
+      expect(p.onEvent(wake(69000, 'vehicle#3'), at(69000, v)), [const RequestFix()]);
+      final v1 = fixAt(70000, dLat: 0.003); // 그 자리지만 정지 4초째
+      expect(p.onEvent(ok(v1), at(70000, v1)), [const WakeAt(tMs: 83500, tag: 'vehicle#4')]);
+      expect(p.stateLabel, 'vehicle');
+    });
+
+    test('탈것에서 정지가 30초 넘게 이어지고 측위로도 그 자리면 정지로 바꿔 5분마다 확인한다', () {
+      final (p, v) = inVehicle();
+      p.onEvent(step(66000, StepState.still), at(66000, v));
+      p.onEvent(wake(69000, 'vehicle#3'), at(69000, v));
+      final v1 = fixAt(70000, dLat: 0.003);
+      p.onEvent(ok(v1), at(70000, v1));
+      p.onEvent(wake(83500, 'vehicle#4'), at(83500, v1));
+
+      final v2 = fixAt(84500, dLat: 0.003); // 정지 18.5초: 아직 탈것
+      expect(p.onEvent(ok(v2), at(84500, v2)), [const WakeAt(tMs: 98000, tag: 'vehicle#5')]);
+      expect(p.onEvent(wake(98000, 'vehicle#5'), at(98000, v2)), [const RequestFix()]);
+
+      final v3 = fixAt(99000, dLat: 0.003); // 정지 33초, 그 자리
+      expect(p.onEvent(ok(v3), at(99000, v3)), [const WakeAt(tMs: 399000, tag: 'check#6')]);
+      expect(p.stateLabel, 'still');
+    });
+
+    test('탈것에서 감지기가 30초 넘게 정지여도 측위가 움직였으면(기어가는 버스) 탈것 그대로다', () {
+      final (p, v) = inVehicle();
+      p.onEvent(step(66000, StepState.still), at(66000, v));
+      p.onEvent(wake(69000, 'vehicle#3'), at(69000, v));
+      final v1 = fixAt(70000, dLat: 0.003);
+      p.onEvent(ok(v1), at(70000, v1));
+      p.onEvent(wake(83500, 'vehicle#4'), at(83500, v1));
+      final v2 = fixAt(84500, dLat: 0.003);
+      p.onEvent(ok(v2), at(84500, v2));
+      p.onEvent(wake(98000, 'vehicle#5'), at(98000, v2));
+
+      // 정지 33초지만 14.5초 동안 약 33m(시속 8km): 두 오차의 합(10m)보다 멀다.
+      final v3 = fixAt(99000, dLat: 0.003 + 0.0003);
+      // 속도 33.4m / 14.5초 = 2.3m/s → 하한 3.333m/s: (50 − 5) / 3.333 = 13.5초 뒤
+      expect(p.onEvent(ok(v3), at(99000, v3)), [const WakeAt(tMs: 112500, tag: 'vehicle#6')]);
+      expect(p.stateLabel, 'vehicle');
+    });
   });
 
-  test('측위가 거듭 실패하면 30초 → 1분 → 2분 → 5분(최대)으로 늘리고, 그 사이에는 걸음이 넘쳐도 요청하지 않는다', () {
-    final p = StepBudgetPolicy();
-    p.onStart(at(0));
-    expect(p.onEvent(failed(15000), at(15000)), [const WakeAt(tMs: 45000, tag: 'retry#1')]);
-    expect(p.onEvent(step(20000, StepState.walking, 100), at(20000)), isEmpty);
+  group('멈춤·폭주 방지', () {
+    test('탈것 측위를 기다리는 중에 걷기 시작하면 그 응답으로 탈것 예약을 다시 걸지 않는다', () {
+      final (p, v) = inVehicle();
+      expect(p.onEvent(wake(69000, 'vehicle#3'), at(69000, v)), [const RequestFix()]);
+      p.onEvent(step(69500, StepState.walking), at(69500, v));
 
-    var now = 45000;
-    var seq = 1;
-    for (final delay in [60000, 120000, 300000, 300000]) {
+      final f = fixAt(70000, dLat: 0.003);
+      expect(p.onEvent(ok(f), at(70000, f)), isEmpty);
+      expect(p.stateLabel, 'walking');
+    });
+
+    test('확인 측위가 실패하면 다시 시도한 응답도 확인 측위로 다룬다', () {
+      final (p, f0) = started();
+      p.onEvent(step(2000, StepState.still), at(2000, f0));
+      p.onEvent(wake(32000, 'stay#1'), at(32000, f0));
+      final stay = fixAt(33000);
+      p.onEvent(ok(stay), at(33000, stay));
+
+      expect(p.onEvent(wake(333000, 'check#2'), at(333000, stay)), [const RequestFix()]);
+      expect(p.onEvent(failed(348000), at(348000, stay)), [const WakeAt(tMs: 378000, tag: 'retry#3')]);
+      expect(p.onEvent(wake(378000, 'retry#3'), at(378000, stay)), [const RequestFix()]);
+      final same = fixAt(379000);
+      expect(p.onEvent(ok(same), at(379000, same)), [const WakeAt(tMs: 679000, tag: 'check#4')]);
+    });
+
+    test('실패 뒤 기다리는 동안 머문 곳 측위 시각이 와도 잃지 않고, 다시 시도할 때 잰다', () {
+      final p = StepBudgetPolicy();
+      p.onStart(at(0));
+      expect(p.onEvent(step(5000, StepState.still), at(5000)), [const WakeAt(tMs: 35000, tag: 'stay#1')]);
+      expect(p.onEvent(failed(15000), at(15000)), [const WakeAt(tMs: 45000, tag: 'retry#2')]);
+      expect(p.onEvent(wake(35000, 'stay#1'), at(35000)), isEmpty);
+
+      expect(p.onEvent(wake(45000, 'retry#2'), at(45000)), [const RequestFix()]);
+      final stay = fixAt(46000);
+      expect(p.onEvent(ok(stay), at(46000, stay)), [const WakeAt(tMs: 346000, tag: 'check#3')]);
+    });
+
+    test('측위가 거듭 실패하면 30초 → 1분 → 2분 → 5분(최대)으로 늘리고, 그 사이에는 걸음이 넘쳐도 요청하지 않는다', () {
+      final p = StepBudgetPolicy();
+      p.onStart(at(0));
+      expect(p.onEvent(failed(15000), at(15000)), [const WakeAt(tMs: 45000, tag: 'retry#1')]);
+      expect(p.onEvent(step(20000, StepState.walking, 100), at(20000)), isEmpty);
+
+      var now = 45000;
+      var seq = 1;
+      for (final delay in [60000, 120000, 300000, 300000]) {
+        expect(p.onEvent(wake(now, 'retry#$seq'), at(now)), [const RequestFix()]);
+        final failAt = now + 15000;
+        seq++;
+        expect(p.onEvent(failed(failAt), at(failAt)), [WakeAt(tMs: failAt + delay, tag: 'retry#$seq')]);
+        now = failAt + delay;
+      }
+
+      // 성공하면 다시 30초부터다.
       expect(p.onEvent(wake(now, 'retry#$seq'), at(now)), [const RequestFix()]);
-      final failAt = now + 15000;
+      final fix = fixAt(now + 5000);
+      expect(p.onEvent(ok(fix), at(now + 5000, fix)), isEmpty);
+      expect(p.onEvent(step(now + 11000, StepState.walking, 100), at(now + 11000, fix)), [const RequestFix()]);
       seq++;
-      expect(p.onEvent(failed(failAt), at(failAt)), [WakeAt(tMs: failAt + delay, tag: 'retry#$seq')]);
-      now = failAt + delay;
-    }
+      expect(p.onEvent(failed(now + 26000), at(now + 26000)), [WakeAt(tMs: now + 56000, tag: 'retry#$seq')]);
+    });
 
-    // 성공하면 다시 30초부터다.
-    expect(p.onEvent(wake(now, 'retry#$seq'), at(now)), [const RequestFix()]);
-    final fix = fixAt(now + 5000);
-    expect(p.onEvent(ok(fix), at(now + 5000, fix)), isEmpty);
-    expect(p.onEvent(step(now + 6000, StepState.walking, 100), at(now + 6000, fix)), [const RequestFix()]);
-    seq++;
-    expect(p.onEvent(failed(now + 21000), at(now + 21000)),
-        [WakeAt(tMs: now + 51000, tag: 'retry#$seq')]);
-  });
+    test('onStart는 이전 실행의 상태를 지운다', () {
+      final (p, f0) = started();
+      p.onEvent(step(2000, StepState.still), at(2000, f0));
+      p.onEvent(const BatteryLevel(tMs: 2500, pct: 10), at(2500, f0));
 
-  test('onStart는 이전 실행의 상태를 지운다', () {
-    final (p, f0) = started();
-    p.onEvent(step(2000, StepState.still), at(2000, f0));
-    p.onEvent(const BatteryLevel(tMs: 2500, pct: 10), at(2500, f0));
-
-    expect(p.onStart(at(0)), [const RequestFix()]);
-    expect(p.stateLabel, 'unknown');
-    final f1 = fixAt(1000);
-    p.onEvent(ok(f1), at(1000, f1));
-    p.onEvent(step(2000, StepState.walking), at(2000, f1));
-    expect(p.onEvent(step(3000, StepState.walking, 61), at(3000, f1)), [const RequestFix()]);
+      expect(p.onStart(at(0)), [const RequestFix()]);
+      expect(p.stateLabel, 'unknown');
+      final f1 = fixAt(1000);
+      p.onEvent(ok(f1), at(1000, f1));
+      p.onEvent(step(2000, StepState.walking), at(2000, f1));
+      expect(p.onEvent(step(7000, StepState.walking, 61), at(7000, f1)), [const RequestFix()]);
+    });
   });
 }
 ```
@@ -637,6 +804,13 @@ void main() {
       'e_m': 25.0,
       'stride_m': 0.75,
       'use_steps': false,
+      'suppress_still': true,
+      'vehicle_probe': false,
+    });
+    expect(createPolicy('step_budget', {'use_steps': 'true', 'suppress_still': '1', 'vehicle_probe': 'false'}).params, {
+      'e_m': 50.0,
+      'stride_m': 0.75,
+      'use_steps': true,
       'suppress_still': true,
       'vehicle_probe': false,
     });
@@ -724,11 +898,13 @@ enum _Purpose { start, budget, stay, check, probe1, probe2, vehicle }
 
 /// 제안 수집 정책(설계 5-3). 오차 예산 E 안에서 GPS를 가장 적게 켜도록, 실제로 움직인 만큼만 잰다.
 /// - 보행: '마지막 측위 오차 + 그 뒤 걸음 수 × 보폭'이 E를 넘으면 잰다(time_speed는 시간 × 속도로 짐작한다).
+///   마지막 측위 뒤 5초 안에는 다시 재지 않는다.
 /// - 정지: 정지가 30초 이어지면 한 번 재어 머문 곳을 남기고, 그 뒤로는 5분마다 확인만 한다. 확인한 위치가 머문
 ///   곳에서 벗어났으면 걸음 없이 움직이는 것(버스·지하철)으로 보고 탈것 상태로 바꾼다.
-/// - 기타 움직임: 30초 이어지면 30초 간격 확인 측위 두 번으로 속도를 보고, 시속 12km 이상이면 탈것이다.
-///   아니면 정지처럼 다룬다.
+/// - 기타 움직임: 30초 이어지면 30초 간격 확인 측위 두 번으로 속도를 보고, 두 위치가 오차보다 멀고 시속 12km
+///   이상이면 탈것이다. 아니면 정지처럼 다룬다.
 /// - 탈것: time_speed 규칙('오차 + 속도 × 경과 시간 > E'가 되는 시각에 잰다)으로 잰다. 걸음이 다시 나오면 보행이다.
+///   정지는 30초 넘게 이어지고 측위로도 움직이지 않았을 때만 정지로 본다(신호 대기는 탈것 그대로).
 /// - 측위가 거듭 실패하면(지하철·실내) 다시 시도하는 간격을 30초 → 1분 → 2분 → 5분으로 늘린다.
 /// - 배터리가 20% 미만이면 E를 2배로 키운다.
 class StepBudgetPolicy implements CollectionPolicy, ReportsState {
@@ -749,7 +925,8 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   /// 절제 실험 스위치. false면 걸음 수 대신 '경과 시간 × 1.4m/s'로 움직인 거리를 짐작한다.
   final bool useSteps;
 
-  /// 절제 실험 스위치. false면 정지해도 측위를 줄이지 않는다(걷기 속도로 움직인다고 보고 계속 잰다).
+  /// 절제 실험 스위치. false면 정지해도, 정지처럼 다루는 기타 움직임에서도 측위를 줄이지 않는다(걷기 속도로
+  /// 움직인다고 보고 계속 잰다).
   final bool suppressStill;
 
   /// 절제 실험 스위치. false면 기타 움직임에서 탈것 확인 측위를 하지 않고 정지처럼 다룬다.
@@ -760,14 +937,25 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
 
   /// 이 속도(시속 12km) 이상으로 움직이면 탈것이다.
   static const vehicleSpeedMps = 12 / 3.6;
+
   /// 정지·기타 움직임이 이만큼 이어져야 그 상태로 측위한다. 폰을 만지거나 신호에 잠깐 멈출 때마다 상태가 몇 초
-  /// 단위로 바뀌는데, 바뀔 때마다 재면 실제 세션의 첫 1분에만 15번을 쟀다.
+  /// 단위로 바뀌는데, 바뀔 때마다 재면 실제 세션의 첫 1분에만 15번을 쟀다. 탈것에서 정지로 바꿀 때도 같은 시간을 쓴다.
   static const settleMs = 30000;
+
+  /// 정지 중 확인 측위 간격.
   static const stillCheckMs = 300000;
+
+  /// 기타 움직임에서 확인 측위 두 번 사이 간격.
   static const probeGapMs = 30000;
+
+  /// 측위와 측위 사이 최소·최대 간격(time_speed와 같은 값).
   static const minWaitMs = 5000;
   static const maxWaitMs = 600000;
+
+  /// 측위가 거듭 실패할 때 다시 시도하기까지 기다리는 시간. 마지막 값을 계속 쓴다.
   static const retryDelaysMs = [30000, 60000, 120000, 300000];
+
+  /// 배터리가 이 값(%) 미만이면 E를 2배로 키운다.
   static const lowBatteryPct = 20;
 
   _Mode _mode = _Mode.unknown;
@@ -783,6 +971,10 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   Fix? _previousVehicleFix;
   double _vehicleSpeedMps = 0;
 
+  /// 걸음 감지기가 마지막으로 알린 상태와, 정지가 시작된 시각(정지가 아니면 null). 탈것에서 벗어날지 판단할 때 쓴다.
+  StepState? _detectorState;
+  int? _stillSinceMs;
+
   /// 지금 유효한 깨우기 예약. 상태가 바뀌면 지워서 앞 상태의 예약이 와도 무시한다(WakeAt은 취소할 수 없다).
   String? _armedTag;
   _Purpose _armedPurpose = _Purpose.budget;
@@ -793,12 +985,12 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
 
   @override
   Map<String, Object> get params => {
-        'e_m': errorBudgetM,
-        'stride_m': strideM,
-        'use_steps': useSteps,
-        'suppress_still': suppressStill,
-        'vehicle_probe': vehicleProbe,
-      };
+    'e_m': errorBudgetM,
+    'stride_m': strideM,
+    'use_steps': useSteps,
+    'suppress_still': suppressStill,
+    'vehicle_probe': vehicleProbe,
+  };
 
   @override
   String get stateLabel => _mode.name;
@@ -817,6 +1009,8 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     _anchor = null;
     _previousVehicleFix = null;
     _vehicleSpeedMps = 0;
+    _detectorState = null;
+    _stillSinceMs = null;
     _armedTag = null;
     return _request(_Purpose.start, ctx.nowMs);
   }
@@ -839,17 +1033,26 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   }
 
   List<PolicyAction> _onStep(StepState state, int stepsSinceLastFix, int nowMs, PolicyContext ctx) {
+    if (state != _detectorState) {
+      _detectorState = state;
+      _stillSinceMs = state == StepState.still ? nowMs : null;
+    }
     final next = switch (state) {
       StepState.walking => _Mode.walking,
-      StepState.still => _Mode.still,
-      // 탈것으로 판단한 뒤의 흔들림은 탈것 진동이다 — 다시 확인하지 않는다.
+      // 탈것 안의 정지(신호 대기)와 흔들림(진동)은 탈것 그대로다. 탈것에서 벗어나는 것은 걸음이 나오거나, 정지가
+      // 30초 넘게 이어지고 측위로도 움직이지 않았음을 확인했을 때다(_onFix의 탈것 처리).
+      StepState.still => _mode == _Mode.vehicle ? _Mode.vehicle : _Mode.still,
       StepState.otherMotion => _mode == _Mode.vehicle ? _Mode.vehicle : _Mode.otherMotion,
     };
     final actions = <PolicyAction>[];
     if (next != _mode) actions.addAll(_enter(next, nowMs, ctx));
     if (_mode == _Mode.walking && useSteps) {
-      final accuracy = ctx.lastFix?.accuracyM ?? 0;
-      if (accuracy + stepsSinceLastFix * strideM > _budget) {
+      final last = ctx.lastFix;
+      final accuracy = last?.accuracyM ?? 0;
+      // 마지막 측위 뒤 최소 간격(5초)은 지킨다. 측위 오차만으로 예산을 넘는 곳(빌딩 숲·실내)에서 걸음 사건마다
+      // 다시 재면 연속 측위와 다르지 않다(time_speed도 같은 최소 간격을 둔다).
+      final tooSoon = last != null && nowMs - last.tMs < minWaitMs;
+      if (!tooSoon && accuracy + stepsSinceLastFix * strideM > _budget) {
         actions.addAll(_request(_Purpose.budget, nowMs));
       }
     }
@@ -857,21 +1060,40 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   }
 
   List<PolicyAction> _enter(_Mode mode, int nowMs, PolicyContext ctx) {
-    _mode = mode;
-    // 앞 상태에서 낸 요청·예약은 이제 뜻이 없다. 기다리던 응답은 그냥 위치 하나로 받는다.
-    _armedTag = null;
-    _purpose = _Purpose.budget;
+    _setMode(mode);
     switch (mode) {
       case _Mode.walking:
         return useSteps ? const [] : _armWalkingTimer(nowMs, ctx);
       case _Mode.still:
-        return suppressStill ? _arm(_Purpose.stay, nowMs + settleMs) : _armWalkingTimer(nowMs, ctx);
+        return _settleAsStill(nowMs, ctx);
       case _Mode.otherMotion:
-        return _arm(vehicleProbe ? _Purpose.probe1 : _Purpose.stay, nowMs + settleMs);
+        return vehicleProbe ? _arm(_Purpose.probe1, nowMs + settleMs) : _settleAsStill(nowMs, ctx);
       case _Mode.vehicle:
       case _Mode.unknown:
         return const [];
     }
+  }
+
+  /// 앞 상태에서 낸 요청·예약은 이제 뜻이 없다. 기다리던 응답은 그냥 위치 하나로 받는다.
+  void _setMode(_Mode mode) {
+    _mode = mode;
+    _armedTag = null;
+    _purpose = _Purpose.budget;
+  }
+
+  /// 정지(또는 정지처럼 다루는 기타 움직임)로 들어간다: 30초 이어지면 머문 곳을 잰다. 정지 억제를 끈 절제
+  /// 실험에서는 걷기 속도로 움직인다고 보고 계속 잰다.
+  List<PolicyAction> _settleAsStill(int nowMs, PolicyContext ctx) =>
+      suppressStill ? _arm(_Purpose.stay, nowMs + settleMs) : _armWalkingTimer(nowMs, ctx);
+
+  /// [fix]를 머문 곳으로 삼아 정지처럼 지낸다: 5분마다 확인만 한다. 정지 억제를 끈 절제 실험에서는 계속 잰다 —
+  /// 정지와 '정지처럼 다루는' 경로 모두에 같은 스위치가 걸려야 억제의 효과를 온전히 잴 수 있다.
+  List<PolicyAction> _holdAt(Fix fix) {
+    if (!suppressStill) {
+      return _arm(_Purpose.budget, fix.tMs + _waitMs(fix.accuracyM, walkingSpeedMps));
+    }
+    _anchor = fix;
+    return _arm(_Purpose.check, fix.tMs + stillCheckMs);
   }
 
   List<PolicyAction> _onFix(Fix fix, PolicyContext ctx) {
@@ -882,18 +1104,19 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     switch (_purpose) {
       case _Purpose.start:
       case _Purpose.budget:
-        // 걸음 수를 쓰지 않는 보행·정지(절제 실험)는 다음 측위 시각을 다시 잡는다.
-        return _usesWalkingTimer
+        // 걸음 수를 쓰지 않는 보행, 정지 억제를 끈 정지·기타 움직임(절제 실험)은 다음 측위 시각을 이 위치 기준으로
+        // 다시 잡는다. 기타 움직임의 확인 측위 예약이 걸려 있으면 덮어쓰지 않는다.
+        final probing = _armedTag != null && _armedPurpose != _Purpose.budget;
+        return _usesWalkingTimer && !probing
             ? _arm(_Purpose.budget, fix.tMs + _waitMs(fix.accuracyM, walkingSpeedMps))
             : const [];
       case _Purpose.stay:
-        _anchor = fix;
-        return _arm(_Purpose.check, fix.tMs + stillCheckMs);
+        return _holdAt(fix);
       case _Purpose.check:
         final anchor = _anchor;
         if (anchor != null && _moved(anchor, fix)) {
           // 걸음 없이 자리를 옮겼다 — 걸음이 나오지 않는 탈것(버스·지하철)이다.
-          return _becomeVehicle(_speedBetween(anchor, fix), fix, ctx);
+          return _becomeVehicle(_speedBetween(anchor, fix), fix);
         }
         _anchor ??= fix;
         return _arm(_Purpose.check, fix.tMs + stillCheckMs);
@@ -902,13 +1125,23 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
         return _arm(_Purpose.probe2, fix.tMs + probeGapMs);
       case _Purpose.probe2:
         final anchor = _anchor;
-        final speed = anchor == null ? 0.0 : _speedBetween(anchor, fix);
-        if (speed >= vehicleSpeedMps) return _becomeVehicle(speed, fix, ctx);
-        // 느린 흔들림(폰 만지기 등)은 정지처럼 다룬다: 이 자리를 기준으로 5분마다 확인만 한다.
-        _anchor = fix;
-        return _arm(_Purpose.check, fix.tMs + stillCheckMs);
+        // 두 위치가 서로의 오차(와 예산)보다 멀어야 움직인 것이다. 오차가 큰 두 위치(예: 각 60m)는 가만히 있어도
+        // 30초 만에 100m 넘게 떨어져 보여, 속도만 보면 탈것으로 잘못 본다.
+        if (anchor != null && _moved(anchor, fix)) {
+          final speed = _speedBetween(anchor, fix);
+          if (speed >= vehicleSpeedMps) return _becomeVehicle(speed, fix);
+        }
+        // 느린 흔들림(폰 만지기 등)은 정지처럼 다룬다.
+        return _holdAt(fix);
       case _Purpose.vehicle:
         final previous = _previousVehicleFix;
+        final stillSince = _stillSinceMs;
+        if (previous != null && stillSince != null && fix.tMs - stillSince >= settleMs && _within(previous, fix)) {
+          // 감지기가 30초 넘게 정지이고 직전 탈것 측위와 두 오차 안에서 겹친다 — 탈것에서 내려 멈췄거나 오래 섰다.
+          // 예산(E)이 아니라 오차로 보는 까닭: 시속 10km로 기어가는 버스도 13.5초면 E 안이지만 서 있는 것은 아니다.
+          _setMode(_Mode.still);
+          return _holdAt(fix);
+        }
         if (previous != null && fix.tMs > previous.tMs) {
           _vehicleSpeedMps = _speedBetween(previous, fix);
         }
@@ -917,8 +1150,8 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     }
   }
 
-  List<PolicyAction> _becomeVehicle(double speedMps, Fix fix, PolicyContext ctx) {
-    _enter(_Mode.vehicle, fix.tMs, ctx);
+  List<PolicyAction> _becomeVehicle(double speedMps, Fix fix) {
+    _setMode(_Mode.vehicle);
     _vehicleSpeedMps = speedMps;
     _previousVehicleFix = fix;
     return _armVehicle(fix);
@@ -926,8 +1159,8 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
 
   /// time_speed 규칙: 지금 오차 + 속도 × 경과 시간이 예산을 넘는 시각에 다시 잰다. 탈것이라 판단한 속도
   /// 하한(시속 12km)을 둬, 신호 대기로 잠깐 멈춘 속도 때문에 너무 오래 쉬지 않게 한다.
-  List<PolicyAction> _armVehicle(Fix fix) => _arm(_Purpose.vehicle,
-      fix.tMs + _waitMs(fix.accuracyM, math.max(_vehicleSpeedMps, vehicleSpeedMps)));
+  List<PolicyAction> _armVehicle(Fix fix) =>
+      _arm(_Purpose.vehicle, fix.tMs + _waitMs(fix.accuracyM, math.max(_vehicleSpeedMps, vehicleSpeedMps)));
 
   List<PolicyAction> _onFailure(int nowMs) {
     _awaiting = false;
@@ -971,7 +1204,7 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   }
 
   bool get _usesWalkingTimer =>
-      (_mode == _Mode.walking && !useSteps) || (_mode == _Mode.still && !suppressStill);
+      (_mode == _Mode.walking && !useSteps) || (!suppressStill && (_mode == _Mode.still || _mode == _Mode.otherMotion));
 
   /// 걸음 수를 쓰지 않을 때: 걷기 속도로 움직인다고 보고 오차가 예산을 넘는 시각에 깨운다.
   List<PolicyAction> _armWalkingTimer(int nowMs, PolicyContext ctx) {
@@ -986,9 +1219,12 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     return (remainingM / speedMps * 1000).round().clamp(minWaitMs, maxWaitMs);
   }
 
+  /// 두 위치가 서로의 오차 안에 있다 — 움직였다고 말할 수 없다.
+  bool _within(Fix a, Fix b) => haversineMeters(a.lat, a.lng, b.lat, b.lng) <= a.accuracyM + b.accuracyM;
+
+  /// 머문 곳에서 벗어났다: 예산(E)과 두 오차의 합 중 큰 것보다 멀다.
   bool _moved(Fix from, Fix to) =>
-      haversineMeters(from.lat, from.lng, to.lat, to.lng) >
-      math.max(_budget, from.accuracyM + to.accuracyM);
+      haversineMeters(from.lat, from.lng, to.lat, to.lng) > math.max(_budget, from.accuracyM + to.accuracyM);
 
   double _speedBetween(Fix from, Fix to) {
     final seconds = (to.tMs - from.tMs) / 1000;
@@ -4058,7 +4294,7 @@ Git Bash에서는 `/sdcard` 경로가 바뀌지 않게 `MSYS_NO_PATHCONV=1`을 �
 
 ```markdown
 | `still_suppress` | Zhuang 외(2010): 1분마다 확인, 직전·이번 확인이 모두 정지면 건너뜀, 억제 중에도 5분마다 확인 측위 | `interval_s`(기본 60), `verify_s`(기본 300) |
-| `step_budget` | **제안**: 보행은 '오차 + 걸음 수 × 보폭 > E'일 때, 정지는 30초 이어지면 한 번 + 5분 확인, 기타 움직임은 확인 측위 두 번으로 탈것(시속 12km 이상)이면 time_speed 규칙 | `e_m`(50), `stride_m`(0.75), `use_steps`·`suppress_still`·`vehicle_probe`(true, 절제 실험) |
+| `step_budget` | **제안**: 보행은 '오차 + 걸음 수 × 보폭 > E'일 때(최소 5초 간격), 정지는 30초 이어지면 한 번 + 5분 확인, 기타 움직임은 확인 측위 두 번으로 탈것(시속 12km 이상)이면 time_speed 규칙(감지기 정지 30초 + 측위로 그 자리일 때만 정지로) | `e_m`(50), `stride_m`(0.75), `use_steps`·`suppress_still`·`vehicle_probe`(true, 절제 실험) |
 ```
 
 그 표 아래의 `제안 정책 `step_budget`은 R4에서, 걸음 감지기 `brajdic`·`adaptive`는 R3에서 추가된다. 지금 감지기는 `os`(OS 걸음 센서)뿐이다.` 줄을 지우고, 그 자리에 다음 문단을 넣는다:
@@ -4078,7 +4314,11 @@ Git Bash에서는 `/sdcard` 경로가 바뀌지 않게 `MSYS_NO_PATHCONV=1`을 �
 
 2. `step_budget` 규칙 표의 '정지' 행 동작 칸 전체를 다음으로 바꾼다: `정지가 30초 이어지면 한 번 측위하고(머문 곳 위치) 이후 측위하지 않는다. 대신 5분마다 확인 측위를 해, 머문 곳에서 벗어났으면(걸음 없이 움직이는 버스) 탈것 상태로 바꾼다.`
 
-3. '기타 움직임' 행 동작 칸을 다음으로 바꾼다: `30초 이어지면 30초 간격 확인 측위 두 번으로 속도를 본다. 시속 12km 이상이면 탈것 상태로 보고 `time_speed` 규칙으로 측위한다(속도 하한 시속 12km). 느리면 정지처럼 5분마다 확인한다. 걸음이 다시 나오면 보행으로 돌아간다.`
+3. '기타 움직임' 행 동작 칸을 다음으로 바꾼다: `30초 이어지면 30초 간격 확인 측위 두 번으로 속도를 본다. 두 위치가 예산과 두 오차의 합보다 멀고 시속 12km 이상이면 탈것 상태로 보고 `time_speed` 규칙으로 측위한다(속도 하한 시속 12km). 탈것에서 잠깐 정지(신호 대기)는 탈것 그대로이고, 감지기 정지가 30초 넘게 이어지고 측위로도 그 자리(직전 탈것 측위와 두 오차 안)일 때만 정지로 바꾼다. 느리면 정지처럼 5분마다 확인한다. 걸음이 다시 나오면 보행으로 돌아간다.`
+
+   '보행' 행 동작 칸 끝에 다음 문장을 더한다: `단, 마지막 측위 뒤 5초 안에는 다시 재지 않는다(오차만으로 E를 넘는 빌딩 숲·실내에서 연속 측위가 되지 않게, time_speed와 같은 최소 간격).`
+
+   절제 실험용 스위치 목록의 `- `suppressStill=false`: 정지 억제 끄기` 줄을 `- `suppressStill=false`: 정지 억제 끄기(정지와, 정지처럼 다루는 기타 움직임 모두)`로 바꾼다.
 
 4. 그 표 바로 아래(절제 실험용 스위치 목록 앞)에 다음 한 줄을 넣는다: `상태가 30초 이어져야 그 상태로 측위하는 이유: 폰을 만지는 동안 걸음 감지기 상태가 몇 초 단위로 바뀌어, 바뀔 때마다 재면 실제 세션 첫 1분에만 15번을 쟀다(R4 설계 검증).`
 
