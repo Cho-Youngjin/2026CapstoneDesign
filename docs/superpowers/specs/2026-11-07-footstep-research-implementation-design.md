@@ -202,8 +202,8 @@ abstract class StepDetector {
 | 구현 | 내용 |
 |---|---|
 | `OsStepDetector` | OS 누적 걸음 수(`count`)를 센다. 최근 4초 안에 누적 값이 늘었거나 OS 상태가 `walking`이면 보행, 아니면 정지. 기타 움직임은 구분하지 않는다. |
-| `BrajdicDetector` | 논문 기준판. 보행 판정은 STD_TH(0.8초 창, 표준편차 0.6), 걸음 검출은 WPD. |
-| `AdaptiveStepDetector` | 제안판. 크기 → 저역통과 → 자기상관 보행 판정(0.4) → 적응형 임계값 피크 → 걸음 주기로 최소 간격 → 연속 N(5~6)걸음 확인 후 소급 카운트. 흔들림은 있는데 박자가 없으면 기타 움직임. |
+| `BrajdicDetector` (`brajdic`) | 논문 기준판. 보행 판정은 STD_TH(0.8초 창, 표준편차 0.6, 논문 표 3), 걸음 검출은 WPD(중심 이동 평균 0.31초, 봉우리 창 0.59초, 논문 표 4). 기타 움직임은 구분하지 않는다. |
+| `AdaptiveStepDetector` (`adaptive`) | 제안판. 20ms 격자 → 걸음 대역(0.7~3Hz) → 흔들림(0.8초 표준편차 0.6, 대역 0.3) + 박자(3초 창 자기상관 **봉우리** 0.4) 판정 → 적응형 임계값 피크(이권희 외 2018 식 (4), Tmin −0.588) → 걸음 주기 0.6배 최소 간격 → 연속 5걸음 확인 후 소급 카운트, 그 뒤로는 보행 상태일 때만 바로 센다. 흔들림은 있는데 박자가 없으면 기타 움직임이고, 박자 창이 차기 전에는 판정하지 않는다. |
 
 파라미터의 출발값은 연구 자료 4-1절을 따른다. 최종값은 예비용 세션으로만 정한다.
 
@@ -252,6 +252,7 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
   - `stays.csv`: 5-6
   - `summary.json`: 측위 횟수, 추정 GPS 켜짐 시간(단발 측위는 ttff + 응답 지연, 연속 측위는 켜진 시간), 정책 id와 파라미터
 - 같은 입력과 같은 파라미터에는 항상 같은 출력이 나온다.
+- 걸음 감지만 따로 볼 때는 `dart run footstep_core:steps --session <dir> --detector <id> --out <dir>`가 `steps.csv`·`step_states.csv`·`step_summary.json`을 쓴다(R3, 안내 `docs/research/steps-guide.md`).
 
 ### 5-5. 폰 실행기 (R4, R7에서 재사용)
 

@@ -9,10 +9,12 @@ R1로 기록한 세션 폴더를 PC에서 재생해, 각 수집 방식이 '어�
 
 ```bash
 dart run footstep_core:replay --session <세션 폴더> --policy <정책 id> --out <결과 폴더> \
-  [--param k=v ...] [--detector os] [--ttff 초]
+  [--param k=v ...] [--detector os|brajdic|adaptive] [--detector-param k=v ...] [--ttff 초]
 ```
 
 예: `dart run footstep_core:replay --session ../../research/data/sessions/20261109-213324-groundTruth --policy time_speed --param e_m=25 --ttff 5 --out ../../research/results/replay/s1-time_speed-e25-ttff5`
+
+걸음 감지기는 `--detector`로 고른다(기본 `os`). `--detector-param k=v`로 감지기 파라미터를 바꾸면 summary.json의 `detector_params`에 남는다. 감지기 목록과 파라미터는 `docs/research/steps-guide.md`에 있다.
 
 ## 정책
 
