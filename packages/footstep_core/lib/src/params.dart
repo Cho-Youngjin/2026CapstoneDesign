@@ -31,4 +31,17 @@ class ParamReader {
     if (value == null || value <= 0) throw ArgumentError('$key는 양의 정수여야 합니다: $raw');
     return value;
   }
+
+  /// 켜고 끄는 스위치(절제 실험). true·false 또는 1·0만 받는다.
+  bool flag(String key, bool fallback) {
+    final raw = params[key];
+    if (raw == null) return fallback;
+    switch (raw.toLowerCase()) {
+      case 'true' || '1':
+        return true;
+      case 'false' || '0':
+        return false;
+    }
+    throw ArgumentError('$key는 true 또는 false여야 합니다: $raw');
+  }
 }

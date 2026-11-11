@@ -18,6 +18,7 @@ export 'src/policies/continuous_policy.dart';
 export 'src/policies/fixed_interval_policy.dart';
 export 'src/policies/policy_registry.dart';
 export 'src/policies/speed_adaptive_policy.dart';
+export 'src/policies/step_budget_policy.dart';
 export 'src/policies/still_suppress_policy.dart';
 export 'src/policies/time_speed_policy.dart';
 export 'src/replay/replay_engine.dart';
