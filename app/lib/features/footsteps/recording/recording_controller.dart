@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'mark.dart';
+import 'policy_choice.dart';
 import 'recorder_status.dart';
 import 'recording_config.dart';
 import 'recording_messages.dart';
@@ -16,10 +17,20 @@ import 'recording_task_handler.dart';
 /// 실험 화면이 기록 서비스를 다루는 창구. 위젯 테스트는 가짜 구현을 넣는다.
 abstract interface class RecordingController {
   Future<bool> isRunning();
-  Future<void> start({required RecordingMode mode, required String carryInitial, String? note});
+  /// [policy]는 정책 실행 모드에서만 준다.
+  Future<void> start({
+    required RecordingMode mode,
+    required String carryInitial,
+    String? note,
+    PolicyChoice? policy,
+  });
   Future<void> stop();
   void sendMark(Mark mark);
   Stream<RecorderStatus> statusStream();
+
+  /// 지금 도는 기록의 설정(시작할 때 저장한 것). 기록 중이 아니거나 읽을 수 없으면 null이다. 기록 중에 실험 화면을
+  /// 다시 열었을 때 어떤 모드·정책으로 도는지 보여 주는 데 쓴다.
+  Future<RecordingConfig?> activeConfig();
 }
 
 const _recordingServiceId = 7101;
@@ -69,6 +80,7 @@ class ForegroundRecordingController implements RecordingController {
     required RecordingMode mode,
     required String carryInitial,
     String? note,
+    PolicyChoice? policy,
   }) async {
     final root = await _sessionsRoot();
     final dir = Directory(p.join(root.path, sessionDirName(_clock(), mode)));
@@ -78,6 +90,7 @@ class ForegroundRecordingController implements RecordingController {
       sessionDir: dir.path,
       carryInitial: carryInitial,
       note: note,
+      policy: policy,
     );
     await FlutterForegroundTask.saveData(
       key: RecordingConfig.storageKey,
@@ -89,7 +102,10 @@ class ForegroundRecordingController implements RecordingController {
       serviceId: _recordingServiceId,
       serviceTypes: [ForegroundServiceTypes.location],
       notificationTitle: '발걸음 실험 기록 중',
-      notificationText: '정답 기록 모드 · 알림 버튼으로 도착·탑승을 표시하세요',
+      notificationText: switch (mode) {
+        RecordingMode.groundTruth => '정답 기록 모드 · 알림 버튼으로 도착·탑승을 표시하세요',
+        RecordingMode.policy => '정책 실행 모드(${policy?.policyId}) · 알림 버튼으로 도착·탑승을 표시하세요',
+      },
       notificationButtons: recordingNotificationButtons(FieldState()),
       callback: recordingStartCallback,
     );
@@ -108,6 +124,19 @@ class ForegroundRecordingController implements RecordingController {
 
   @override
   void sendMark(Mark mark) => FlutterForegroundTask.sendDataToTask(encodeMarkMessage(mark));
+
+  @override
+  Future<RecordingConfig?> activeConfig() async {
+    if (!await FlutterForegroundTask.isRunningService) return null;
+    final raw = await FlutterForegroundTask.getData<String>(key: RecordingConfig.storageKey);
+    if (raw == null) return null;
+    try {
+      return RecordingConfig.fromJson((jsonDecode(raw) as Map).cast<String, Object?>());
+    } catch (_) {
+      // 앞 버전이 저장한 다른 모양의 설정이면 보여 줄 수 없을 뿐, 기록은 서비스가 이어 간다.
+      return null;
+    }
+  }
 
   @override
   Stream<RecorderStatus> statusStream() {

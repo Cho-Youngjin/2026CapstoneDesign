@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'policy_choice.dart';
 import 'recording_mode.dart';
 
 /// 기록 중 생긴 문제 하나(센서 실패, 서비스 재시작 등). 분석 때 그 구간을 따로 볼 수 있게
@@ -37,6 +38,7 @@ class SessionMeta {
     required this.carryInitial,
     this.endedAt,
     this.note,
+    this.policy,
     this.errors = const [],
   });
 
@@ -49,6 +51,9 @@ class SessionMeta {
   final DateTime? endedAt;
   final String carryInitial;
   final String? note;
+
+  /// 정책 실행 모드에서 고른 정책·감지기(설계 4-2의 policy). 정답 기록 모드에서는 null이다.
+  final PolicyChoice? policy;
   final List<SessionError> errors;
 
   SessionMeta copyWith({DateTime? endedAt, List<SessionError>? errors}) => SessionMeta(
@@ -61,6 +66,7 @@ class SessionMeta {
         endedAt: endedAt ?? this.endedAt,
         carryInitial: carryInitial,
         note: note,
+        policy: policy,
         errors: errors ?? this.errors,
       );
 
@@ -76,6 +82,7 @@ class SessionMeta {
         'endedAt': endedAt?.toUtc().toIso8601String(),
         'carryInitial': carryInitial,
         'note': note,
+        'policy': policy?.toJson(),
         'errors': [for (final e in errors) e.toJson()],
       };
 
@@ -89,6 +96,9 @@ class SessionMeta {
         endedAt: json['endedAt'] == null ? null : DateTime.parse(json['endedAt'] as String),
         carryInitial: json['carryInitial'] as String,
         note: json['note'] as String?,
+        policy: json['policy'] == null
+            ? null
+            : PolicyChoice.fromJson((json['policy'] as Map).cast<String, Object?>()),
         errors: [
           for (final e in (json['errors'] as List? ?? const []))
             SessionError.fromJson((e as Map).cast<String, Object?>()),

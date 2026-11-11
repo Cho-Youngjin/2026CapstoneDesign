@@ -6,13 +6,14 @@ import 'recorder_status.dart';
 import 'sensor_samples.dart';
 import 'session_files.dart';
 import 'session_meta.dart';
+import 'session_recorder.dart';
 import 'session_schema.dart';
 
 /// 정답 기록 모드(설계 4-2). 모든 센서를 최대 빈도로 받아 세션 폴더의 CSV에 쓴다.
 ///
 /// 타이머를 안에 두지 않는다. 기록 서비스가 5초마다 [tick]을 불러 배터리 읽기와 디스크 쓰기를
 /// 맡기고, 테스트는 시각을 직접 넘긴다.
-class GroundTruthRecorder {
+class GroundTruthRecorder implements SessionRecorder {
   GroundTruthRecorder({
     required this.sources,
     required this.files,
@@ -28,6 +29,7 @@ class GroundTruthRecorder {
   final Duration batteryInterval;
 
   /// 지금 장소 안인지, 탈것에 탔는지. 알림 버튼 토글이 다음 표시를 정할 때 쓴다.
+  @override
   final FieldState field = FieldState();
 
   final _subscriptions = <StreamSubscription<Object?>>[];
@@ -39,6 +41,7 @@ class GroundTruthRecorder {
   int? _lastChargeUah;
   int? _lastLevelPct;
 
+  @override
   Future<void> start() async {
     _startedAt = clock();
     _listen(sources.gps(), 'gps', (GpsSample s) {
@@ -64,17 +67,20 @@ class GroundTruthRecorder {
   }
 
   /// 서비스의 반복 이벤트(5초)마다 부른다. 배터리는 [batteryInterval]마다만 읽는다.
+  @override
   Future<void> tick() async {
     final last = _lastBatteryAt;
     if (last == null || clock().difference(last) >= batteryInterval) await _readBattery();
     await files.flushAll();
   }
 
+  @override
   void mark(Mark mark) {
     field.observe(mark);
     files.marks.add(mark.toCsvRow());
   }
 
+  @override
   RecorderStatus get status {
     final writers = <String, CsvWriter>{
       SessionSchema.gpsFile: files.gps,
@@ -98,6 +104,7 @@ class GroundTruthRecorder {
     );
   }
 
+  @override
   Future<void> stop() async {
     for (final subscription in _subscriptions) {
       await subscription.cancel();

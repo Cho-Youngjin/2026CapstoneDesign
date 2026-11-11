@@ -1,6 +1,7 @@
 /// 발걸음 연구 공용 로직. 앱(기록 서비스)과 PC 재생기가 같은 코드를 쓴다(설계 문서 2장 D2).
 library;
 
+export 'src/cli/key_values.dart';
 export 'src/detectors/adaptive_step_detector.dart';
 export 'src/detectors/brajdic_detector.dart';
 export 'src/detectors/detector_registry.dart';
@@ -18,11 +19,15 @@ export 'src/policies/continuous_policy.dart';
 export 'src/policies/fixed_interval_policy.dart';
 export 'src/policies/policy_registry.dart';
 export 'src/policies/speed_adaptive_policy.dart';
+export 'src/policies/step_budget_policy.dart';
 export 'src/policies/still_suppress_policy.dart';
 export 'src/policies/time_speed_policy.dart';
 export 'src/replay/replay_engine.dart';
 export 'src/replay/replay_output.dart';
 export 'src/replay/replay_result.dart';
+export 'src/runner/policy_runner.dart';
+export 'src/runner/run_summary.dart';
+export 'src/runner/runner_ports.dart';
 export 'src/session/csv.dart';
 export 'src/session/session_reader.dart';
 export 'src/session/session_schema.dart';

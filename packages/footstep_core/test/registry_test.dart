@@ -5,7 +5,7 @@ void main() {
   test('설계 문서 5-3의 정책 id로 정책을 만든다', () {
     expect(policyIds, [
       'hourly', 'fixed_30s', 'fixed_1m', 'fixed_5m', 'continuous_10m',
-      'speed_adaptive', 'time_speed', 'still_suppress', 'activity_gated',
+      'speed_adaptive', 'time_speed', 'still_suppress', 'activity_gated', 'step_budget',
     ]);
     for (final id in policyIds) {
       expect(createPolicy(id).id, id);
@@ -16,7 +16,28 @@ void main() {
 
   test('파라미터를 받는 정책은 값을 바꿀 수 있다', () {
     expect(createPolicy('time_speed', {'e_m': '25'}).params, {'e_m': 25.0});
-    expect(createPolicy('still_suppress', {'interval_s': '120'}).params, {'interval_s': 120});
+    expect(createPolicy('still_suppress', {'interval_s': '120'}).params,
+        {'interval_s': 120, 'verify_s': 300});
+    expect(createPolicy('still_suppress', {'verify_s': '600'}).params, {'interval_s': 60, 'verify_s': 600});
+  });
+
+  test('제안 정책 step_budget은 E·보폭과 절제 실험 스위치를 받는다', () {
+    expect(createPolicy('step_budget', {'e_m': '25', 'use_steps': 'false', 'vehicle_probe': '0'}).params, {
+      'e_m': 25.0,
+      'stride_m': 0.75,
+      'use_steps': false,
+      'suppress_still': true,
+      'vehicle_probe': false,
+    });
+    expect(createPolicy('step_budget', {'use_steps': 'true', 'suppress_still': '1', 'vehicle_probe': 'false'}).params, {
+      'e_m': 50.0,
+      'stride_m': 0.75,
+      'use_steps': true,
+      'suppress_still': true,
+      'vehicle_probe': false,
+    });
+    expect(() => createPolicy('step_budget', {'use_steps': 'no'}), throwsArgumentError);
+    expect(() => createPolicy('step_budget', {'e_m': '0'}), throwsArgumentError);
   });
 
   test('모르는 정책·파라미터·잘못된 숫자는 ArgumentError다', () {
