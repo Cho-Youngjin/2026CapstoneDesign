@@ -82,6 +82,11 @@
 - 지난 시각의 WakeAt은 재생기처럼 지금으로 당긴다. `stop`은 여러 번 불러도 처음 요약을 돌려준다. 멈춘 실행기는 다시 시작하지 않는다.
 - 연속 측위 스트림이 스스로 끝나면 켜진 시간을 거기까지만 센다.
 
+**그 뒤 검토로 더한 것.**
+- Task 2 재검토: GPS가 알린 오차보다 크게 흔들리면(실기기의 독립 측위) 2분 기준이 계속 다시 시작돼, 잘못 본 탈것이 13.5초마다 재며 오래 남는다. 그래서 감지기 정지 + E 안에 5분 머묾도 정지로 본다.
+- Task 4 검토: 정책 실행 기록기가 센서를 끊다 오류가 나도 summary.json을 쓰고 파일을 닫는다. start를 두 번 불러도 두 번 구독하지 않는다. 센서 → 실행기 경로와 오류 경로에 테스트를 더했다.
+- Task 5 검토: 안드로이드는 속도·방향이 없으면 0.0으로 온다(멈춤과 모름을 가르지 못함, R1 gps.csv도 같아 재생과 실기기가 같은 값을 본다). 시스템이 기록 서비스를 다시 띄우면 정책이 처음부터 돌고 summary.json은 다시 시작한 뒤만 세므로, 그 회차는 배터리 분석에서 뺀다.
+
 ## Global Constraints
 
 - 작업 브랜치는 `policy`다. `steps`에서 갈라지며, `steps`는 PR #36으로 리뷰 중이다. 다른 브랜치를 만들지 않는다.
@@ -101,7 +106,7 @@
     - 실패 재시도 30초 → 1분 → 2분 → 5분
     - 배터리 20% 미만이면 E×2
     - 보행도 마지막 측위 뒤 최소 5초
-    - 탈것 → 정지: 감지기 정지와 측위상 한 자리(마지막으로 움직인 측위의 두 오차 안)가 둘 다 2분 이상일 때만(빨간불·정류장 정차는 탈것 유지)
+    - 탈것 → 정지: 감지기 정지와 측위상 한 자리(마지막으로 움직인 측위의 두 오차 안)가 둘 다 2분 이상일 때만(빨간불·정류장 정차는 탈것 유지). GPS가 오차보다 크게 흔들려도 E 안에 5분 머물면 정지
     - 확인 측위 두 위치는 두 오차의 합보다 멀어야 움직인 것(탈것 기준은 속도라 E와 묶지 않는다)
     - `suppress_still=false`는 정지와 정지처럼 다루는 기타 움직임 모두에 적용
 - `still_suppress`(Zhuang) 값은 다음과 같다.
@@ -822,15 +827,53 @@ void main() {
         v,
         const WakeAt(tMs: 69000, tag: 'vehicle#3'),
         place: (t) => 0.003 + 0.0000027 * (t - 64000) / 1000,
-        maxFixes: 15,
+        maxFixes: 25,
       );
-      expect(times, hasLength(15));
-      expect(last.single, isA<WakeAt>().having((w) => w.tag, 'tag', 'vehicle#18'));
+      // 약 6분: 약 167초마다 E(50m)도 벗어나 느슨한 5분 기준도 다시 시작된다.
+      expect(times, hasLength(25));
+      expect(last.single, isA<WakeAt>().having((w) => w.tag, 'tag', 'vehicle#28'));
       expect(p.stateLabel, 'vehicle');
     });
   });
 
   group('멈춤·폭주 방지', () {
+    test('GPS가 오차보다 크게 흔들려 한 자리로 보이지 않아도, E 안에 5분 넘게 머물면 정지로 바꾼다(잘못 본 탈것)', () {
+      final (p, v) = inVehicle(); // 64초 측위(0.003°)를 탈것으로 잘못 봤다
+      p.onEvent(step(66000, StepState.still), at(66000, v));
+
+      // 0.003° 둘레에서 ±0.00014°(약 ±16m)로 번갈아 흔들린다: 앞 측위와 약 31m라 두 오차의 합(10m) 밖이지만,
+      // 탈것으로 본 곳에서 E(50m) 안이다.
+      final (times, last) = ride(
+        p,
+        v,
+        const WakeAt(tMs: 69000, tag: 'vehicle#3'),
+        place: (t) => 0.003 + (((t - 70000) ~/ 14500).isEven ? 0.00014 : -0.00014),
+      );
+      // 정지 66초부터 5분이 지난 374.5초 측위에서 정지로 바꾼다.
+      expect(times, hasLength(22));
+      expect(times.last, 374500);
+      expect(last, [const WakeAt(tMs: 674500, tag: 'check#25')]);
+      expect(p.stateLabel, 'still');
+    });
+
+    test('탈것이 달려와 다른 곳에 서고 GPS가 크게 흔들려도, 선 곳에서 5분이 지나면 정지로 바꾼다', () {
+      final (p, v) = inVehicle();
+      p.onEvent(step(66000, StepState.still), at(66000, v));
+
+      // 초당 0.0001°(약 11m/s)로 달리다 100초에 0.0066°에 서고, 그 뒤로는 ±0.00014°(약 ±16m)로 흔들린다.
+      double place(int t) {
+        if (t < 100000) return 0.003 + 0.0001 * (t - 64000) / 1000;
+        return 0.0066 + (((t - 100000) ~/ 14500).isEven ? 0.00014 : -0.00014);
+      }
+
+      final (times, last) = ride(p, v, const WakeAt(tMs: 69000, tag: 'vehicle#3'), place: place, maxFixes: 40);
+      // 선 뒤 첫 측위(100초)부터 5분이 지난 410.5초 측위에서 정지로 바꾼다.
+      expect(times.first, 70000);
+      expect(times.last, 410500);
+      expect(last, [const WakeAt(tMs: 710500, tag: 'check#31')]);
+      expect(p.stateLabel, 'still');
+    });
+
     test('탈것 측위를 기다리는 중에 걷기 시작하면 그 응답으로 탈것 예약을 다시 걸지 않는다', () {
       final (p, v) = inVehicle();
       expect(p.onEvent(wake(69000, 'vehicle#3'), at(69000, v)), [const RequestFix()]);
@@ -1037,6 +1080,7 @@ enum _Purpose { start, budget, stay, check, probe1, probe2, vehicle }
 ///   이상이면 탈것이다. 아니면 정지처럼 다룬다.
 /// - 탈것: time_speed 규칙('오차 + 속도 × 경과 시간 > E'가 되는 시각에 잰다)으로 잰다. 걸음이 다시 나오면 보행이다.
 ///   감지기 정지와 측위상 한 자리가 둘 다 2분 넘게 이어질 때만 정지로 본다(빨간불·정류장 정차는 탈것 그대로).
+///   GPS가 크게 흔들려 한 자리로 보이지 않아도, E 안에 5분 넘게 머물면 정지로 본다(잘못 본 탈것이 오래 남지 않게).
 /// - 측위가 거듭 실패하면(지하철·실내) 다시 시도하는 간격을 30초 → 1분 → 2분 → 5분으로 늘린다.
 /// - 배터리가 20% 미만이면 E를 2배로 키운다.
 class StepBudgetPolicy implements CollectionPolicy, ReportsState {
@@ -1110,6 +1154,9 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   /// 탈것에서 마지막으로 움직인 것이 확인된 측위. 뒤따르는 측위가 이 위치의 두 오차 안에 머물면 멈춰 있는 것이다.
   Fix? _stopFix;
 
+  /// 탈것에서 E 넘게 움직인 것이 마지막으로 확인된 측위. [_stopFix]보다 느슨한 멈춤 기준이다.
+  Fix? _longStopFix;
+
   /// 걸음 감지기가 마지막으로 알린 상태와, 정지가 시작된 시각(정지가 아니면 null). 탈것에서 벗어날지 판단할 때 쓴다.
   StepState? _detectorState;
   int? _stillSinceMs;
@@ -1149,6 +1196,7 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     _previousVehicleFix = null;
     _vehicleSpeedMps = 0;
     _stopFix = null;
+    _longStopFix = null;
     _detectorState = null;
     _stillSinceMs = null;
     _armedTag = null;
@@ -1275,14 +1323,23 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
         return _holdAt(fix);
       case _Purpose.vehicle:
         final previous = _previousVehicleFix;
-        final stop = _stopFix;
         final stillSince = _stillSinceMs;
         // 멈춤은 예산(E)이 아니라 오차로 본다: 시속 10km로 기어가는 버스도 13.5초면 E 안이지만 서 있는 것은 아니다.
-        if (stop == null || !_within(stop, fix)) {
-          _stopFix = fix; // 움직였다: 여기서부터 멈춘 시간을 다시 잰다.
-        } else if (stillSince != null && fix.tMs - math.max(stillSince, stop.tMs) >= vehicleStopMs) {
-          // 감지기 정지와 측위상 한 자리가 둘 다 2분 넘게 이어졌다 — 탈것에서 내려 멈췄거나 잘못 본 탈것이다.
-          // 감지기 시계만 보면 안 된다: OS 걸음 센서판은 달리는 버스 안에서도 늘 정지라 첫 정류장에서 놓친다.
+        final stop = _stopFix;
+        final inPlace = stop != null && _within(stop, fix);
+        if (!inPlace) _stopFix = fix; // 움직였다: 여기서부터 멈춘 시간을 다시 잰다.
+        // GPS가 알린 오차보다 크게 흔들리면 위 기준이 계속 다시 시작된다. 그래서 E 안에 5분 넘게 머무는 것도 멈춘
+        // 것으로 본다 — 잘못 본 탈것(실내 GPS 튐)이 13.5초마다 재며 오래 남지 않게 한다.
+        final longStop = _longStopFix;
+        final nearby = longStop != null && !_moved(longStop, fix);
+        if (!nearby) _longStopFix = fix;
+        // 감지기 시계만 보면 안 된다: OS 걸음 센서판은 달리는 버스 안에서도 늘 정지라 첫 정류장에서 놓친다.
+        final stopped =
+            stillSince != null &&
+            ((stop != null && inPlace && fix.tMs - math.max(stillSince, stop.tMs) >= vehicleStopMs) ||
+                (longStop != null && nearby && fix.tMs - math.max(stillSince, longStop.tMs) >= stillCheckMs));
+        if (stopped) {
+          // 감지기 정지와 측위상 머묾이 이어졌다 — 탈것에서 내려 멈췄거나 잘못 본 탈것이다.
           _setMode(_Mode.still);
           return _holdAt(fix);
         }
@@ -1299,6 +1356,7 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     _vehicleSpeedMps = speedMps;
     _previousVehicleFix = fix;
     _stopFix = fix;
+    _longStopFix = fix;
     return _armVehicle(fix);
   }
 
@@ -2567,6 +2625,21 @@ void main() {
     expect(back, _choice);
     expect(back.hashCode, _choice.hashCode);
     expect(back == const PolicyChoice(policyId: 'step_budget', detectorId: 'adaptive'), isFalse);
+    // 파라미터 하나만 달라도 다른 선택이다(정책 파라미터·감지기 파라미터 각각).
+    const otherPolicyParams = PolicyChoice(
+      policyId: 'step_budget',
+      policyParams: {'e_m': '50'},
+      detectorId: 'adaptive',
+      detectorParams: {'n_confirm': '6'},
+    );
+    const otherDetectorParams = PolicyChoice(
+      policyId: 'step_budget',
+      policyParams: {'e_m': '25'},
+      detectorId: 'adaptive',
+      detectorParams: {'n_confirm': '5'},
+    );
+    expect(_choice == otherPolicyParams, isFalse);
+    expect(_choice == otherDetectorParams, isFalse);
   });
 
   test('걸음 정보를 쓰는 정책만 걸음 감지기의 센서를 켜고, 활동 인식은 activity_gated만 켠다', () {
@@ -2631,7 +2704,12 @@ class _FakeSources implements SensorSources {
 
   final DateTime Function() clock;
   final gpsController = StreamController<GpsSample>();
-  final accelController = StreamController<AccelSample>();
+  /// true면 가속도 구독을 끊을 때 오류가 난다(플랫폼 채널 오류 흉내).
+  bool cancelThrows = false;
+  bool batteryFails = false;
+  late final accelController = StreamController<AccelSample>(onCancel: () {
+    if (cancelThrows) throw StateError('플랫폼 오류');
+  });
   final stepsController = StreamController<OsStepSample>();
   final activityController = StreamController<ActivitySample>();
   int batteryLevel = 87;
@@ -2652,6 +2730,7 @@ class _FakeSources implements SensorSources {
   @override
   Future<BatterySample> readBattery() async {
     batteryReads++;
+    if (batteryFails) throw StateError('배터리 읽기 실패');
     return BatterySample(
       at: clock(),
       chargeUah: 3012000,
@@ -2692,6 +2771,21 @@ class _FakeScheduler implements WakeScheduler {
   void cancel(Object handle) => scheduled.remove(handle);
 }
 
+/// 시작하자마자 오류를 던지는 정책.
+class _ThrowingPolicy implements CollectionPolicy {
+  @override
+  String get id => 'throwing';
+
+  @override
+  Map<String, Object> get params => const {};
+
+  @override
+  List<PolicyAction> onStart(PolicyContext ctx) => throw StateError('정책 오류');
+
+  @override
+  List<PolicyAction> onEvent(PolicyEvent event, PolicyContext ctx) => const [];
+}
+
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
 void main() {
@@ -2705,14 +2799,14 @@ void main() {
 
   List<String> lines(String name) => File(p.join(dir.path, name)).readAsLinesSync();
 
-  Future<PolicyRecorder> recorder(PolicyChoice choice) async {
+  Future<PolicyRecorder> recorder(PolicyChoice choice, {CollectionPolicy? policy}) async {
     files = await PolicySessionFiles.open(dir);
     return PolicyRecorder(
       sources: sources,
       files: files,
       clock: () => now,
       onError: errors.add,
-      policy: createPolicy(choice.policyId, choice.policyParams),
+      policy: policy ?? createPolicy(choice.policyId, choice.policyParams),
       detector: createDetector(choice.detectorId, choice.detectorParams),
       location: location,
       scheduler: scheduler,
@@ -2806,6 +2900,106 @@ void main() {
     expect(summary['detector_id'], 'os');
     expect(summary['fix_requests'], 1);
     expect(summary['duration_s'], 120.0);
+  });
+
+  group('센서 값은 실행기로 간다', () {
+    test('OS 걸음 센서 값은 걸음 감지기로 가서 측위 뒤 걸음 수가 된다', () async {
+      final r = await recorder(const PolicyChoice(policyId: 'still_suppress', detectorId: 'os'));
+      await r.start();
+      expect(sources.stepsController.hasListener, isTrue);
+
+      sources.stepsController
+        ..add(OsStepSample(at: now, kind: OsStepKind.count, value: '100'))
+        ..add(OsStepSample(at: now.add(const Duration(seconds: 1)), kind: OsStepKind.count, value: '112'));
+      await _settle();
+      expect(r.status.stepsSinceFix, 12);
+    });
+
+    test('가속도는 1초 묶음으로 걸음 감지기에 가서 정책 상태를 바꾼다', () async {
+      final r = await recorder(const PolicyChoice(policyId: 'step_budget', detectorId: 'adaptive'));
+      await r.start();
+      expect(r.status.policyState, 'unknown');
+
+      for (var ms = 0; ms <= 2000; ms += 10) {
+        sources.accelController.add(AccelSample(at: now.add(Duration(milliseconds: ms)), x: 0, y: 9.81, z: 0));
+      }
+      await _settle();
+      expect(r.status.policyState, 'still'); // 제안판 감지기가 첫 1초 묶음에서 정지를 알렸다
+    });
+
+    test('활동 인식 값은 activity_gated로 가서, 확실한 정지면 연속 측위를 끈다', () async {
+      final r = await recorder(const PolicyChoice(policyId: 'activity_gated', detectorId: 'os'));
+      await r.start();
+
+      sources.activityController.add(ActivitySample(at: now, type: 'STILL', confidence: 'HIGH'));
+      await _settle();
+      await r.tick();
+      expect(lines('actions.csv').skip(1).map((l) => l.split(',')[1]), ['start_continuous', 'stop_continuous']);
+    });
+  });
+
+  test('배터리는 시작할 때와 그 뒤 30초마다 읽는다', () async {
+    final r = await recorder(const PolicyChoice(policyId: 'fixed_1m', detectorId: 'os'));
+    await r.start();
+    expect(sources.batteryReads, 1);
+
+    now = now.add(const Duration(seconds: 29));
+    await r.tick();
+    expect(sources.batteryReads, 1);
+    now = now.add(const Duration(seconds: 1));
+    await r.tick();
+    expect(sources.batteryReads, 2);
+    expect(lines('battery.csv'), hasLength(3)); // 머리줄 + 두 번
+  });
+
+  group('오류가 나도 기록을 이어간다', () {
+    test('센서 하나가 오류를 내면 오류를 남기고 계속 듣는다', () async {
+      final r = await recorder(const PolicyChoice(policyId: 'step_budget', detectorId: 'adaptive'));
+      await r.start();
+
+      sources.accelController.addError(StateError('센서 끊김'));
+      await _settle();
+      expect(errors.single.source, 'accel');
+      expect(r.status.errorCount, 1);
+      expect(sources.accelController.hasListener, isTrue);
+    });
+
+    test('배터리 읽기가 실패해도 오류를 남기고 정책은 그대로 돈다', () async {
+      sources.batteryFails = true;
+      final r = await recorder(const PolicyChoice(policyId: 'fixed_1m', detectorId: 'os'));
+      await r.start();
+
+      expect(errors.single.source, 'battery');
+      expect(location.requests, hasLength(1));
+    });
+
+    test('실행기가 알린 오류(정책 오류)도 오류로 남긴다', () async {
+      final r = await recorder(const PolicyChoice(policyId: 'fixed_1m', detectorId: 'os'), policy: _ThrowingPolicy());
+      await r.start();
+
+      expect(errors.single.source, 'runner');
+    });
+
+    test('센서를 끊다 오류가 나도 summary.json을 쓰고 마친다', () async {
+      sources.cancelThrows = true;
+      final r = await recorder(const PolicyChoice(policyId: 'step_budget', detectorId: 'adaptive'));
+      await r.start();
+
+      await r.stop();
+      expect(errors.map((e) => e.source), contains('stop'));
+      expect(File(p.join(dir.path, 'summary.json')).existsSync(), isTrue);
+    });
+  });
+
+  test('stop하면 센서 구독을 끊고, start·stop을 두 번 불러도 괜찮다', () async {
+    final r = await recorder(const PolicyChoice(policyId: 'step_budget', detectorId: 'adaptive'));
+    await r.start();
+    await r.start(); // 단일 구독 스트림을 두 번 들으면 StateError가 난다
+    expect(sources.batteryReads, 1);
+
+    await r.stop();
+    expect(sources.accelController.hasListener, isFalse);
+    await r.stop();
   });
 }
 ```
@@ -3126,6 +3320,8 @@ class PolicyRecorder implements SessionRecorder {
 
   @override
   Future<void> start() async {
+    // 두 번 불러도 센서를 두 번 구독하지 않는다(실행기도 한 번만 시작한다).
+    if (_startedAt != null) return;
     _startedAt = clock();
     _runner.start();
     if (needs.accel) {
@@ -3191,20 +3387,28 @@ class PolicyRecorder implements SessionRecorder {
 
   @override
   Future<void> stop() async {
-    for (final subscription in _subscriptions) {
-      await subscription.cancel();
-    }
-    _subscriptions.clear();
-    final summary = await _runner.stop();
     try {
-      await files.summaryFile.writeAsString(
-        const JsonEncoder.withIndent('  ').convert(summary.toJson()),
-        flush: true,
-      );
-    } catch (e) {
-      _reportError('summary', e);
+      for (final subscription in _subscriptions) {
+        try {
+          await subscription.cancel();
+        } catch (e) {
+          // 센서 하나를 끊다 실패해도(플랫폼 채널) 요약을 쓰고 파일을 닫는다 — R6가 읽는 summary.json을 잃지 않게.
+          _reportError('stop', e);
+        }
+      }
+      _subscriptions.clear();
+      final summary = await _runner.stop();
+      try {
+        await files.summaryFile.writeAsString(
+          const JsonEncoder.withIndent('  ').convert(summary.toJson()),
+          flush: true,
+        );
+      } catch (e) {
+        _reportError('summary', e);
+      }
+    } finally {
+      await files.closeAll();
     }
-    await files.closeAll();
   }
 
   Future<void> _readBattery() async {
@@ -3277,6 +3481,7 @@ git commit -m "feat(app): 고른 정책만 돌려 측위 결과와 배터리를 
 - Modify (전체 교체): `app/test/footsteps/lab/fake_recording_controller.dart`
 - Test: `app/test/footsteps/recording/plugin_location_port_test.dart`
 - Test: `app/test/footsteps/recording/policy_mode_config_test.dart`
+- Test: `app/test/footsteps/recording/session_recorder_factory_test.dart`
 
 **Interfaces:**
 - Consumes:
@@ -3398,9 +3603,57 @@ void main() {
 }
 ```
 
+`app/test/footsteps/recording/session_recorder_factory_test.dart`:
+
+```dart
+import 'dart:io';
+
+import 'package:app/features/footsteps/recording/policy_choice.dart';
+import 'package:app/features/footsteps/recording/recording_config.dart';
+import 'package:app/features/footsteps/recording/recording_mode.dart';
+import 'package:app/features/footsteps/recording/session_meta.dart';
+import 'package:app/features/footsteps/recording/session_recorder_factory.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  late Directory dir;
+
+  setUp(() async => dir = await Directory.systemTemp.createTemp('session_recorder_factory_test'));
+  tearDown(() => dir.delete(recursive: true));
+
+  Future<void> open(PolicyChoice? policy) => openSessionRecorder(
+        RecordingConfig(
+          mode: RecordingMode.policy,
+          sessionDir: dir.path,
+          carryInitial: 'hand',
+          policy: policy,
+        ),
+        dir,
+        clock: DateTime.now,
+        onError: (SessionError _) {},
+      );
+
+  // 잘못된 설정은 세션 파일을 만들기 전에 멈춰야 한다 — 빈 CSV만 남은 세션이 분석에 섞이지 않게.
+  test('정책 실행 모드인데 고른 정책이 없으면 파일을 만들기 전에 멈춘다', () async {
+    await expectLater(open(null), throwsStateError);
+    expect(dir.listSync(), isEmpty);
+  });
+
+  test('모르는 정책·감지기나 잘못된 파라미터면 파일을 만들기 전에 멈춘다', () async {
+    await expectLater(open(const PolicyChoice(policyId: 'nope', detectorId: 'os')), throwsArgumentError);
+    await expectLater(open(const PolicyChoice(policyId: 'step_budget', detectorId: 'nope')), throwsArgumentError);
+    await expectLater(
+      open(const PolicyChoice(policyId: 'step_budget', detectorId: 'os', policyParams: {'e_m': 'abc'})),
+      throwsArgumentError,
+    );
+    expect(dir.listSync(), isEmpty);
+  });
+}
+```
+
 - [ ] **Step 2: 실패 확인**
 
-Run (`app/`에서): `flutter test test/footsteps/recording/plugin_location_port_test.dart test/footsteps/recording/policy_mode_config_test.dart`
+Run (`app/`에서): `flutter test test/footsteps/recording/plugin_location_port_test.dart test/footsteps/recording/policy_mode_config_test.dart test/footsteps/recording/session_recorder_factory_test.dart`
 Expected: 컴파일 오류(`plugin_location_port.dart`·`RecordingMode.policy`·`policy` 인자 없음)
 
 - [ ] **Step 3: 구현**
@@ -3448,6 +3701,10 @@ class GeolocatorLocationPort implements LocationPort {
 
 /// geolocator의 위치를 정책이 쓰는 [Fix]로 바꾼다. 시각은 앱이 받은 시각이다 — gps.csv의 t_ms와 같은 뜻이고,
 /// 재생기도 이 시각을 '그 위치를 알 수 있게 된 때'로 쓴다. 속도·방향이 음수면 기기가 모르는 것이라 null이다.
+///
+/// 안드로이드는 속도·방향이 없는 위치(네트워크 측위 등)에서 그 값을 빼고 보내고, geolocator가 0.0으로 채운다. 그래서
+/// 속도 0은 '멈춤'과 '모름'을 가르지 못한다(음수만 null로 바꿀 수 있다). R1 정답 기록의 gps.csv도 같은 경로라
+/// 재생과 실기기가 같은 값을 본다.
 Fix fixFromPosition(Position position, DateTime receivedAt) => Fix(
       tMs: receivedAt.millisecondsSinceEpoch,
       lat: position.latitude,
@@ -4681,6 +4938,8 @@ Git Bash에서는 `/sdcard` 경로가 바뀌지 않게 `MSYS_NO_PATHCONV=1`을 �
 - `summary.json`의 `gps_on_s`(추정 GPS 켜짐 시간)와 `batterystats.txt`의 GPS 사용 시간을 견준다.
 - `wakeups.csv`·`wake_delay_*`: 화면이 꺼지면 타이머가 늦게 깰 수 있다. 지연이 크면 정책이 의도보다 드물게 쟀다는 뜻이라 보고서 한계에 적는다(설계 10장 위험 3).
 - `fix_failures`가 많으면(실내·지하철) 정책이 다시 시도하는 간격을 늘렸는지 `actions.csv`로 본다.
+- `meta.json`의 errors에 `restarted by system`이 있으면 그 회차는 분석에서 뺀다. 시스템이 기록 서비스를 다시 띄우면 정책이 처음부터 다시 돌고, `summary.json`은 다시 시작한 뒤만 센다.
+- 안드로이드는 속도가 없는 위치를 속도 0으로 준다(멈춤과 구분되지 않는다). 속도를 쓰는 기준 정책(`time_speed`·`speed_adaptive`)을 해석할 때 참고한다.
 - 결과 폴더(`research/results/`)와 세션(`research/data/`)은 커밋하지 않는다.
 ````
 
@@ -4694,7 +4953,7 @@ Git Bash에서는 `/sdcard` 경로가 바뀌지 않게 `MSYS_NO_PATHCONV=1`을 �
 
 ```markdown
 | `still_suppress` | Zhuang 외(2010): 1분마다 확인, 직전·이번 확인이 모두 정지면 건너뜀, 억제 중에도 5분마다 확인 측위 | `interval_s`(기본 60), `verify_s`(기본 300) |
-| `step_budget` | **제안**: 보행은 '오차 + 걸음 수 × 보폭 > E'일 때(최소 5초 간격), 정지는 30초 이어지면 한 번 + 5분 확인, 기타 움직임은 확인 측위 두 번으로 탈것(시속 12km 이상)이면 time_speed 규칙(감지기 정지와 측위상 한 자리가 2분 넘을 때만 정지로) | `e_m`(50), `stride_m`(0.75), `use_steps`·`suppress_still`·`vehicle_probe`(true, 절제 실험) |
+| `step_budget` | **제안**: 보행은 '오차 + 걸음 수 × 보폭 > E'일 때(최소 5초 간격), 정지는 30초 이어지면 한 번 + 5분 확인, 기타 움직임은 확인 측위 두 번으로 탈것(시속 12km 이상)이면 time_speed 규칙(감지기 정지와 측위상 한 자리가 2분, GPS가 흔들리면 E 안 5분 넘을 때만 정지로) | `e_m`(50), `stride_m`(0.75), `use_steps`·`suppress_still`·`vehicle_probe`(true, 절제 실험) |
 ```
 
 그 표 아래의 `제안 정책 `step_budget`은 R4에서, 걸음 감지기 `brajdic`·`adaptive`는 R3에서 추가된다. 지금 감지기는 `os`(OS 걸음 센서)뿐이다.` 줄을 지우고, 그 자리에 다음 문단을 넣는다:
@@ -4714,7 +4973,7 @@ Git Bash에서는 `/sdcard` 경로가 바뀌지 않게 `MSYS_NO_PATHCONV=1`을 �
 
 2. `step_budget` 규칙 표의 '정지' 행 동작 칸 전체를 다음으로 바꾼다: `정지가 30초 이어지면 한 번 측위하고(머문 곳 위치) 이후 측위하지 않는다. 대신 5분마다 확인 측위를 해, 머문 곳에서 벗어났으면(걸음 없이 움직이는 버스) 탈것 상태로 바꾼다.`
 
-3. '기타 움직임' 행 동작 칸을 다음으로 바꾼다: `30초 이어지면 30초 간격 확인 측위 두 번으로 속도를 본다. 두 위치가 두 오차의 합보다 멀고 시속 12km 이상이면 탈것 상태로 보고 `time_speed` 규칙으로 측위한다(속도 하한 시속 12km). 탈것에서 잠깐 정지(빨간불·정류장)는 탈것 그대로이고, 감지기 정지와 측위상 한 자리(마지막으로 움직인 측위의 두 오차 안)가 둘 다 2분 넘게 이어질 때만 정지로 바꾼다. 느리면 정지처럼 5분마다 확인한다. 걸음이 다시 나오면 보행으로 돌아간다.`
+3. '기타 움직임' 행 동작 칸을 다음으로 바꾼다: `30초 이어지면 30초 간격 확인 측위 두 번으로 속도를 본다. 두 위치가 두 오차의 합보다 멀고 시속 12km 이상이면 탈것 상태로 보고 `time_speed` 규칙으로 측위한다(속도 하한 시속 12km). 탈것에서 잠깐 정지(빨간불·정류장)는 탈것 그대로이고, 감지기 정지와 측위상 한 자리(마지막으로 움직인 측위의 두 오차 안)가 둘 다 2분 넘게 이어질 때만 정지로 바꾼다(GPS가 오차보다 크게 흔들려도 E 안에 5분 머물면 정지). 느리면 정지처럼 5분마다 확인한다. 걸음이 다시 나오면 보행으로 돌아간다.`
 
    '보행' 행 동작 칸 끝에 다음 문장을 더한다: `단, 마지막 측위 뒤 5초 안에는 다시 재지 않는다(오차만으로 E를 넘는 빌딩 숲·실내에서 연속 측위가 되지 않게, time_speed와 같은 최소 간격).`
 
