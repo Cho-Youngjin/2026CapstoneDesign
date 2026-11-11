@@ -38,6 +38,10 @@ class GeolocatorLocationPort implements LocationPort {
 
 /// geolocator의 위치를 정책이 쓰는 [Fix]로 바꾼다. 시각은 앱이 받은 시각이다 — gps.csv의 t_ms와 같은 뜻이고,
 /// 재생기도 이 시각을 '그 위치를 알 수 있게 된 때'로 쓴다. 속도·방향이 음수면 기기가 모르는 것이라 null이다.
+///
+/// 안드로이드는 속도·방향이 없는 위치(네트워크 측위 등)에서 그 값을 빼고 보내고, geolocator가 0.0으로 채운다. 그래서
+/// 속도 0은 '멈춤'과 '모름'을 가르지 못한다(음수만 null로 바꿀 수 있다). R1 정답 기록의 gps.csv도 같은 경로라
+/// 재생과 실기기가 같은 값을 본다.
 Fix fixFromPosition(Position position, DateTime receivedAt) => Fix(
       tMs: receivedAt.millisecondsSinceEpoch,
       lat: position.latitude,
