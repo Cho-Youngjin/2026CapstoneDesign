@@ -7,7 +7,7 @@ import pytest
 from analysis.config import load_experiment
 from analysis.geo import offset
 from analysis.reconstruct import ServerUnavailable
-from analysis.run import main, run_experiment, write_tables
+from analysis.run import main, run_experiment, table_columns, write_tables
 from conftest import LAT0, LNG0, T0, gps_row, make_session, write_csv
 
 
@@ -121,3 +121,134 @@ def test_main_with_no_reconstruct(experiment, monkeypatch, capsys):
     code = main(["--config", str(experiment.base / "experiments.yaml"), "--no-reconstruct", "--no-plots"])
     assert code == 0
     assert "local_straight" in capsys.readouterr().out
+
+
+def _rewrite_sessions(experiment, text):
+    experiment.sessions_file.write_text(text, encoding="utf-8")
+    return load_experiment(experiment.base / "experiments.yaml")
+
+
+def test_end_to_end_columns_match_fixed_headers(experiment):
+    """빈 표에 쓰는 고정 머리줄(table_columns)이 실제 행의 열과 같아야 한다 — 어긋나면 빈 표와 찬 표의 열이 달라진다."""
+    t = run_experiment(experiment, FakeCli(), FakeClient())
+    for name, cols in table_columns().items():
+        assert list(t[name].columns) == cols, name
+
+
+def test_broken_session_does_not_abort_batch(experiment, tmp_path):
+    data = tmp_path / "data"
+    make_session(data, "badmeta", gps=[gps_row(T0 + k * 1000, k, 0) for k in range(5)])
+    (data / "badmeta" / "meta.json").write_text("{bad", encoding="utf-8")
+    make_session(data, "badbat", battery=[[T0, 1, 1, 1, 1, 0]])
+    (data / "badbat" / "meta.json").write_text("{bad", encoding="utf-8")
+    make_session(data, "nosummary", gps=[gps_row(T0 + k * 1000, k, 0) for k in range(5)])
+    exp = _rewrite_sessions(experiment, "sessions:\n  - {id: badmeta, use: pilot}\n  - {id: badbat, use: battery}\n"
+                                        "  - {id: nosummary, use: pilot}\n  - {id: p1, use: pilot}\n")
+
+    class BrokenSummaryCli(FakeCli):
+        def replay(self, session_dir, spec, out, force=False):
+            super().replay(session_dir, spec, out, force)
+            if Path(session_dir).name == "nosummary":
+                (out / "summary.json").write_text("{not json", encoding="utf-8")
+            return out
+
+    t = run_experiment(exp, BrokenSummaryCli(), client=None)
+    # 망가진 세션은 skipped로 가고, 멀쩡한 p1은 끝까지 돌아 지표가 나온다
+    assert set(t["skipped"]["session"]) >= {"badmeta", "badbat", "nosummary"}
+    assert set(t["path_metrics"]["session"]) == {"p1"}
+    assert "p1" in t["step_metrics"]["session"].tolist()
+
+
+def test_metric_error_is_isolated(experiment, monkeypatch):
+    import analysis.run as run_mod
+    real = run_mod.path_metrics
+    calls = {"n": 0}
+
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ValueError("지표 오류")
+        return real(*a, **k)
+
+    monkeypatch.setattr(run_mod, "path_metrics", flaky)
+    t = run_experiment(experiment, FakeCli(), FakeClient())
+    assert "지표 오류" in " ".join(t["skipped"]["reason"])
+    assert "straight" in t["path_metrics"]["method"].tolist()      # 첫 방법이 실패해도 다음 방법은 돈다
+
+
+class CountingClient:
+    def __init__(self, fallback):
+        self.fallback, self.calls = fallback, []
+
+    def reconstruct(self, fixes, stays, method, hmm=None):
+        self.calls.append((method, hmm))
+        a, b = offset(LAT0, LNG0, 0, 10), offset(LAT0, LNG0, 100, 10)
+        return [{"kind": "walk", "coords": [{"lat": a[0], "lng": a[1]}, {"lat": b[0], "lng": b[1]}],
+                 "fallback": self.fallback}]
+
+
+def test_all_fallback_response_is_not_cached(experiment):
+    experiment.reconstruct["methods"] = [{"name": "osrm_match_radius", "method": "osrm_match_radius", "hmm": None}]
+    down = CountingClient(fallback=True)
+    run_experiment(experiment, FakeCli(), down)
+    assert not list((experiment.results_dir / "recon").rglob("osrm_match_radius*.json"))
+    # OSRM을 켠 뒤 다시 돌리면 서버를 다시 불러 진짜 결과를 받는다
+    up = CountingClient(fallback=False)
+    t = run_experiment(experiment, FakeCli(), up)
+    assert up.calls and "osrm_match_radius" in t["path_metrics"]["method"].tolist()
+
+
+def test_stale_all_fallback_cache_is_ignored(experiment):
+    """수정 전 실행이 남긴 전부-fallback 캐시도 믿지 않는다."""
+    experiment.reconstruct["methods"] = [{"name": "osrm_match_radius", "method": "osrm_match_radius", "hmm": None}]
+    cache = experiment.results_dir / "recon" / "p1" / "fixed_1m-os-ttff0" / "osrm_match_radius.json"
+    cache.parent.mkdir(parents=True)
+    cache.write_text(json.dumps([{"kind": "walk", "coords": [], "fallback": True}]), encoding="utf-8")
+    up = CountingClient(fallback=False)
+    run_experiment(experiment, FakeCli(), up)
+    assert up.calls
+
+
+def test_cache_key_includes_hmm_params(experiment):
+    def methods(beta):
+        return [{"name": "hmm_steps", "method": "hmm_steps", "hmm": {"beta": beta}}]
+
+    client = CountingClient(fallback=False)
+    experiment.reconstruct["methods"] = methods(5)
+    run_experiment(experiment, FakeCli(), client)
+    run_experiment(experiment, FakeCli(), client)                  # 같은 조정값: 캐시 재사용
+    assert [c[1] for c in client.calls] == [{"beta": 5}]
+    experiment.reconstruct["methods"] = methods(10)
+    run_experiment(experiment, FakeCli(), client)                  # 조정값이 바뀌면 다시 받는다
+    assert [c[1] for c in client.calls] == [{"beta": 5}, {"beta": 10}]
+
+
+def test_empty_tables_keep_fixed_headers(experiment, monkeypatch):
+    import pandas as pd
+    import analysis.run as run_mod
+    monkeypatch.setattr(run_mod, "DartCli", lambda *a, **k: FakeCli())
+    code = main(["--config", str(experiment.base / "experiments.yaml"), "--no-reconstruct", "--no-plots",
+                 "--session", "gone"])
+    assert code == 0
+    for name, cols in table_columns().items():
+        df = pd.read_csv(experiment.results_dir / f"{name}.csv")
+        assert df.empty and list(df.columns) == cols, name
+    assert "mean_m" in pd.read_csv(experiment.results_dir / "path_metrics.csv").columns
+    assert "mah_per_h" in pd.read_csv(experiment.results_dir / "battery_runs.csv").columns
+
+
+def test_unknown_session_id_is_an_error(experiment, monkeypatch, capsys):
+    import analysis.run as run_mod
+    monkeypatch.setattr(run_mod, "DartCli", lambda *a, **k: FakeCli())
+    with pytest.raises(SystemExit) as e:
+        main(["--config", str(experiment.base / "experiments.yaml"), "--no-reconstruct", "--no-plots",
+              "--session", "typo"])
+    assert e.value.code != 0
+    assert "typo" in capsys.readouterr().err
+
+
+def test_help_mentions_cwd_relative_dirs(capsys):
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert out.count("현재 디렉터리 기준") >= 2

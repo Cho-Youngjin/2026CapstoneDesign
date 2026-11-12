@@ -42,6 +42,18 @@ def test_repo_config_files_load():
     assert all(s["use"] in {"pilot", "eval", "battery"} for s in load_sessions(exp.sessions_file))
 
 
+def test_token_env_overrides_yaml(tmp_path, monkeypatch):
+    cfg = tmp_path / "e.yaml"
+    cfg.write_text("reconstruct:\n  token: from-yaml\n", encoding="utf-8")
+    monkeypatch.delenv("TF_TOKEN", raising=False)
+    assert load_experiment(cfg).reconstruct["token"] == "from-yaml"
+    monkeypatch.setenv("TF_TOKEN", "from-env")
+    assert load_experiment(cfg).reconstruct["token"] == "from-env"
+    monkeypatch.delenv("TF_TOKEN")
+    cfg.write_text("reconstruct: {}\n", encoding="utf-8")
+    assert load_experiment(cfg).reconstruct["token"] == "dev-fake-token"
+
+
 def test_overrides(tmp_path):
     exp = load_experiment(RESEARCH / "experiments.yaml", data_dir=tmp_path / "d", results_dir=tmp_path / "r")
     assert exp.data_dir == tmp_path / "d" and exp.results_dir == tmp_path / "r"

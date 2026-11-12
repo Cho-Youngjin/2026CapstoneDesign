@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import itertools
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -123,7 +124,8 @@ def load_experiment(path: Path, data_dir: Path | None = None, results_dir: Path 
         local_straight=bool(c.get("local_straight", True)),
         reconstruct={"enabled": bool(rec.get("enabled", False)),
                      "server_url": rec.get("server_url", "http://localhost:9090"),
-                     "token": rec.get("token", "dev-fake-token"),
+                     # 실제 토큰을 YAML(저장소에 커밋됨)에 적지 않게 환경변수가 우선한다. YAML 기본값은 로컬 더미 토큰이다.
+                     "token": os.environ.get("TF_TOKEN") or rec.get("token", "dev-fake-token"),
                      "timeout_s": float(rec.get("timeout_s", 120)),
                      "skip_all_fallback": bool(rec.get("skip_all_fallback", True)),
                      "methods": _methods(rec.get("methods", ["straight", "osrm_match_radius", "hmm_steps"]))},
