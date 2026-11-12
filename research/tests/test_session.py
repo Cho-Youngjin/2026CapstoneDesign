@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
 
-from analysis.session import (Interval, carry_at, count_intervals, in_intervals, load_session, paired_intervals,
-                              stay_intervals, truth_points, vehicle_intervals)
+from analysis.session import (BATTERY_COLUMNS, GPS_COLUMNS, MARK_COLUMNS, Interval, carry_at, count_intervals,
+                              in_intervals, load_session, paired_intervals, read_csv, stay_intervals, truth_points,
+                              vehicle_intervals)
 from conftest import T0, gps_row, make_session
 
 
@@ -16,6 +17,19 @@ def test_load_session_reads_files_and_drops_broken_rows(tmp_path):
     assert list(s.gps["t_ms"]) == [T0, T0 + 1000]      # 시각순, 깨진 행 버림
     assert s.start_ms == 1794227600000                 # startedAt
     assert s.end_ms == T0 + 1000                       # endedAt이 없으면 마지막 기록 시각
+
+
+def test_zero_byte_csv_is_treated_like_missing(tmp_path):
+    # adb pull이 중간에 끊기면 0바이트 CSV가 남는다. pd.read_csv가 EmptyDataError를 내지 않아야 한다.
+    d = make_session(tmp_path, gps=[gps_row(T0, 0, 0)])
+    (d / "gps.csv").write_bytes(b"")
+    (d / "marks.csv").write_bytes(b"")
+    s = load_session(d)
+    assert s.gps.empty and list(s.gps.columns) == GPS_COLUMNS
+    assert s.marks.empty and list(s.marks.columns) == MARK_COLUMNS
+    (d / "battery.csv").write_bytes(b"")
+    b = read_csv(d / "battery.csv", BATTERY_COLUMNS, ["t_ms", "charge_uah", "current_ua", "plugged"])
+    assert b.empty and list(b.columns) == BATTERY_COLUMNS
 
 
 def test_load_session_missing_folder(tmp_path):

@@ -55,7 +55,12 @@ def is_match(detected: dict, truth: dict, min_overlap: float = 0.5, max_distance
 
 def stay_scores(detected: list[dict], truth: list[dict], min_overlap: float = 0.5,
                 max_distance_m: float = 100) -> dict:
-    """일대일로 짝짓는다(겹친 시간이 긴 쌍부터). 분모가 0인 값은 None이다."""
+    """일대일로 짝짓는다(겹친 시간이 긴 쌍부터).
+
+    분모가 0이라 정의되지 않는 정밀도(검출 0개)·재현율(정답 0개)은 None이다. F1은 한쪽이라도 비어 있으면서
+    다른 쪽에 값이 있을 때 0.0이다: 정답이 있는데 하나도 못 찾은 정책이 평균·그래프에서 None으로 사라지면
+    오히려 못한 정책이 비교에서 빠져 좋아 보이기 때문이다. 둘 다 비면 셋 다 None이다.
+    """
     pairs = [(_overlap_ms(d, t), i, j) for i, d in enumerate(detected) for j, t in enumerate(truth)
              if is_match(d, t, min_overlap, max_distance_m)]
     used_d, used_t, tp = set(), set(), 0
@@ -67,8 +72,10 @@ def stay_scores(detected: list[dict], truth: list[dict], min_overlap: float = 0.
         tp += 1
     precision = tp / len(detected) if detected else None
     recall = tp / len(truth) if truth else None
-    if precision is None or recall is None:
+    if not detected and not truth:
         f1 = None
+    elif precision is None or recall is None:
+        f1 = 0.0
     else:
         f1 = 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
     return {"stays_detected": len(detected), "stays_truth": len(truth), "stay_tp": tp,

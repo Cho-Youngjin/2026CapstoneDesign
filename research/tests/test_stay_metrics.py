@@ -42,9 +42,15 @@ def test_scores_one_to_one():
 
 
 def test_scores_empty_sides():
-    assert stay_scores([], [])["stay_f1"] is None
+    s = stay_scores([], [])
+    assert s["stay_precision"] is None and s["stay_recall"] is None and s["stay_f1"] is None
+    # 정답이 있는데 하나도 못 찾은 정책은 F1 = 0.0이다(None이 아니다). None이면 평균·그래프에서 사라져
+    # 오히려 못한 정책이 비교에서 빠진 것처럼 보인다. 정밀도는 분모가 0이라 정의되지 않아 None으로 둔다.
     s = stay_scores([], [_stay(0, 20)])
-    assert s["stay_precision"] is None and s["stay_recall"] == 0.0 and s["stay_f1"] is None
+    assert s["stay_precision"] is None and s["stay_recall"] == 0.0 and s["stay_f1"] == 0.0
+    # 반대로 정답이 없는데 검출만 있으면 정밀도 0.0, 재현율은 정의되지 않음(None), F1 = 0.0
+    s = stay_scores([_stay(0, 20)], [])
+    assert s["stay_precision"] == 0.0 and s["stay_recall"] is None and s["stay_f1"] == 0.0
     s = stay_scores([_stay(0, 20)], [_stay(100, 120)])
     assert s["stay_precision"] == 0.0 and s["stay_recall"] == 0.0 and s["stay_f1"] == 0.0
 

@@ -57,7 +57,8 @@ def charge_rate(battery: pd.DataFrame, align_steps: bool = True) -> dict:
         return out
     out["hours"] = hours
     out["mah_used"] = (c[i] - c[j]) / 1000
-    out["mah_per_h"] = out["mah_used"] / hours
+    # 전하량이 오히려 늘었으면(충전 등) 소모율이 아니므로 음수 대신 None으로 둔다(요약에서 값 없는 회차로 빠진다).
+    out["mah_per_h"] = out["mah_used"] / hours if out["mah_used"] >= 0 else None
     return out
 
 
@@ -80,24 +81,36 @@ def parse_duration_ms(text: str) -> int:
 
 _GPS_LINE = re.compile(r"Sensor GPS:\s*((?:\d+(?:h|ms|m|s)\s*)+)")
 _UID_LINE = re.compile(r"^\s*(?:Uid\s+)?(u\d+a\d+|\d+):\s*$")
+_STATS_SECTION = re.compile(r"Statistics since")
+_TOP_LEVEL_INDENT = 2      # uid·패키지 헤더 줄은 들여쓰기가 2칸 이하이고, 그 안의 'Sensor GPS' 같은 줄은 더 깊다
 
 
 def gps_seconds_from_batterystats(text: str, package: str | None = None) -> dict:
     """dumpsys batterystats 출력에서 'Sensor GPS: … realtime' 줄의 시간을 더한다(최선 노력, 형식이 기종·버전마다 다르다).
 
     - gps_s_total: 모든 앱의 합
-    - gps_s_app: package가 든 Uid 묶음의 합(그 묶음에 'Apk <package>' 또는 패키지 이름 줄이 있을 때). 못 찾으면 None
+    - gps_s_app: package의 'Apk <package>:' 줄이 든 Uid 묶음의 합. 못 찾으면 None
+      (패키지 이름이 그냥 들어 있는 줄이나 'com.x.app.debug' 같은 다른 패키지로는 앱 uid로 치지 않는다)
+    - 'Statistics since …' 구간이 여럿이면 첫 구간만 쓴다(같은 센서 시간이 구간마다 겹쳐 두 번 더해지는 것을 막는다)
     """
+    lines = text.splitlines()
+    starts = [k for k, line in enumerate(lines) if _STATS_SECTION.search(line)]
+    if len(starts) > 1:
+        lines = lines[:starts[1]]
+    apk_line = re.compile(rf"^\s*Apk\s+{re.escape(package)}:") if package else None
     total = 0
     per_uid: dict[str, int] = {}
     uid_packages: dict[str, set[str]] = {}
     uid = None
-    for line in text.splitlines():
+    for line in lines:
         m = _UID_LINE.match(line)
         if m:
             uid = m.group(1)
             continue
-        if uid is not None and package and package in line:
+        # uid 정규식에 안 맞는 다른 최상위 헤더(다른 형식의 Uid 줄 등)를 만나면 앞 uid를 이어 쓰지 않는다.
+        if line.strip() and len(line) - len(line.lstrip()) <= _TOP_LEVEL_INDENT:
+            uid = None
+        if uid is not None and apk_line and apk_line.match(line):
             uid_packages.setdefault(uid, set()).add(package)
         g = _GPS_LINE.search(line)
         if g:
@@ -154,14 +167,19 @@ def battery_run(session_dir: Path, current_units: dict | None = None, align_step
 
 
 def battery_summary(runs: pd.DataFrame) -> pd.DataFrame:
-    """방식마다 평균 ± 표준편차(표본, ddof=1). 제외된 회차와 값이 없는 회차는 빼고 센다."""
-    cols = ["method", "n", "mah_per_h_mean", "mah_per_h_std", "current_ma_mean", "gps_s_app_mean"]
+    """방식마다 평균 ± 표준편차(표본, ddof=1). 제외된 회차와 값이 없는 회차는 빼고 센다.
+
+    n_aligned는 n회차 중 전하량 계단에 맞춰 잰(aligned) 회차 수다. n보다 작으면 일부는 처음~끝 행으로 쟀다는 뜻이다.
+    """
+    cols = ["method", "n", "n_aligned", "mah_per_h_mean", "mah_per_h_std", "current_ma_mean", "gps_s_app_mean"]
     if runs.empty:
         return pd.DataFrame(columns=cols)
     ok = runs[runs["excluded"].isna() & runs["mah_per_h"].notna()]
     rows = []
     for method, g in ok.groupby("method", sort=True):
-        rows.append({"method": method, "n": len(g), "mah_per_h_mean": g["mah_per_h"].mean(),
+        rows.append({"method": method, "n": len(g),
+                     "n_aligned": int(g["aligned"].fillna(False).astype(bool).sum()) if "aligned" in g else 0,
+                     "mah_per_h_mean": g["mah_per_h"].mean(),
                      "mah_per_h_std": g["mah_per_h"].std(ddof=1) if len(g) > 1 else None,
                      "current_ma_mean": g["current_ma"].mean(),
                      "gps_s_app_mean": g["gps_s_app"].mean() if g["gps_s_app"].notna().any() else None})

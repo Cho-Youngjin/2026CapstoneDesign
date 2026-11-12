@@ -69,6 +69,61 @@ Statistics since last charge:
     assert gps_seconds_from_batterystats("nothing", "x") == {"gps_s_total": None, "gps_s_app": None}
 
 
+def test_charge_rate_charging_gives_no_rate():
+    # 전하량이 오히려 늘었으면(충전) 음수 소모율 대신 None
+    b = _battery([[T0, 3_700_000, -1, 100, 30, 0], [T0 + H, 3_707_400, -1, 100, 30, 0]])
+    r = charge_rate(b, align_steps=False)
+    assert r["mah_per_h"] is None and r["mah_used"] < 0
+
+
+_APP = "com.travelfootsteps.app"
+
+
+def test_batterystats_resets_uid_on_unmatched_header():
+    # 둘째 헤더("  Uid u0a99: 1.0 (…)")는 uid 정규식에 안 맞는다. uid를 비우지 않으면 그 아래 GPS 줄이
+    # 앞선 앱(u0a245)의 것으로 잘못 더해진다.
+    text = f"""Statistics since last charge:
+  u0a245:
+    Apk {_APP}:
+    Sensor GPS: 10s 0ms realtime (1 times)
+  Uid u0a99: 1.0 ( cpu=1s )
+    Sensor GPS: 100s 0ms realtime (1 times)
+"""
+    r = gps_seconds_from_batterystats(text, _APP)
+    assert r["gps_s_total"] == pytest.approx(110.0)
+    assert r["gps_s_app"] == pytest.approx(10.0)
+
+
+def test_batterystats_app_requires_exact_apk_line():
+    # 패키지 이름이 그냥 들어 있는 줄(Service …)이나 .debug 패키지의 Apk 줄로는 앱 uid가 되지 않는다.
+    text = f"""Statistics since last charge:
+  u0a10:
+    Apk {_APP}.debug:
+    Sensor GPS: 20s 0ms realtime (1 times)
+  u0a11:
+      Service {_APP}.Foo:
+    Sensor GPS: 30s 0ms realtime (1 times)
+"""
+    r = gps_seconds_from_batterystats(text, _APP)
+    assert r["gps_s_total"] == pytest.approx(50.0) and r["gps_s_app"] is None
+    ok = text + f"  u0a12:\n    Apk {_APP}:\n    Sensor GPS: 5s 0ms realtime (1 times)\n"
+    assert gps_seconds_from_batterystats(ok, _APP)["gps_s_app"] == pytest.approx(5.0)
+
+
+def test_batterystats_uses_first_statistics_section_only():
+    text = f"""Statistics since last charge:
+  u0a12:
+    Apk {_APP}:
+    Sensor GPS: 10s 0ms realtime (1 times)
+Statistics since last unplugged:
+  u0a12:
+    Apk {_APP}:
+    Sensor GPS: 99s 0ms realtime (1 times)
+"""
+    r = gps_seconds_from_batterystats(text, _APP)
+    assert r["gps_s_total"] == pytest.approx(10.0) and r["gps_s_app"] == pytest.approx(10.0)
+
+
 def test_method_label():
     assert method_label("fixed_1m", "os", {}) == "fixed_1m"
     assert method_label("step_budget", "adaptive", {"e_m": "50"}) == "step_budget[adaptive] e_m=50"
@@ -91,5 +146,15 @@ def test_battery_run_and_summary(tmp_path):
     assert runs["excluded"].tolist()[2] == "restarted by system"
     s = battery_summary(runs)
     assert s["n"].tolist() == [2]
+    assert s["n_aligned"].tolist() == [2]      # 두 회차 모두 계단이 두 번 이상 바뀌어 정렬됨
     assert s["mah_per_h_mean"].iloc[0] == pytest.approx((7.4 + 14.8) / 2)
     assert s["mah_per_h_std"].iloc[0] == pytest.approx(pd.Series([7.4, 14.8]).std())
+
+
+def test_battery_summary_counts_aligned_runs():
+    runs = pd.DataFrame({"method": ["m", "m", "m"], "excluded": [None, None, "restarted by system"],
+                         "mah_per_h": [7.0, 9.0, 8.0], "current_ma": [1.0, 1.0, 1.0], "gps_s_app": [None] * 3,
+                         "aligned": [True, False, True]})
+    s = battery_summary(runs)
+    # 제외된 회차는 n에도 n_aligned에도 안 들어간다
+    assert s["n"].tolist() == [2] and s["n_aligned"].tolist() == [1]

@@ -91,6 +91,8 @@ def path_metrics(truth: pd.DataFrame, segments: list[dict], vehicles: list[Inter
     row.update({k: None for k in keys})
     if truth.empty:
         return row
+    # 정답이 시각순이 아니면 truth_length가 점 사이를 뒤죽박죽 이어 거리가 부풀므로 먼저 시각순으로 놓는다.
+    truth = truth.sort_values("t_ms", kind="stable").reset_index(drop=True)
     proj = LocalProjection(float(truth["lat"].iloc[0]), float(truth["lng"].iloc[0]))
     truth_xy = proj.to_xy(truth["lat"].to_numpy(), truth["lng"].to_numpy())
     row["truth_length_m"] = truth_length(truth_xy, min_hop_m)

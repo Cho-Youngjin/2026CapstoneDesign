@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pytest
 
@@ -18,6 +20,16 @@ def test_projection_round_trip():
     assert lng[1] == pytest.approx(LNG0 + 0.001)
     # 위도 0.001도 ≈ 111.19m
     assert xy[1, 1] == pytest.approx(111.19, abs=0.01)
+
+
+def test_projection_east_scale_uses_cos_lat():
+    # 경도 0.001도는 위도 0.001도(111.19m)에 cos(위도)를 곱한 길이다. cos을 빼먹으면 111.19m가 되어 걸린다.
+    proj = LocalProjection(LAT0, LNG0)
+    xy = proj.to_xy([LAT0], [LNG0 + 0.001])
+    expected = 111.19 * math.cos(math.radians(LAT0))
+    assert expected == pytest.approx(88.1, abs=0.1)
+    assert xy[0, 0] == pytest.approx(expected, abs=0.1)
+    assert xy[0, 1] == pytest.approx(0.0, abs=1e-9)
 
 
 def test_polyline_length():

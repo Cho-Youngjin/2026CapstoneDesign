@@ -56,7 +56,7 @@ def test_p95_uses_linear_percentile():
     truth = _truth([(T0 + k, 0, k) for k in range(20)])
     row = path_metrics(truth, [_seg([(-50, 0), (50, 0)])], vehicles=[], min_hop_m=0)
     assert row["mean_m"] == pytest.approx(9.5, abs=0.01)
-    assert row["p95_m"] == pytest.approx(np.percentile(np.arange(20), 95), abs=0.01)
+    assert row["p95_m"] == pytest.approx(18.05, abs=0.01)     # 손으로 센 값: 0.95 × 19 = 18.05
 
 
 def test_single_point_path_and_fallback_share():
@@ -81,6 +81,19 @@ def test_truth_length_ignores_jitter_below_min_hop():
     xy = np.array(jitter + [[50, 0]], dtype=float)
     assert truth_length(xy, min_hop_m=0) == pytest.approx(3 * 19 + 47)   # 마지막 흔들림 점(3,0)에서 50m까지 47m
     assert truth_length(xy, min_hop_m=10) == pytest.approx(50.0)
+
+
+def test_unsorted_truth_does_not_inflate_distance():
+    # 같은 100m 직선 정답을 시각순과 뒤섞인 순서로 주어도 정답 이동거리는 같아야 한다.
+    ordered = _truth([(T0 + k * 1000, k * 10, 0) for k in range(11)])
+    shuffled = ordered.iloc[[0, 5, 2, 9, 1, 10, 3, 7, 4, 8, 6]].reset_index(drop=True)
+    seg = [_seg([(0, 0), (100, 0)])]
+    want = path_metrics(ordered, seg, vehicles=[], min_hop_m=0)
+    got = path_metrics(shuffled, seg, vehicles=[], min_hop_m=0)
+    assert want["truth_length_m"] == pytest.approx(100.0, abs=0.01)
+    assert got["truth_length_m"] == pytest.approx(100.0, abs=0.01)
+    assert got["dist_err_pct"] == pytest.approx(want["dist_err_pct"], abs=0.01)
+    assert got["mean_m"] == pytest.approx(want["mean_m"], abs=0.01)
 
 
 def test_local_straight_orders_by_time():

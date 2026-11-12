@@ -58,6 +58,7 @@ def walking_scores(session: Session, states: pd.DataFrame, start_ms: int, end_ms
 
     정답 보행 = 머문 곳(arrive~depart, 길이와 상관없이)과 탈것(board~alight) 밖의 모든 시각(설계 7-2).
     횡단보도에서 서 있던 몇 초도 정답에서는 보행이라, 정밀도·재현율의 상한이 1보다 조금 낮다.
+    예측은 감지기 상태가 'walking'인 시각만 보행이고, 'otherMotion'을 포함한 나머지 상태는 모두 보행이 아닌 것으로 센다.
     """
     grid = np.arange(start_ms, end_ms, 1000, dtype="int64")
     if len(grid) == 0:

@@ -39,8 +39,9 @@ class Session:
 
 
 def read_csv(path: Path, columns: list[str], numeric: list[str]) -> pd.DataFrame:
-    """헤더 있는 CSV를 읽는다. 파일이 없으면 빈 표, 깨진 행(서비스 강제 종료 등)은 버린다."""
-    if not path.exists():
+    """헤더 있는 CSV를 읽는다. 파일이 없거나 0바이트면 빈 표, 깨진 행(서비스 강제 종료 등)은 버린다."""
+    # 0바이트 파일(adb pull이 중간에 끊긴 경우 등)은 헤더도 없어 pd.read_csv가 EmptyDataError를 낸다. 없는 파일과 같게 본다.
+    if not path.exists() or path.stat().st_size == 0:
         return pd.DataFrame(columns=columns)
     df = pd.read_csv(path, dtype=str, keep_default_na=False, on_bad_lines="skip")
     for c in columns:
