@@ -260,6 +260,27 @@ class HttpOsrmClientTest {
     }
 
     @Test
+    void 차단은_OSRM_인스턴스마다_따로라_한_나라가_멈춰도_다른_나라는_부른다() {
+        OsrmProperties two = new OsrmProperties("foot", Map.of("JP", "http://jp.osrm:5002/", "KR", "http://kr.osrm:5001/"));
+        AtomicLong now = new AtomicLong(1_000_000L);
+        HttpOsrmClient breaker = new HttpOsrmClient(builder.build(), two, now::get);
+        GeoPoint a = new GeoPoint(35.0, 139.0);
+        GeoPoint b = new GeoPoint(35.1, 139.1);
+        server.expect(requestTo(startsWith("http://kr.osrm:5001/route/v1/")))
+                .andRespond(withException(new SocketTimeoutException("read timed out")));
+        server.expect(requestTo(startsWith("http://jp.osrm:5002/route/v1/")))
+                .andRespond(withSuccess("""
+                        {"code":"Ok","routes":[{"geometry":{"coordinates":[[139.0,35.0],[139.1,35.1]]}}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(breaker.route("KR", a, b)).isEmpty();
+        assertThat(breaker.route("JP", a, b)).hasSize(2);
+        assertThat(breaker.route("KR", a, b)).isEmpty(); // KR은 아직 차단 중이라 부르지 않는다
+
+        server.verify();
+    }
+
+    @Test
     void 차단_30초가_지나면_OSRM을_다시_부른다() {
         AtomicLong now = new AtomicLong(1_000_000L);
         HttpOsrmClient breaker = new HttpOsrmClient(builder.build(), PROPS, now::get);

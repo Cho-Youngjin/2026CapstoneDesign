@@ -16,8 +16,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -46,9 +47,10 @@ public class HttpOsrmClient implements OsrmClient {
 
     private final RestClient restClient;
     private final OsrmProperties properties;
-    // 차단기가 풀리는 시각(ms). @Component는 싱글톤 빈이라 여러 요청 스레드가 이 필드를 함께 쓰므로
-    // 값을 안전하게 읽고 쓸 수 있는 AtomicLong을 쓴다. 0이면 열린 적 없다.
-    private final AtomicLong skipUntilMs = new AtomicLong();
+    // OSRM 주소(호스트:포트)마다 차단기가 풀리는 시각(ms). 국가마다 다른 OSRM 인스턴스를 쓰므로, 한 나라 서버가
+    // 멈췄다고 멀쩡한 다른 나라 서버까지 막지 않게 주소별로 따로 둔다. @Component는 싱글톤 빈이라 여러 요청
+    // 스레드가 이 맵을 함께 쓰므로 동시 접근에 안전한 ConcurrentHashMap을 쓴다.
+    private final Map<String, Long> skipUntilMs = new ConcurrentHashMap<>();
     // 현재 시각 공급자. 운영에서는 시스템 시계이고, 테스트는 30초를 실제로 기다리지 않도록 가짜 시계를 넣는다.
     private final LongSupplier nowMs;
 
@@ -226,13 +228,15 @@ public class HttpOsrmClient implements OsrmClient {
     // 연결 거부·타임아웃 같은 전송 실패(ResourceAccessException)만 차단기를 연다. 4xx/5xx는 위 onStatus가 먼저
     // 삼키므로 예외가 아니고(OSRM이 살아서 답한 것), 본문이 JSON이 아닌 경우도 서버가 응답은 한 것이라 열지 않는다.
     private JsonNode get(String url) {
-        if (nowMs.getAsLong() < skipUntilMs.get()) return null;
+        URI uri = URI.create(url);
+        String instance = String.valueOf(uri.getAuthority());
+        if (nowMs.getAsLong() < skipUntilMs.getOrDefault(instance, 0L)) return null;
         try {
-            return restClient.get().uri(URI.create(url)).retrieve()
+            return restClient.get().uri(uri).retrieve()
                     .onStatus(status -> true, (request, response) -> { })
                     .body(JsonNode.class);
         } catch (ResourceAccessException e) {
-            skipUntilMs.set(nowMs.getAsLong() + BREAKER_OPEN_MS);
+            skipUntilMs.put(instance, nowMs.getAsLong() + BREAKER_OPEN_MS);
             return null;
         } catch (RestClientException e) {
             return null;
