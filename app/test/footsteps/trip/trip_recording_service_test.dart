@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -18,6 +19,9 @@ class FakeServiceGateway implements RecordingServiceGateway {
   int starts = 0;
   int stops = 0;
 
+  /// 있으면 [start]가 이 Completer가 끝날 때까지 기다린다 — 시작 사이에 다른 시작이 끼어드는 경쟁을 재현한다.
+  Completer<void>? startGate;
+
   @override
   Future<bool> isRunning() async => running;
 
@@ -37,6 +41,7 @@ class FakeServiceGateway implements RecordingServiceGateway {
     required Function callback,
     List<NotificationButton>? notificationButtons,
   }) async {
+    await startGate?.future;
     if (running) return ServiceRequestFailure(error: ServiceAlreadyStartedException());
     starts++;
     running = true;
@@ -111,6 +116,69 @@ void main() {
 
     expect(await tripService().recordingTripId(), 7);
     expect(gateway.saves, 1);
+  });
+
+  RecordingMode savedMode() =>
+      RecordingConfig.fromJson((jsonDecode(gateway.config!) as Map).cast<String, Object?>()).mode;
+
+  /// 시작 두 개를 겹쳐 부르고 [future]들이 각각 성공했는지 돌려준다. 게이트를 열어 플러그인 시작을 끝낸다.
+  Future<List<bool>> overlap(List<Future<void> Function()> starts) async {
+    gateway.startGate = Completer<void>();
+    final results = <bool>[];
+    final futures = [
+      for (var i = 0; i < starts.length; i++)
+        starts[i]().then((_) => results.add(true), onError: (Object _) => results.add(false)),
+    ];
+    await pumpEventQueue();
+    gateway.startGate!.complete();
+    await Future.wait(futures);
+    return results;
+  }
+
+  test('실험 시작과 여행 기록 시작이 겹쳐도 하나만 켜지고, 저장된 설정은 이긴 쪽의 것이다', () async {
+    final results = await overlap([
+      () => lab().start(mode: RecordingMode.groundTruth, carryInitial: 'hand'),
+      () => tripService().start(trip),
+    ]);
+
+    expect(results.where((ok) => ok), hasLength(1));
+    expect(gateway.starts, 1);
+    expect(gateway.saves, 1);
+    expect(savedMode(), RecordingMode.groundTruth); // 먼저 부른 실험 시작이 이겼다
+    expect(await tripService().recordingTripId(), isNull); // 돌고 있는 것은 실험 세션이다
+  });
+
+  test('여행 기록 시작과 실험 시작이 겹쳐도 하나만 켜지고, 저장된 설정은 이긴 쪽의 것이다', () async {
+    final results = await overlap([
+      () => tripService().start(trip),
+      () => lab().start(mode: RecordingMode.groundTruth, carryInitial: 'hand'),
+    ]);
+
+    expect(results.where((ok) => ok), hasLength(1));
+    expect(gateway.starts, 1);
+    expect(savedMode(), RecordingMode.trip);
+    expect(await tripService().recordingTripId(), 7); // 돌고 있는 것은 여행 기록이다
+  });
+
+  test('여행 기록 시작 두 개가 겹쳐도 하나만 켜지고 먼저 부른 여행의 설정이 남는다', () async {
+    final results = await overlap([
+      () => tripService().start(trip),
+      () => tripService().start(other),
+    ]);
+
+    expect(results.where((ok) => ok), hasLength(1));
+    expect(await tripService().recordingTripId(), 7);
+    expect(gateway.saves, 1);
+  });
+
+  test('시작이 실패해도 잠금이 풀려 다음 시작이 막히지 않는다', () async {
+    gateway.running = true;
+    await expectLater(tripService().start(trip), throwsStateError);
+    gateway.running = false;
+
+    await tripService().start(trip);
+
+    expect(await tripService().recordingTripId(), 7);
   });
 
   test('여행 기록 서비스는 실험 세션을 끄지 않는다', () async {

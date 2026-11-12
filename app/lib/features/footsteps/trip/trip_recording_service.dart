@@ -53,28 +53,29 @@ class ForegroundTripRecordingService implements TripRecordingService {
   }
 
   @override
-  Future<void> start(TripPeriod trip) async {
-    // 설정은 돌고 있는 서비스도 읽는다. 거절될 시작이 먼저 덮어쓰지 않도록 저장 전에 확인한다.
-    await ensureRecordingServiceIdle(_service);
-    final config = RecordingConfig(mode: RecordingMode.trip, policy: tripPolicyChoice, trip: trip);
-    await _service.saveConfig(jsonEncode(config.toJson()));
-    final result = await _service.start(
-      notificationTitle: '${trip.countryNameKo} 여행 발걸음 기록 중',
-      notificationText: '귀국 다음 날 0시에 스스로 꺼져요 · 여행 상세에서 일시정지할 수 있어요',
-      callback: tripRecordingStartCallback,
-    );
-    if (result is ServiceRequestFailure) {
-      throw StateError('여행 기록을 시작하지 못했습니다: ${result.error}');
-    }
-  }
+  Future<void> start(TripPeriod trip) => runRecordingStartExclusively(() async {
+        // 설정은 돌고 있는 서비스도 읽는다. 거절될 시작이 먼저 덮어쓰지 않도록 저장 전에 확인한다. 실험 화면의 시작과 겹치지
+        // 않도록 확인부터 시작까지를 한 번에 하나씩만 한다.
+        await ensureRecordingServiceIdle(_service);
+        final config = RecordingConfig(mode: RecordingMode.trip, policy: tripPolicyChoice, trip: trip);
+        await _service.saveConfig(jsonEncode(config.toJson()));
+        final result = await _service.start(
+          notificationTitle: '${trip.countryNameKo} 여행 발걸음 기록 중',
+          notificationText: '귀국 다음 날 0시에 스스로 꺼져요 · 여행 상세에서 일시정지할 수 있어요',
+          callback: tripRecordingStartCallback,
+        );
+        if (result is ServiceRequestFailure) {
+          throw StateError('여행 기록을 시작하지 못했습니다: ${result.error}');
+        }
+      });
 
   @override
-  Future<void> stop() async {
-    // 실험 세션이 도는 중이면 끄지 않는다(코디네이터는 recordingTripId로 먼저 확인하지만 그 사이에 바뀔 수 있다).
-    if (await recordingTripId() == null) return;
-    final result = await _service.stop();
-    if (result is ServiceRequestFailure) {
-      throw StateError('여행 기록을 멈추지 못했습니다: ${result.error}');
-    }
-  }
+  Future<void> stop() => runRecordingStartExclusively(() async {
+        // 실험 세션이 도는 중이면 끄지 않는다. 확인과 끄기 사이에 다른 시작이 끼어들어 새 세션을 끄지 않도록 시작과 같은 잠금을 쓴다.
+        if (await recordingTripId() == null) return;
+        final result = await _service.stop();
+        if (result is ServiceRequestFailure) {
+          throw StateError('여행 기록을 멈추지 못했습니다: ${result.error}');
+        }
+      });
 }

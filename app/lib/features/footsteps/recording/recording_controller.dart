@@ -100,6 +100,17 @@ Future<void> ensureRecordingServiceIdle(RecordingServiceGateway gateway) async {
   }
 }
 
+Future<void> _startTail = Future.value();
+
+/// 기록 서비스를 켜는 순서(서비스가 비었는지 확인 → 설정·폴더 준비 → 시작)를 앱 전체에서 하나씩만 하게 한다. 실험 화면과 여행
+/// 기록은 둘 다 화면 isolate에서 돌며 확인과 시작 사이에 await가 있어, 겹치면 둘 다 "비었다"고 보고 서로의 설정을 덮어쓴
+/// 뒤 하나만 켜진다(돌고 있는 여행 기록이 실험 세션으로 보인다). 앞 작업이 실패해도 다음 작업은 이어 간다.
+Future<T> runRecordingStartExclusively<T>(Future<T> Function() action) {
+  final result = _startTail.then((_) => action());
+  _startTail = result.then((_) {}, onError: (Object _) {});
+  return result;
+}
+
 /// 기록 서비스의 알림 채널·반복 주기를 정한다. 실험 화면(ForegroundRecordingController)과 여행 기록
 /// (ForegroundTripRecordingService)이 서비스를 켜기 전에 똑같이 부른다.
 void initRecordingService() {
@@ -155,32 +166,34 @@ class ForegroundRecordingController implements RecordingController {
     if (mode == RecordingMode.trip) {
       throw ArgumentError('여행 기록은 실험 화면이 아니라 ForegroundTripRecordingService로 켭니다.');
     }
-    await ensureRecordingServiceIdle(_service);
-    final root = await _sessionsRoot();
-    final dir = Directory(p.join(root.path, sessionDirName(_clock(), mode)));
-    await dir.create(recursive: true);
-    final config = RecordingConfig(
-      mode: mode,
-      sessionDir: dir.path,
-      carryInitial: carryInitial,
-      note: note,
-      policy: policy,
-    );
-    await _service.saveConfig(jsonEncode(config.toJson()));
+    await runRecordingStartExclusively(() async {
+      await ensureRecordingServiceIdle(_service);
+      final root = await _sessionsRoot();
+      final dir = Directory(p.join(root.path, sessionDirName(_clock(), mode)));
+      await dir.create(recursive: true);
+      final config = RecordingConfig(
+        mode: mode,
+        sessionDir: dir.path,
+        carryInitial: carryInitial,
+        note: note,
+        policy: policy,
+      );
+      await _service.saveConfig(jsonEncode(config.toJson()));
 
-    final result = await _service.start(
-      notificationTitle: '발걸음 실험 기록 중',
-      notificationText: switch (mode) {
-        RecordingMode.groundTruth => '정답 기록 모드 · 알림 버튼으로 도착·탑승을 표시하세요',
-        RecordingMode.policy => '정책 실행 모드(${policy?.policyId}) · 알림 버튼으로 도착·탑승을 표시하세요',
-        RecordingMode.trip => '', // 위에서 막았다
-      },
-      notificationButtons: recordingNotificationButtons(FieldState()),
-      callback: recordingStartCallback,
-    );
-    if (result is ServiceRequestFailure) {
-      throw StateError('기록 서비스를 시작하지 못했습니다: ${result.error}');
-    }
+      final result = await _service.start(
+        notificationTitle: '발걸음 실험 기록 중',
+        notificationText: switch (mode) {
+          RecordingMode.groundTruth => '정답 기록 모드 · 알림 버튼으로 도착·탑승을 표시하세요',
+          RecordingMode.policy => '정책 실행 모드(${policy?.policyId}) · 알림 버튼으로 도착·탑승을 표시하세요',
+          RecordingMode.trip => '', // 위에서 막았다
+        },
+        notificationButtons: recordingNotificationButtons(FieldState()),
+        callback: recordingStartCallback,
+      );
+      if (result is ServiceRequestFailure) {
+        throw StateError('기록 서비스를 시작하지 못했습니다: ${result.error}');
+      }
+    });
   }
 
   @override
