@@ -1,4 +1,4 @@
-# R6 분석 의존성. research/.venv에 설치한다(docs/research/analysis-guide.md).
+# R6 analysis deps. Install into research/.venv (see docs/research/analysis-guide.md). Keep this file ASCII: pip on Windows reads it as cp949.
 numpy==2.2.6
 pandas==2.3.3
 matplotlib==3.10.9
