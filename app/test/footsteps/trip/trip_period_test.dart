@@ -10,6 +10,9 @@ void main() {
 
   group('기록 기간의 날짜 경계', () {
     test('출발일 0시부터 기록한다(전날 23:59는 아니다)', () {
+      // 경계는 기기 현지 시각이다. DateTime ==는 UTC 여부도 보므로 UTC로 만든 구현은 어느 시간대의 CI에서도 실패한다.
+      expect(trip.startsAt, DateTime(2026, 11, 20));
+      expect(trip.endsAt, DateTime(2026, 11, 23));
       expect(trip.covers(DateTime(2026, 11, 20)), isTrue);
       expect(trip.covers(DateTime(2026, 11, 19, 23, 59, 59)), isFalse);
     });
@@ -54,6 +57,8 @@ void main() {
     test('출발일까지 같으면 나중에 만든(id가 큰) 여행이다', () {
       final twin = period(9, DateTime(2026, 11, 20), DateTime(2026, 11, 21));
       expect(shouldRecord([twin, trip], DateTime(2026, 11, 20, 8), const {})?.tripId, 9);
+      // 목록 순서와 상관없다(먼저 온 쪽이나 나중 온 쪽을 고르는 구현이 아니다).
+      expect(shouldRecord([trip, twin], DateTime(2026, 11, 20, 8), const {})?.tripId, 9);
     });
   });
 
