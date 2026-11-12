@@ -58,5 +58,15 @@ TripDay buildTripDay(DateTime date, List<RoutePoint> tripPoints, List<TimeSpan> 
     for (final s in stillSpans)
       if (s.endMs >= dayStart && s.startMs < dayEnd) s,
   ];
-  return TripDay(date: day, points: points, stays: detectStays(fixes, stillSpans: spans));
+  return TripDay(date: day, points: points, stays: _staysOf(fixes, spans));
+}
+
+/// 정지 구간이 겹치거나 뒤집힌 잘못된 기록이 DB에 있으면 detectStays가 ArgumentError를 던진다. 이 함수는 화면의 build에서
+/// 불리므로 빨간 오류 화면 대신, 정지 구간 없이 점만으로 머문 곳을 잡는다.
+List<Stay> _staysOf(List<Fix> fixes, List<TimeSpan> spans) {
+  try {
+    return detectStays(fixes, stillSpans: spans);
+  } on ArgumentError {
+    return detectStays(fixes);
+  }
 }

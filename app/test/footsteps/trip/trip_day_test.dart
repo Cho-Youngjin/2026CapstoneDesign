@@ -71,6 +71,26 @@ void main() {
     expect(Duration(milliseconds: stay.durationMs), const Duration(minutes: 32));
   });
 
+  test('겹치거나 뒤집힌 정지 구간이 DB에 있어도 던지지 않고 점만으로 머문 곳을 잡는다', () {
+    final points = [
+      point(DateTime(2026, 11, 21, 9, 55), northM: -300),
+      for (var m = 0; m <= 25; m += 5) point(DateTime(2026, 11, 21, 10, 0, 30).add(Duration(minutes: m)), state: 'still'),
+      point(DateTime(2026, 11, 21, 10, 33), northM: 300),
+    ];
+    final overlapping = [
+      span(DateTime(2026, 11, 21, 10), DateTime(2026, 11, 21, 10, 20)),
+      span(DateTime(2026, 11, 21, 10, 10), DateTime(2026, 11, 21, 10, 32)),
+    ];
+    final inverted = [span(DateTime(2026, 11, 21, 10, 30), DateTime(2026, 11, 21, 10))];
+
+    for (final spans in [overlapping, inverted]) {
+      final day = buildTripDay(DateTime(2026, 11, 21), points, spans);
+
+      expect(day.points, hasLength(8));
+      expect(day.stays, hasLength(1)); // 정지 구간 없이 점 시각으로 잡은 머문 곳
+    }
+  });
+
   test('밤을 넘긴 숙소는 두 날 모두 실제 도착·출발 시각으로 보인다', () {
     final points = [
       point(DateTime(2026, 11, 20, 21, 55), northM: -500),
