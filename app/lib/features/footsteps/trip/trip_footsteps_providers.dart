@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:footstep_core/footstep_core.dart' show TimeSpan;
+import 'package:footstep_core/footstep_core.dart' show Stay, TimeSpan;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/db/app_database.dart';
@@ -22,8 +22,9 @@ final tripRecordsProvider =
 final routeReconstructApiProvider =
     Provider<RouteReconstructApi>((ref) => RouteReconstructApi(ref.watch(apiClientProvider)));
 
-/// 복원 결과의 캐시 키(설계 9-4): 여행, 날짜, 그날 마지막 점 시각. 점이 새로 쌓이면 마지막 점 시각이 바뀌어 다시 복원한다.
-/// [day]는 키가 아니라 서버에 보낼 재료다 — 같은 키면 같은 점이다.
+/// 복원 결과의 캐시 키(설계 9-4): 여행, 날짜, 그날 마지막 점 시각, 머문 곳. 점이 새로 쌓이면 마지막 점 시각이 바뀌어 다시
+/// 복원한다. 일시정지로 정지 구간이 닫히면 점은 그대로여도 머문 곳이 바뀌므로(서버에 같이 보낸다) 머문 곳의 도착·출발
+/// 시각도 키에 넣는다. [day]는 키가 아니라 서버에 보낼 재료다 — 같은 키면 같은 점·머문 곳이다.
 class DayRouteRequest {
   const DayRouteRequest({required this.tripId, required this.day, this.countryIso2 = snapCountryIso2});
 
@@ -41,10 +42,24 @@ class DayRouteRequest {
       other is DayRouteRequest &&
       other.tripId == tripId &&
       other.day.date == day.date &&
-      other.day.lastPointMs == day.lastPointMs;
+      other.day.lastPointMs == day.lastPointMs &&
+      _sameStays(other.day.stays, day.stays);
 
   @override
-  int get hashCode => Object.hash(tripId, day.date, day.lastPointMs);
+  int get hashCode => Object.hash(
+        tripId,
+        day.date,
+        day.lastPointMs,
+        Object.hashAll([for (final s in day.stays) Object.hash(s.arriveMs, s.leaveMs)]),
+      );
+
+  static bool _sameStays(List<Stay> a, List<Stay> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].arriveMs != b[i].arriveMs || a[i].leaveMs != b[i].leaveMs) return false;
+    }
+    return true;
+  }
 }
 
 /// 고른 날의 지도에 그릴 경로.

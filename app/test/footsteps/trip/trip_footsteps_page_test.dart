@@ -42,9 +42,13 @@ class _FakeReconstructApi implements RouteReconstructApi {
   bool fails = false;
   final calls = <int>[];
 
+  /// 호출마다 받은 머문 곳 수.
+  final stayCounts = <int>[];
+
   @override
   Future<List<RouteSegmentView>> reconstruct(List<RoutePoint> points, List<Stay> stays) async {
     calls.add(points.length);
+    stayCounts.add(stays.length);
     if (fails) throw StateError('서버 꺼짐');
     return respond?.call(points) ??
         [RouteSegmentView(kind: 'walk', coords: [for (final p in points) LatLng(p.lat + 0.001, p.lng)], fallback: false)];
@@ -181,6 +185,23 @@ void main() {
     await tester.tap(find.byKey(const Key('tripFootstepsRefresh')));
     await settle(tester);
     expect(api.calls, [3, 4]);
+  });
+
+  testWidgets('점은 그대로여도 정지 구간이 새로 닫혀 머문 곳이 바뀌면(일시정지) 다시 복원한다', (tester) async {
+    await addPoint(DateTime(2026, 11, 21, 9));
+    await addPoint(DateTime(2026, 11, 21, 9, 5), state: 'still');
+    await addPoint(DateTime(2026, 11, 21, 9, 20), lat: 37.504);
+    await pumpPage(tester);
+    expect(api.calls, [3]);
+    expect(api.stayCounts, [0]); // 점만으로는 10분을 못 채워 머문 곳이 아니다
+
+    await db.insertTripStillSpan(
+        tripId: 7, startAt: DateTime(2026, 11, 21, 9), endAt: DateTime(2026, 11, 21, 9, 15)); // 점은 늘지 않는다
+    await tester.tap(find.byKey(const Key('tripFootstepsRefresh')));
+    await settle(tester);
+
+    expect(api.calls, [3, 3]);
+    expect(api.stayCounts, [0, 1]);
   });
 
   testWidgets('국내가 아닌 여행은 서버를 부르지 않고 직선으로 그리며 도로 맞춤 실패 안내는 띄우지 않는다', (tester) async {
