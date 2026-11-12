@@ -53,6 +53,13 @@ class ReconstructControllerTest {
                 .collect(Collectors.joining(",", "[", "]"));
     }
 
+    private static String stays(int count) {
+        return IntStream.range(0, count)
+                .mapToObj(i -> "{\"arrive\":" + (1000L + i * 10) + ",\"leave\":" + (1005L + i * 10)
+                        + ",\"lat\":37.5,\"lng\":127.0}")
+                .collect(Collectors.joining(",", "[", "]"));
+    }
+
     private ResultActions send(String body) throws Exception {
         return mockMvc.perform(post("/api/route/reconstruct")
                 .header("Authorization", "Bearer valid-token")
@@ -85,6 +92,16 @@ class ReconstructControllerTest {
     }
 
     @Test
+    void 점이_하나뿐이면_좌표_하나짜리_구간을_fallback_false로_돌려준다() throws Exception {
+        send("{\"method\":\"straight\",\"points\":" + points(1) + "}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.segments.length()").value(1))
+                .andExpect(jsonPath("$.segments[0].fallback").exists())
+                .andExpect(jsonPath("$.segments[0].fallback").value(false))
+                .andExpect(jsonPath("$.segments[0].coords.length()").value(1));
+    }
+
+    @Test
     void 점은_2000개까지_받고_넘으면_400() throws Exception {
         send("{\"method\":\"straight\",\"points\":" + points(2000) + "}").andExpect(status().isOk());
         send("{\"method\":\"straight\",\"points\":" + points(2001) + "}").andExpect(status().isBadRequest());
@@ -109,6 +126,20 @@ class ReconstructControllerTest {
     @Test
     void 머문_곳의_도착이_출발보다_늦으면_400() throws Exception {
         send("{\"points\":" + points(2) + ",\"stays\":[{\"arrive\":2000,\"leave\":1000,\"lat\":37.5,\"lng\":127.0}]}")
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 머문_곳은_500개까지_받고_넘으면_400() throws Exception {
+        send("{\"method\":\"straight\",\"points\":" + points(2) + ",\"stays\":" + stays(500) + "}")
+                .andExpect(status().isOk());
+        send("{\"method\":\"straight\",\"points\":" + points(2) + ",\"stays\":" + stays(501) + "}")
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 머문_곳의_위도가_범위를_벗어나면_400() throws Exception {
+        send("{\"points\":" + points(2) + ",\"stays\":[{\"arrive\":1000,\"leave\":2000,\"lat\":95,\"lng\":127.0}]}")
                 .andExpect(status().isBadRequest());
     }
 
