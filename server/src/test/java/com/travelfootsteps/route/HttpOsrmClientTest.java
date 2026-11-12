@@ -8,16 +8,20 @@ import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -229,6 +233,68 @@ class HttpOsrmClientTest {
 
         assertThat(client.match("JP", two, withNull, null)).isEmpty();
         assertThat(client.match("JP", two, List.of(5.0, Double.NaN), null)).isEmpty();
+        server.verify();
+    }
+
+    private static final String ROUTE_OK = """
+            {"code":"Ok","routes":[{"geometry":{"coordinates":[[139.7,35.6],[139.705,35.605]]}}]}
+            """;
+
+    @Test
+    void 전송_실패가_나면_30초_동안은_OSRM을_부르지_않고_바로_빈_결과다() {
+        AtomicLong now = new AtomicLong(1_000_000L);
+        HttpOsrmClient breaker = new HttpOsrmClient(builder.build(), PROPS, now::get);
+        GeoPoint a = new GeoPoint(35.6, 139.7);
+        GeoPoint b = new GeoPoint(35.61, 139.71);
+        // 기대는 딱 한 번이다. 이후 호출이 실제로 나가면 MockRestServiceServer가 기대 밖 요청으로 실패한다.
+        server.expect(requestTo(containsString("/route/v1/")))
+                .andRespond(withException(new SocketTimeoutException("read timed out")));
+
+        assertThat(breaker.route("JP", a, b)).isEmpty();
+        now.addAndGet(29_999L);
+        assertThat(breaker.route("JP", a, b)).isEmpty();
+        assertThat(breaker.nearest("JP", a, 50)).isEmpty();
+        assertThat(breaker.match("JP", List.of(a, b))).isEmpty();
+
+        server.verify();
+    }
+
+    @Test
+    void 차단_30초가_지나면_OSRM을_다시_부른다() {
+        AtomicLong now = new AtomicLong(1_000_000L);
+        HttpOsrmClient breaker = new HttpOsrmClient(builder.build(), PROPS, now::get);
+        GeoPoint a = new GeoPoint(35.6, 139.7);
+        GeoPoint b = new GeoPoint(35.61, 139.71);
+        server.expect(requestTo(containsString("/route/v1/")))
+                .andRespond(withException(new IOException("connection refused")));
+        server.expect(requestTo(containsString("/route/v1/")))
+                .andRespond(withSuccess(ROUTE_OK, MediaType.APPLICATION_JSON));
+
+        assertThat(breaker.route("JP", a, b)).isEmpty();
+        now.addAndGet(30_000L);
+        assertThat(breaker.route("JP", a, b)).hasSize(2);
+
+        server.verify();
+    }
+
+    @Test
+    void NoRoute_400이나_서버오류는_정상_응답이라_차단기를_열지_않는다() {
+        AtomicLong now = new AtomicLong(1_000_000L);
+        HttpOsrmClient breaker = new HttpOsrmClient(builder.build(), PROPS, now::get);
+        GeoPoint a = new GeoPoint(35.6, 139.7);
+        GeoPoint b = new GeoPoint(35.61, 139.71);
+        server.expect(requestTo(containsString("/route/v1/")))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"code\":\"NoRoute\"}"));
+        server.expect(requestTo(containsString("/route/v1/")))
+                .andRespond(withServerError());
+        server.expect(requestTo(containsString("/route/v1/")))
+                .andRespond(withSuccess(ROUTE_OK, MediaType.APPLICATION_JSON));
+
+        assertThat(breaker.route("JP", a, b)).isEmpty();
+        assertThat(breaker.route("JP", a, b)).isEmpty();
+        assertThat(breaker.route("JP", a, b)).hasSize(2); // 시계를 움직이지 않았는데도 세 번 다 호출이 나갔다
+
         server.verify();
     }
 

@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 
 import java.math.BigDecimal;
@@ -16,6 +17,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -36,8 +39,18 @@ public class HttpOsrmClient implements OsrmClient {
     // 너무 크면 나란한 옆 도로로 잘못 붙을 수 있어 30m로 한다.
     private static final int MATCH_RADIUS_METERS = 30;
 
+    // OSRM이 연결만 받고 답이 없으면 호출마다 위 5초를 다 기다린다. 복원(hmm_steps)은 점 2000개에 호출이 6000번쯤
+    // 나가므로 그대로 두면 요청 스레드 하나가 몇 시간 붙잡힌다. 그래서 전송 실패가 나면 이 시간 동안은 OSRM을
+    // 부르지 않고 바로 빈 결과를 돌려준다(차단기). 빈 결과는 호출자가 직선 fallback으로 처리하는 기존 약속이다.
+    private static final long BREAKER_OPEN_MS = 30_000L;
+
     private final RestClient restClient;
     private final OsrmProperties properties;
+    // 차단기가 풀리는 시각(ms). @Component는 싱글톤 빈이라 여러 요청 스레드가 이 필드를 함께 쓰므로
+    // 값을 안전하게 읽고 쓸 수 있는 AtomicLong을 쓴다. 0이면 열린 적 없다.
+    private final AtomicLong skipUntilMs = new AtomicLong();
+    // 현재 시각 공급자. 운영에서는 시스템 시계이고, 테스트는 30초를 실제로 기다리지 않도록 가짜 시계를 넣는다.
+    private final LongSupplier nowMs;
 
     // 스프링이 주입하는 RestClient.Builder는 호출마다 새로 만들어지는 prototype이라 여기서
     // requestFactory를 바꿔도 다른 클라이언트에 영향이 없다.
@@ -48,8 +61,13 @@ public class HttpOsrmClient implements OsrmClient {
 
     // 테스트가 MockRestServiceServer에 묶은 RestClient를 직접 넘기기 위한 생성자.
     HttpOsrmClient(RestClient restClient, OsrmProperties properties) {
+        this(restClient, properties, System::currentTimeMillis);
+    }
+
+    HttpOsrmClient(RestClient restClient, OsrmProperties properties, LongSupplier nowMs) {
         this.restClient = restClient;
         this.properties = properties;
+        this.nowMs = nowMs;
     }
 
     private static SimpleClientHttpRequestFactory timeoutFactory() {
@@ -205,11 +223,17 @@ public class HttpOsrmClient implements OsrmClient {
 
     // 실패(연결 거부, 타임아웃, 4xx/5xx, JSON 아님)는 전부 null로 바꾼다 — OsrmClient 주석 참고.
     // OSRM은 도로를 못 찾았을 때도 HTTP 400에 {"code":"NoRoute"}를 주므로 정상적인 경우다.
+    // 연결 거부·타임아웃 같은 전송 실패(ResourceAccessException)만 차단기를 연다. 4xx/5xx는 위 onStatus가 먼저
+    // 삼키므로 예외가 아니고(OSRM이 살아서 답한 것), 본문이 JSON이 아닌 경우도 서버가 응답은 한 것이라 열지 않는다.
     private JsonNode get(String url) {
+        if (nowMs.getAsLong() < skipUntilMs.get()) return null;
         try {
             return restClient.get().uri(URI.create(url)).retrieve()
                     .onStatus(status -> true, (request, response) -> { })
                     .body(JsonNode.class);
+        } catch (ResourceAccessException e) {
+            skipUntilMs.set(nowMs.getAsLong() + BREAKER_OPEN_MS);
+            return null;
         } catch (RestClientException e) {
             return null;
         }
