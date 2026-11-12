@@ -83,6 +83,19 @@ void main() {
       expect(service.started, [7, 7]);
     });
 
+    test('돌고 있는 나중 여행을 일시정지하면 겹치는 이른 여행으로 바꾸고, 재개하면 다시 나중 여행으로 돌아온다', () async {
+      now = DateTime(2026, 11, 21, 8);
+      await coordinator.updateTrips([domestic, later]);
+      expect(service.runningTripId, 9);
+
+      await coordinator.setPaused(9, true);
+      expect(service.runningTripId, 7);
+
+      await coordinator.setPaused(9, false);
+      expect(service.runningTripId, 9);
+      expect(service.started, [9, 7, 9]);
+    });
+
     test('겹치는 여행이 새로 시작하면 그 여행으로 바꿔 켠다', () async {
       await coordinator.updateTrips([domestic, later]);
       expect(service.started, [7]);
@@ -159,6 +172,51 @@ void main() {
       expect(await db.stillSpansForTrip(8), isEmpty);
     });
 
+    test('목록이 비어 오면(서버 초기화·오류) 일정은 비우되 좌표는 지우지 않는다 — 폰에만 있는 연구 데이터다', () async {
+      await coordinator.updateTrips([domestic]);
+      await addPoint(7);
+
+      await coordinator.updateTrips(const []);
+
+      expect(store.readTrips(), isEmpty);
+      expect(service.runningTripId, isNull);
+      expect(await db.routePointsForTrip(7), hasLength(1));
+    });
+
+    test('비어 있지 않은 목록에서 빠진 여행의 좌표는 지운다', () async {
+      await coordinator.updateTrips([domestic, later]);
+      await addPoint(7);
+      await addPoint(9);
+
+      await coordinator.updateTrips([later]);
+
+      expect(await db.routePointsForTrip(7), isEmpty);
+      expect(await db.routePointsForTrip(9), hasLength(1));
+    });
+
+    test('목록에서 빠진 여행의 기록 서비스를 먼저 끈 뒤에 좌표를 지운다(서비스가 마지막으로 쓰는 점이 지운 뒤에 남지 않게)', () async {
+      await coordinator.updateTrips([domestic]);
+      await addPoint(7);
+      var pointsWhenStopping = -1;
+      service.onStop = () async => pointsWhenStopping = (await db.routePointsForTrip(7)).length;
+
+      await coordinator.updateTrips([later]);
+
+      expect(pointsWhenStopping, 1);
+      expect(await db.routePointsForTrip(7), isEmpty);
+    });
+
+    test('기록 서비스를 끄다 실패해도 여행 삭제 정리는 이어간다', () async {
+      await coordinator.updateTrips([domestic, later]);
+      await addPoint(7);
+      service.stopThrows = true;
+
+      await coordinator.forgetTrip(7);
+
+      expect(await db.routePointsForTrip(7), isEmpty);
+      expect(store.readTrips().map((t) => t.tripId), [9]);
+    });
+
     test('여행을 지우면 기록 중이던 서비스를 끄고 좌표·일시정지·출발일 알림을 지운다', () async {
       await coordinator.updateTrips([domestic, later]);
       await coordinator.setPaused(9, true);
@@ -204,6 +262,44 @@ void main() {
       expect(alarms.scheduled, isEmpty);
       expect(await db.routePointsForTrip(7), hasLength(1));
       expect(store.readOwner(), 'uid-a');
+    });
+
+    test('로그아웃해도 일시정지는 남아, 같은 계정이 다시 로그인해도 멈춘 여행을 몰래 다시 기록하지 않는다', () async {
+      await coordinator.claimFor('uid-a');
+      await coordinator.updateTrips([domestic]);
+      await coordinator.setPaused(7, true);
+      service.started.clear();
+
+      await coordinator.claimFor(null);
+      expect(store.readPaused(), {7});
+      await coordinator.claimFor('uid-a');
+      await coordinator.updateTrips([domestic]);
+
+      expect(store.readPaused(), {7});
+      expect(service.started, isEmpty);
+    });
+
+    test('다른 계정이 로그인하면 일시정지도 비운다', () async {
+      await coordinator.claimFor('uid-a');
+      await coordinator.updateTrips([domestic]);
+      await coordinator.setPaused(7, true);
+      await coordinator.claimFor(null);
+
+      await coordinator.claimFor('uid-b');
+
+      expect(store.readPaused(), isEmpty);
+    });
+
+    test('계정을 바꿀 때 기록 서비스를 끄다 실패해도 이전 계정의 좌표 정리는 이어간다', () async {
+      await coordinator.claimFor('uid-a');
+      await coordinator.updateTrips([domestic]);
+      await addPoint(7);
+      service.stopThrows = true;
+
+      await coordinator.claimFor('uid-b');
+
+      expect(await db.routePointsForTrip(7), isEmpty);
+      expect(store.readOwner(), 'uid-b');
     });
 
     test('다른 계정이 로그인하면 이전 계정의 여행 좌표를 모두 지운다', () async {

@@ -83,6 +83,12 @@ class FakeTripRecordingService implements TripRecordingService {
   final started = <int>[];
   int stops = 0;
 
+  /// true이면 [stop]이 던진다(서비스가 스스로 끝난 직후 stop을 부른 상황).
+  bool stopThrows = false;
+
+  /// [stop] 안에서 불리는 훅(그 순간의 상태를 보려는 테스트용).
+  Future<void> Function()? onStop;
+
   @override
   Future<bool> isRunning() async => labRunning || runningTripId != null;
 
@@ -97,6 +103,8 @@ class FakeTripRecordingService implements TripRecordingService {
 
   @override
   Future<void> stop() async {
+    await onStop?.call();
+    if (stopThrows) throw StateError('서비스가 이미 끝났습니다');
     stops++;
     runningTripId = null;
     labRunning = false;

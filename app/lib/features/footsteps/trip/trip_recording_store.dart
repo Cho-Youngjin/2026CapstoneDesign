@@ -67,11 +67,13 @@ class TripRecordingStore {
     await _writeIds(pausedKey, readPaused()..removeAll(tripIds));
   }
 
-  /// 일정·일시정지를 비운다(로그아웃·계정 전환). 주인과 출발 알림 기록은 부르는 쪽이 다룬다.
-  Future<void> clearSchedule() async {
-    await _prefs.remove(tripsKey);
-    await _prefs.remove(pausedKey);
-  }
+  /// 일정만 비운다(로그아웃·계정 전환). 일시정지·주인·출발 알림 기록은 건드리지 않는다 — 여행 id는 서버 전체에서
+  /// 유일해서, 같은 계정이 다시 로그인했을 때 멈춰 둔 여행이 몰래 다시 기록되지 않으려면 일시정지가 남아 있어야 한다.
+  /// (목록에 없는 여행의 일시정지는 [replaceTrips]가 어차피 지운다.)
+  Future<void> clearTrips() => _prefs.remove(tripsKey);
+
+  /// 일시정지만 비운다(다른 계정으로 바뀔 때 — 이전 계정의 여행 id가 남지 않게).
+  Future<void> clearPaused() => _prefs.remove(pausedKey);
 
   String? readOwner() => _prefs.getString(ownerKey);
 

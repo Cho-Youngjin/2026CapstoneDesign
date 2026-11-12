@@ -66,16 +66,31 @@ void main() {
     expect(store.readPaused(), isEmpty);
   });
 
-  test('일정을 비워도 주인과 출발 알림 기록은 남는다', () async {
+  test('일정을 비워도 일시정지·주인·출발 알림 기록은 남는다', () async {
     final (store, _) = await _store();
     await store.replaceTrips([a]);
     await store.setPaused(7, true);
     await store.writeOwner('uid-a');
     await store.writeNoticeTripIds({7});
 
-    await store.clearSchedule();
+    await store.clearTrips();
 
     expect(store.readTrips(), isEmpty);
+    expect(store.readPaused(), {7});
+    expect(store.readOwner(), 'uid-a');
+    expect(store.readNoticeTripIds(), {7});
+  });
+
+  test('일시정지만 따로 비울 수 있다', () async {
+    final (store, _) = await _store();
+    await store.replaceTrips([a]);
+    await store.setPaused(7, true);
+    await store.writeOwner('uid-a');
+    await store.writeNoticeTripIds({7});
+
+    await store.clearPaused();
+
+    expect(store.readTrips(), [a]);
     expect(store.readPaused(), isEmpty);
     expect(store.readOwner(), 'uid-a');
     expect(store.readNoticeTripIds(), {7});
