@@ -156,3 +156,34 @@ def test_too_many_stays_warns_instead_of_truncating_silently():
 def test_to_stays_key_names():
     assert to_stays([{"arrive_ms": 5, "leave_ms": 9, "lat": 1.5, "lng": 2.5, "extra": 1}]) == [
         {"arrive": 5, "leave": 9, "lat": 1.5, "lng": 2.5}]
+
+
+def test_chunk_boundary_is_connected_when_endpoints_differ():
+    from analysis.geo import distance_m, offset
+    a_end = offset(37.5, 127.0, 0, 0)
+    b_start = offset(37.5, 127.0, 5, 0)                 # 앞 조각 끝에서 5m 떨어져 시작
+    answers = iter([
+        [{"kind": "walk", "coords": [{"lat": a_end[0], "lng": a_end[1]}], "fallback": False}],
+        [{"kind": "walk", "coords": [{"lat": b_start[0], "lng": b_start[1]}], "fallback": False}],
+    ])
+
+    def fake_post(url, json, headers, timeout):
+        return SimpleNamespace(status_code=200, text="", json=lambda: {"segments": next(answers)})
+
+    c = ReconstructClient("http://h:1", post=fake_post)
+    segs = c.reconstruct(_fixes(2500), [], "straight")      # 2000점 상한을 넘어 두 조각으로 나뉜다
+    assert len(segs) == 2
+    assert segs[1]["coords"][0] == {"lat": a_end[0], "lng": a_end[1]}        # 앞 조각의 끝 좌표가 이음새로 붙는다
+    assert len(segs[1]["coords"]) == 2 and distance_m(*a_end, segs[1]["coords"][1]["lat"], segs[1]["coords"][1]["lng"]) > 0.5
+
+
+def test_chunk_boundary_within_tolerance_is_left_alone():
+    p = {"lat": 37.5, "lng": 127.0}
+    answers = iter([[{"kind": "walk", "coords": [p], "fallback": False}],
+                    [{"kind": "walk", "coords": [dict(p)], "fallback": False}]])
+
+    def fake_post(url, json, headers, timeout):
+        return SimpleNamespace(status_code=200, text="", json=lambda: {"segments": next(answers)})
+
+    segs = ReconstructClient("http://h:1", post=fake_post).reconstruct(_fixes(2500), [], "straight")
+    assert segs[1]["coords"] == [p]

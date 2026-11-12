@@ -158,3 +158,11 @@ def test_battery_summary_counts_aligned_runs():
     s = battery_summary(runs)
     # 제외된 회차는 n에도 n_aligned에도 안 들어간다
     assert s["n"].tolist() == [2] and s["n_aligned"].tolist() == [1]
+
+
+def test_empty_current_column_keeps_charge_rows(tmp_path):
+    """순간 전류를 못 재는 기종은 current_ua가 비어 있다. 그래도 전하량 행은 살려 mAh/h를 낸다."""
+    rows = [[T0 + k * H // 2, 3_700_000 - k * 3_700, "", 88, 30, 0] for k in range(4)]
+    d = make_session(tmp_path, "nocur", battery=rows, meta={"mode": "policy", "policy": {"policyId": "fixed_1m"}})
+    r = battery_run(d)
+    assert r["mah_per_h"] == pytest.approx(7.4) and r["current_ma"] is None

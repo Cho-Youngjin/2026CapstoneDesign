@@ -9,8 +9,11 @@ from typing import Callable
 
 import pandas as pd
 
+from .geo import distance_m
+
 MAX_POINTS = 2000
 MAX_STAYS = 500
+CONNECT_TOLERANCE_M = 0.5    # 서버 RouteReconstructionService.CONNECT_TOLERANCE_M과 같은 값
 
 
 def _num(v):
@@ -72,6 +75,19 @@ def build_requests(fixes: pd.DataFrame, stays: list[dict], method: str, hmm: dic
     return out
 
 
+def _connect_chunk(prev_last: dict | None, chunk_segments: list[dict]) -> list[dict]:
+    """조각 경계 이음. 서버는 요청 하나 안에서만 구간을 잇는다(RouteReconstructionService.connect). 점이 2000개를
+    넘어 나눠 보내면 앞 조각의 끝과 다음 조각의 시작이 서로를 모른 채 벌어질 수 있어, 같은 규칙으로 여기서 잇는다:
+    다음 조각 첫 구간의 첫 좌표가 앞 끝 좌표에서 0.5m를 넘으면 앞 끝 좌표를 그 구간 맨 앞에 붙인다."""
+    if prev_last is None or not chunk_segments or not chunk_segments[0].get("coords"):
+        return chunk_segments
+    first = chunk_segments[0]
+    head = first["coords"][0]
+    if distance_m(prev_last["lat"], prev_last["lng"], head["lat"], head["lng"]) <= CONNECT_TOLERANCE_M:
+        return chunk_segments
+    return [{**first, "coords": [prev_last, *first["coords"]]}, *chunk_segments[1:]]
+
+
 class ServerUnavailable(RuntimeError):
     """서버에 연결하지 못했다. 이후 호출도 건너뛴다."""
 
@@ -131,5 +147,7 @@ class ReconstructClient:
                 raise ReconstructError(f"응답 본문이 JSON이 아닙니다: {resp.text[:300]}") from e
             if not isinstance(data, dict):
                 raise ReconstructError(f"응답 본문 형식이 올바르지 않습니다: {str(data)[:300]}")
-            segments += data.get("segments", [])
+            new = data.get("segments", [])
+            last = next((seg["coords"][-1] for seg in reversed(segments) if seg.get("coords")), None)
+            segments += _connect_chunk(last, new)
         return segments

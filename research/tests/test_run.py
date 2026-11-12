@@ -252,3 +252,13 @@ def test_help_mentions_cwd_relative_dirs(capsys):
         main(["--help"])
     out = " ".join(capsys.readouterr().out.split())
     assert out.count("현재 디렉터리 기준") >= 2
+
+
+def test_force_deletes_old_cache_even_when_new_response_is_all_fallback(experiment):
+    experiment.reconstruct["methods"] = [{"name": "osrm_match_radius", "method": "osrm_match_radius", "hmm": None}]
+    cache = experiment.results_dir / "recon" / "p1" / "fixed_1m-os-ttff0" / "osrm_match_radius.json"
+    cache.parent.mkdir(parents=True)
+    cache.write_text(json.dumps([{"kind": "walk", "coords": [], "fallback": False}]), encoding="utf-8")
+    up = CountingClient(fallback=True)          # 새 응답은 전부 직선 대체라 캐시에 새로 쓰지 않는다
+    run_experiment(experiment, FakeCli(), up, force=True)
+    assert up.calls and not cache.exists()      # 그래도 묵은 캐시는 남지 않아야 한다

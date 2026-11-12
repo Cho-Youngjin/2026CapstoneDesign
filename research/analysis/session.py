@@ -38,8 +38,11 @@ class Session:
     extra: dict = field(default_factory=dict)
 
 
-def read_csv(path: Path, columns: list[str], numeric: list[str]) -> pd.DataFrame:
-    """헤더 있는 CSV를 읽는다. 파일이 없거나 0바이트면 빈 표, 깨진 행(서비스 강제 종료 등)은 버린다."""
+def read_csv(path: Path, columns: list[str], numeric: list[str], required: list[str] | None = None) -> pd.DataFrame:
+    """헤더 있는 CSV를 읽는다. 파일이 없거나 0바이트면 빈 표, 깨진 행(서비스 강제 종료 등)은 버린다.
+
+    required는 값이 비면 행을 버릴 열이다(기본은 numeric 전부). 선택 열이 비어도 나머지 값이 쓸모 있는 파일
+    (전류는 못 재는 기종의 battery.csv)은 그 열을 required에서 빼서 행이 통째로 사라지지 않게 한다."""
     # 0바이트 파일(adb pull이 중간에 끊긴 경우 등)은 헤더도 없어 pd.read_csv가 EmptyDataError를 낸다. 없는 파일과 같게 본다.
     if not path.exists() or path.stat().st_size == 0:
         return pd.DataFrame(columns=columns)
@@ -50,7 +53,7 @@ def read_csv(path: Path, columns: list[str], numeric: list[str]) -> pd.DataFrame
     df = df[columns].copy()
     for c in numeric:
         df[c] = pd.to_numeric(df[c], errors="coerce")
-    df = df.dropna(subset=numeric).reset_index(drop=True)
+    df = df.dropna(subset=numeric if required is None else required).reset_index(drop=True)
     if "t_ms" in numeric:
         df["t_ms"] = df["t_ms"].astype("int64")
         df = df.sort_values("t_ms", kind="stable").reset_index(drop=True)

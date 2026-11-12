@@ -67,7 +67,10 @@ def current_rate(battery: pd.DataFrame, unit: str = "uA") -> float | None:
     if battery.empty:
         return None
     factor = {"uA": 1 / 1000, "mA": 1.0}[unit]
-    return float(np.abs(battery["current_ua"].to_numpy(dtype=float)).mean() * factor)
+    current = pd.to_numeric(battery["current_ua"], errors="coerce").dropna()
+    if current.empty:      # 전류를 못 재는 기종: 전류 지표만 비우고 전하량 지표는 그대로 낸다
+        return None
+    return float(np.abs(current.to_numpy(dtype=float)).mean() * factor)
 
 
 _DURATION = re.compile(r"(\d+)(h|ms|m|s)")
@@ -142,7 +145,10 @@ def battery_run(session_dir: Path, current_units: dict | None = None, align_step
     session_dir = Path(session_dir)
     meta = read_meta(session_dir)
     policy = meta.get("policy") or {}
-    battery = read_csv(session_dir / "battery.csv", BATTERY_COLUMNS, ["t_ms", "charge_uah", "current_ua", "plugged"])
+    battery = read_csv(session_dir / "battery.csv", BATTERY_COLUMNS, ["t_ms", "charge_uah", "current_ua", "plugged"],
+                      # 순간 전류를 못 재는 기종은 current_ua가 비어 있다. 전하량 지표는 전류 없이도 구할 수 있으니
+                      # 전류 칸이 비었다고 행을 버리지 않는다(전류 지표는 current_rate가 빈 칸만 빼고 센다).
+                      required=["t_ms", "charge_uah", "plugged"])
     run = longest_unplugged(battery)
     device = meta.get("deviceModel", "")
     unit = (current_units or {}).get(device, "uA")

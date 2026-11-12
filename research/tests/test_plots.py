@@ -106,3 +106,32 @@ def test_warns_when_no_korean_font(monkeypatch):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert plots._font_family() == ["Malgun Gothic", "DejaVu Sans"]
+
+
+def test_reconstruct_plot_compares_methods_on_shared_sessions_only(tmp_path, monkeypatch):
+    """A는 두 세션(P95 1·101), B는 쉬운 세션 하나만 성공했다. 같은 입력인 쉬운 세션만 비교해야 한다."""
+    rows = []
+    for session, method, p95 in [("s1", "straight", 1.0), ("s2", "straight", 101.0), ("s1", "nearest", 2.0)]:
+        rows.append({"session": session, "use": "pilot", "run": "fixed_1m", "policy": "fixed_1m", "detector": "os",
+                     "params": "", "ttff": 0.0, "method": method, "fixes_per_hour": 60.0, "p95_m": p95})
+    shown = {}
+    import matplotlib.axes
+    orig = matplotlib.axes.Axes.barh
+
+    def spy(self, y, width, *a, **k):
+        shown["values"] = dict(zip(y, width))
+        return orig(self, y, width, *a, **k)
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "barh", spy)
+    assert plot_reconstruct(pd.DataFrame(rows), tmp_path / "r.png") is not None
+    assert shown["values"] == {"straight": 1.0, "nearest": 2.0}      # 평균 51이 아니라 공유 세션 값 1
+
+
+def test_make_all_removes_stale_figures_of_skipped_plots(tmp_path):
+    stale = tmp_path / "5_reconstruct.png"
+    stale.write_bytes(b"old")
+    one_method = _path_rows()
+    one_method = one_method[one_method["method"] == "local_straight"]    # 방법 하나뿐이라 5번 그래프는 건너뛴다
+    files = make_all(_tables(path_metrics=one_method), tmp_path)
+    assert "5_reconstruct.png" not in [f.name for f in files]
+    assert not stale.exists()

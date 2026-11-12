@@ -77,7 +77,11 @@ def _segments(method: dict, fixes, stays, client, cache: Path, force: bool,
     OSRM을 켠 뒤 다시 돌려도 옛 직선 응답이 재사용돼 계속 "OSRM 꺼짐"으로 건너뛰기 때문이다."""
     if method["method"] == LOCAL:
         return local_straight(fixes)
-    if cache.exists() and not force:
+    if force:
+        # --force인데 요청이 실패하거나 전부 직선 대체라 새로 쓰지 못하면 옛 파일이 남아, 다음 일반 실행이 그 묵은
+        # 응답을 "캐시"로 믿고 재사용한다. 강제로 다시 받겠다는 뜻이므로 요청 전에 먼저 지운다.
+        cache.unlink(missing_ok=True)
+    if cache.exists():
         try:
             cached = json.loads(cache.read_text(encoding="utf-8"))
         except ValueError:

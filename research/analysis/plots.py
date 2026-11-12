@@ -196,9 +196,11 @@ def plot_reconstruct(path: pd.DataFrame, out: Path):
     df, scope = _scope(path)
     if df.empty or df["p95_m"].isna().all():
         return None
-    g = main_runs(df).groupby(["run", "method"])["p95_m"].mean().unstack("method")
+    g = main_runs(df).groupby(["session", "run", "method"])["p95_m"].mean().unstack("method")
     if g.shape[1] < 2:
         return None
+    # 방법마다 성공한 (세션, 재생)이 다르면 방법별 값이 서로 다른 입력을 비교하게 된다(쉬운 세션만 푼 방법이 유리해진다).
+    # 모든 방법이 값을 낸 (세션, 재생) 쌍만 남긴다.
     g = g.dropna()
     if g.empty:
         return None
@@ -210,17 +212,27 @@ def plot_reconstruct(path: pd.DataFrame, out: Path):
         ax.annotate(f"{v:.1f}", (v, y), textcoords="offset points", xytext=(6, -3), fontsize=8, color=INK)
     ax.grid(axis="y", visible=False)
     ax.set_xlabel("경로 오차 P95 중앙값 (m)")
-    ax.set_title(f"복원 방법별 경로 오차 (같은 재생 {len(g)}개, {scope} 세션)", loc="left")
+    ax.set_title(f"복원 방법별 경로 오차 (같은 입력 {len(g)}개, {scope} 세션)", loc="left")
     return _save(fig, out)
 
 
 def make_all(tables: dict[str, pd.DataFrame], fig_dir: Path) -> list[Path]:
-    made = [
-        plot_tradeoff(tables["path_metrics"], fig_dir / "1_tradeoff_fixes.png"),
-        plot_tradeoff(tables["path_metrics"], fig_dir / "1_tradeoff_mah.png", battery=tables["battery_summary"]),
-        plot_battery(tables["battery_summary"], fig_dir / "2_battery.png"),
-        plot_stay_f1(tables["stay_metrics"], fig_dir / "3_stay_f1.png"),
-        plot_steps(tables["step_metrics"], fig_dir / "4_steps.png"),
-        plot_reconstruct(tables["path_metrics"], fig_dir / "5_reconstruct.png"),
+    fig_dir = Path(fig_dir)
+    plans = [
+        ("1_tradeoff_fixes.png", lambda out: plot_tradeoff(tables["path_metrics"], out)),
+        ("1_tradeoff_mah.png", lambda out: plot_tradeoff(tables["path_metrics"], out, battery=tables["battery_summary"])),
+        ("2_battery.png", lambda out: plot_battery(tables["battery_summary"], out)),
+        ("3_stay_f1.png", lambda out: plot_stay_f1(tables["stay_metrics"], out)),
+        ("4_steps.png", lambda out: plot_steps(tables["step_metrics"], out)),
+        ("5_reconstruct.png", lambda out: plot_reconstruct(tables["path_metrics"], out)),
     ]
-    return [p for p in made if p is not None]
+    made = []
+    for name, draw in plans:
+        out = fig_dir / name
+        result = draw(out)
+        if result is None:
+            # 이번 데이터로는 그리지 않는 그래프인데 이전 실행의 그림이 남아 있으면 지금 결과인 줄 알고 보게 된다.
+            out.unlink(missing_ok=True)
+        else:
+            made.append(result)
+    return made
