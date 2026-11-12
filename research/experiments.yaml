@@ -1,0 +1,91 @@
+# R6 분석 설정(설계 7장). research/에서 `.venv/Scripts/python -m analysis.run --config experiments.yaml`.
+# 경로는 이 파일이 있는 폴더(research/) 기준이다.
+sessions: sessions.yaml
+data_dir: data/sessions
+results_dir: results
+footstep_core: ../packages/footstep_core
+# dart: C:/flutter/bin/dart.bat   # PATH에 dart가 없을 때만
+
+use: [pilot, eval]          # 정확도 분석에 넣을 세션 용도
+ttff: 0                     # 기본 측위 지연(초). 민감도는 아래 runs에서 ttff 목록으로 따로 돈다
+
+truth:
+  max_accuracy_m: 20        # 정확도 20m 이하 1초 GPS만 정답(설계 7-2)
+  min_hop_m: 10             # 정답 이동거리: 마지막으로 센 점에서 10m 이상 벗어난 점만 잇는다(서 있는 동안 흔들림 제외)
+
+stays:
+  min_truth_stay_s: 600     # arrive~depart가 10분 이상이어야 정답 머문 곳(T와 같다)
+  min_overlap: 0.5          # 겹친 시간이 두 머문 곳 각각의 50% 이상
+  max_distance_m: 100       # 중심 거리
+
+runs:                       # 정책 × 설정. 목록 값은 모든 조합으로 펼친다
+  - policy: hourly
+  - policy: continuous_10m
+  - policy: fixed_30s
+  - policy: fixed_1m
+  - policy: fixed_5m
+  - policy: speed_adaptive
+  - policy: time_speed
+    params: {e_m: [25, 50, 100]}
+  - policy: still_suppress
+  - policy: activity_gated
+  - policy: step_budget
+    detector: [os, adaptive]
+    params: {e_m: [25, 50, 100]}
+  # 절제 실험(설계 5-3·5-6)
+  - policy: step_budget
+    detector: adaptive
+    params: {e_m: 50, use_steps: false}
+  - policy: step_budget
+    detector: adaptive
+    params: {e_m: 50, suppress_still: false}
+  - policy: step_budget
+    detector: adaptive
+    params: {e_m: 50, vehicle_probe: false}
+  - policy: step_budget
+    detector: adaptive
+    params: {e_m: 50}
+    stay_params: {use_still: false}
+  # 측위 지연 민감도(설계 10장 위험 4)
+  - policy: step_budget
+    detector: adaptive
+    params: {e_m: 50}
+    ttff: [5, 10]
+  - policy: fixed_1m
+    ttff: [5, 10]
+
+step_detectors: [os, brajdic, adaptive]
+
+local_straight: true        # 서버 없이 남은 점을 직선으로 잇는 기준선(항상 돈다)
+
+reconstruct:                # 로컬 서버 복원(route-guide). 서버가 꺼져 있으면 건너뛰고 skipped.csv에 남긴다
+  enabled: true
+  server_url: http://localhost:9090
+  token: dev-fake-token     # local 프로필 더미 토큰
+  timeout_s: 120
+  skip_all_fallback: true   # 도로 맞춤 방법인데 모든 구간이 fallback(OSRM 꺼짐)이면 지표를 내지 않는다
+  methods:
+    - straight
+    - nearest
+    - osrm_match
+    - osrm_match_radius
+    - hmm_steps             # β·σ 하한은 analysis.tune으로 정한 뒤 아래처럼 고정한다
+    - {name: hmm_nosteps, method: hmm_steps, hmm: {useSteps: false}}
+    # - {name: hmm_steps_tuned, method: hmm_steps, hmm: {betaM: 10, sigmaMinM: 5}}
+
+battery:
+  use: [battery]
+  align_steps: true         # 전하량 계단이 바뀐 행 사이로 잰다(device-check)
+  current_units:            # current_ua 열의 실제 단위(기종마다 다르다). 없으면 uA
+    samsung SM-S911N: mA
+  package: com.travelfootsteps.app
+
+tune:                       # `python -m analysis.tune` — pilot 세션만 쓴다
+  runs:
+    - policy: step_budget
+      detector: adaptive
+      params: {e_m: 50}
+  betas: [2, 5, 10, 20, 50]
+  sigmas: [3, 5, 10]
+
+plots: true
