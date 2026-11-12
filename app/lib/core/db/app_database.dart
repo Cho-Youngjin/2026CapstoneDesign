@@ -84,16 +84,38 @@ class AppDatabase extends _$AppDatabase {
             // 지금 정의(스키마 3의 여행 열 포함)로 만든다 — 아래 열 추가는 하지 않는다.
             await m.createTable(routePoints);
           } else if (from < 3) {
-            await m.addColumn(routePoints, routePoints.tripId);
-            await m.addColumn(routePoints, routePoints.accuracyM);
-            await m.addColumn(routePoints, routePoints.stepsSincePrev);
-            await m.addColumn(routePoints, routePoints.state);
+            // drift는 onUpgrade를 트랜잭션으로 감싸지 않고 user_version은 끝나야 쓴다. 이전 실행이 열을 더하다 끝났거나,
+            // 앱 업데이트 직후 화면·기록 서비스·WorkManager isolate가 함께 올리면 열 일부가 이미 있다. 그 열을 다시 더하면
+            // "duplicate column name"으로 이 연결을 못 쓰게 되므로 있는 열은 건너뛴다.
+            for (final column in [
+              routePoints.tripId,
+              routePoints.accuracyM,
+              routePoints.stepsSincePrev,
+              routePoints.state,
+            ]) {
+              await _addColumnOnce(m, routePoints, column);
+            }
           }
           if (from < 3) {
-            await m.createTable(tripStillSpans);
+            await m.createTable(tripStillSpans); // CREATE TABLE IF NOT EXISTS라 두 번 돌아도 된다.
           }
         },
       );
+
+  /// [column]이 [table]에 없을 때만 더한다. 확인과 추가 사이에 다른 isolate가 먼저 더해 실패했으면 넘어간다.
+  Future<void> _addColumnOnce(Migrator m, TableInfo table, GeneratedColumn column) async {
+    Future<bool> exists() async {
+      final rows = await customSelect('PRAGMA table_info("${table.actualTableName}")').get();
+      return rows.any((row) => row.read<String>('name') == column.name);
+    }
+
+    if (await exists()) return;
+    try {
+      await m.addColumn(table, column);
+    } on Exception {
+      if (!await exists()) rethrow;
+    }
+  }
 
   Future<int> insertCheckin({
     required double lat,

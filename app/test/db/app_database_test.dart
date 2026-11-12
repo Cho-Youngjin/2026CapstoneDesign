@@ -192,4 +192,26 @@ void main() {
     expect((await old.routePointsForTrip(3)).single.stepsSincePrev, 10);
     expect(await old.stillSpansForTrip(3), hasLength(1));
   });
+
+  test('스키마 2에서 올리다 열 일부가 이미 있으면(이전 실행이 도중에 끝났거나 다른 isolate가 먼저 올림) 그 열은 건너뛴다', () async {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    addTearDown(() => driftRuntimeOptions.dontWarnAboutMultipleDatabases = false);
+    // 열 넷 중 둘(trip_id, accuracy_m)만 더해진 채 user_version이 2로 남은 파일을 흉내 낸다.
+    final partial = AppDatabase.forTesting(NativeDatabase.memory(setup: (raw) {
+      raw.execute('CREATE TABLE "route_points" ("id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, '
+          '"lat" REAL NOT NULL, "lng" REAL NOT NULL, '
+          '"country_iso" TEXT NOT NULL CHECK(length("country_iso") >= 2 AND length("country_iso") <= 2), '
+          '"recorded_at" INTEGER NOT NULL, "trip_id" INTEGER NULL, "accuracy_m" REAL NULL);');
+      raw.execute('PRAGMA user_version = 2;');
+    }));
+    addTearDown(partial.close);
+
+    await partial.insertTripPoint(tripId: 4, lat: 37.5, lng: 127.0, countryIso: 'KR',
+        recordedAt: DateTime.utc(2026, 11, 21), accuracyM: 8, stepsSincePrev: 3, state: 'walking');
+    final point = (await partial.routePointsForTrip(4)).single;
+    expect(point.stepsSincePrev, 3);
+    expect(point.state, 'walking');
+    final version = await partial.customSelect('PRAGMA user_version').getSingle();
+    expect(version.read<int>('user_version'), 3);
+  });
 }
