@@ -1,9 +1,12 @@
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../../../core/db/app_database.dart';
 import '../data/footsteps_repository.dart';
 import '../data/geocoding_country_resolver.dart';
+import '../trip/trip_period.dart';
+import '../trip/trip_recording_store.dart';
 import 'footstep_task_handler.dart';
 
 const footstepTaskName = 'com.travelfootsteps.footstepCheckin';
@@ -19,6 +22,7 @@ Future<bool> runFootstepTask() async {
 
   await handleFootstepTask(
     repository: repository,
+    isTripPeriod: () => isTripPeriodNow(DateTime.now()),
     getCurrentPosition: () => Geolocator.getCurrentPosition(
       locationSettings: const LocationSettings(
         // 개발/테스트는 에뮬레이터로 진행 중 — .medium은 raw GPS를 켜지 않아
@@ -31,6 +35,14 @@ Future<bool> runFootstepTask() async {
 
   await db.close();
   return true;
+}
+
+/// 지금이 기록할 여행의 기간인가(설계 9-2). 화면 isolate가 저장해 둔 여행 기록 일정·일시정지를 읽는다 — 이 isolate의
+/// SharedPreferences 캐시는 낡았을 수 있어 먼저 reload한다.
+Future<bool> isTripPeriodNow(DateTime now) async {
+  final store = TripRecordingStore(await SharedPreferences.getInstance());
+  await store.reload();
+  return shouldRecord(store.readTrips(), now, store.readPaused()) != null;
 }
 
 /// 앱 시작 시 1회 호출한다(그 전에 `initializeBackgroundWork()`가 끝나 있어야 한다).

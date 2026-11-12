@@ -1,5 +1,8 @@
 package com.travelfootsteps.visa;
 
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+
 /**
  * {@link VisaJudgementService#judge}의 판정 결과.
  *
@@ -18,4 +21,13 @@ public record VisaJudgement(
         Integer passportValidityMonths,
         Integer passportShortfallDays
 ) {
+    /**
+     * 국내 여행의 스냅샷 값(설계 2026-11-07 9-1). 비자 판정을 하지 않으므로 허용 일수·여권 요건은 비우고,
+     * 여권은 따질 것이 없어 문제없음(true)으로 둔다. 체류일수는 판정과 같은 방식(DAYS.between)으로 센다.
+     * 판정 스냅샷을 쓰는 길(Trip.applyJudgementSnapshot)을 해외 여행과 하나로 두려고 같은 타입으로 만든다.
+     */
+    public static VisaJudgement domestic(LocalDate departDate, LocalDate returnDate) {
+        int stayDays = (int) ChronoUnit.DAYS.between(departDate, returnDate);
+        return new VisaJudgement(VisaVerdict.DOMESTIC, stayDays, null, true, null, null);
+    }
 }

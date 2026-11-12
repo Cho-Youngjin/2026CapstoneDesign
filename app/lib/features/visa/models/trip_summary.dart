@@ -23,6 +23,9 @@ class TripSummary {
   final DateTime returnDate;
   final VisaVerdict verdict;
 
+  /// 국내 여행(설계 9-1). 준비물 탭은 이 여행을 고르지 않는다 — 체크리스트·지갑이 없다.
+  bool get isDomestic => verdict == VisaVerdict.domestic;
+
   /// 목록 카드·준비물 탭 상단에 쓰는 `12/20~1/9` 형식.
   String get dateRangeLabel =>
       '${_shortDate.format(departDate)}~${_shortDate.format(returnDate)}';

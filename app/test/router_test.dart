@@ -4,6 +4,8 @@ import 'package:app/app.dart';
 import 'package:app/features/footsteps/providers/footsteps_providers.dart';
 import 'package:app/features/footsteps/recording/recording_providers.dart';
 import 'package:app/features/footsteps/recording/session_library.dart';
+import 'package:app/features/footsteps/trip/trip_recording_providers.dart';
+import 'package:app/features/rate_alert/notify/notification_permission.dart';
 import 'package:app/features/visa/data/trip_list_providers.dart';
 import 'package:app/router.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +15,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
 
 import 'footsteps/lab/fake_recording_controller.dart';
+import 'footsteps/trip/trip_fakes.dart';
+import 'visa/fake_trip_api.dart' show sampleSummary;
 
 /// GoogleMap은 실제 플랫폼 뷰를 만들려고 시도하는데, 위젯 테스트 환경에는 그걸 받아줄
 /// 네이티브 플랫폼이 없어 `pumpAndSettle`이 영원히 끝나지 않는다(Plan C Task 8이
@@ -34,17 +38,37 @@ class _FakeGoogleMapsFlutterPlatform extends GoogleMapsFlutterPlatform {
   Future<void> init(int mapId) async {}
 }
 
-Future<void> pumpApp(WidgetTester tester, {required bool isLoggedIn}) async {
+class _CountingPermission implements NotificationPermission {
+  int requests = 0;
+
+  @override
+  Future<bool> request() async {
+    requests++;
+    return true;
+  }
+}
+
+Future<FakeTripRecordingCoordinator> pumpApp(
+  WidgetTester tester, {
+  required bool isLoggedIn,
+  TripListState trips = const TripListState(trips: []),
+  FakeTripRecordingCoordinator? coordinator,
+  NotificationPermission? notificationPermission,
+}) async {
+  coordinator ??= FakeTripRecordingCoordinator();
   await tester.pumpWidget(
     ProviderScope(
-      // 첫 탭(여행 목록)이 서버를 부르지 않게 빈 목록으로 고정한다.
+      // 첫 탭(여행 목록)이 서버를 부르지 않게 목록을 고정한다. 여행 기록은 서비스를 켜지 않게 대역으로 바꾼다.
       overrides: [
-        tripListProvider.overrideWith((ref) async => const TripListState(trips: [])),
+        tripListProvider.overrideWith((ref) async => trips),
+        tripRecordingCoordinatorProvider.overrideWithValue(coordinator),
+        notificationPermissionProvider.overrideWithValue(notificationPermission ?? _CountingPermission()),
       ],
       child: TravelFootstepsApp(router: createRouter(isLoggedIn: isLoggedIn)),
     ),
   );
   await tester.pumpAndSettle();
+  return coordinator;
 }
 
 void main() {
@@ -83,6 +107,68 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pump();
       expect(container.read(realtimeTrackingEnabledProvider), isTrue);
+    });
+
+    // 설계 9-2의 1번: 여행 기록은 앱이 포그라운드로 올 때만 켠다(Android 14 제한).
+    testWidgets('앱을 열면 여행 기록을 맞추고, 포그라운드로 돌아올 때마다 다시 맞춘다', (tester) async {
+      final coordinator = await pumpApp(tester, isLoggedIn: true);
+      // 시작할 때는 위치 권한 요청(플랫폼 채널)이 끝난 뒤에 맞춘다 — 그 응답은 실제 이벤트 루프에서 온다.
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump();
+      expect(coordinator.syncs, 1);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      expect(coordinator.syncs, 1);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(coordinator.syncs, 2);
+    });
+
+    testWidgets('서버에서 받은 여행 목록으로 여행 기록 일정을 바꾼다', (tester) async {
+      final coordinator =
+          await pumpApp(tester, isLoggedIn: true, trips: TripListState(trips: [sampleSummary(id: 3)]));
+
+      expect(coordinator.updates, [
+        [3],
+      ]);
+    });
+
+    // 국내 여행만 있는 사용자는 비자 화면(알람 권한을 묻는 곳)을 거치지 않아 출발일 알림이 안 보일 수 있다.
+    testWidgets('곧 울릴 출발일 알림이 있으면 일정을 바꾼 뒤 알림 권한을 한 번 묻고, 앞으로 돌아와도 다시 묻지 않는다', (tester) async {
+      final permission = _CountingPermission();
+      final coordinator = FakeTripRecordingCoordinator()..upcomingNotice = true;
+      await pumpApp(tester,
+          isLoggedIn: true,
+          trips: TripListState(trips: [sampleSummary(id: 3)]),
+          coordinator: coordinator,
+          notificationPermission: permission);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump();
+      expect(permission.requests, 1);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(permission.requests, 1);
+    });
+
+    testWidgets('곧 울릴 출발일 알림이 없으면 알림 권한을 묻지 않는다', (tester) async {
+      final permission = _CountingPermission();
+      await pumpApp(tester,
+          isLoggedIn: true, trips: TripListState(trips: [sampleSummary(id: 3)]), notificationPermission: permission);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump();
+
+      expect(permission.requests, 0);
+    });
+
+    testWidgets('오프라인 캐시 목록으로는 여행 기록 일정을 바꾸지 않는다', (tester) async {
+      final coordinator = await pumpApp(tester,
+          isLoggedIn: true, trips: TripListState(trips: [sampleSummary(id: 3)], offline: true));
+
+      expect(coordinator.updates, isEmpty);
     });
   });
 
@@ -150,6 +236,7 @@ void main() {
         ProviderScope(
           overrides: [
             tripListProvider.overrideWith((ref) async => const TripListState(trips: [])),
+            tripRecordingCoordinatorProvider.overrideWithValue(FakeTripRecordingCoordinator()),
             recordingControllerProvider.overrideWithValue(FakeRecordingController()),
             sessionLibraryProvider.overrideWithValue(_EmptyLibrary()),
           ],

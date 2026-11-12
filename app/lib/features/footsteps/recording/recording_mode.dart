@@ -1,7 +1,8 @@
 /// 기록 서비스 모드. 한 번에 하나만 돈다(설계 4-1) — 두 모드를 같이 돌리면 배터리 측정이 오염된다.
 /// `groundTruth`는 모든 센서를 최대 빈도로 저장하고(R1), `policy`는 고른 정책 하나만 돌려 측위 결과와 배터리만
-/// 저장한다(R4, 배터리 실험). R7이 `trip`을 더한다.
-enum RecordingMode { groundTruth, policy }
+/// 저장한다(R4, 배터리 실험). `trip`은 여행 기간에 제안 정책을 돌려 앱 DB(RoutePoints)에 저장한다(R7). 실험 두 모드는
+/// 실험 화면이 켜고(RecordingTaskHandler), 여행 기록은 앱이 포그라운드로 올 때 앱이 켠다(TripRecordingTaskHandler).
+enum RecordingMode { groundTruth, policy, trip }
 
 String _two(int n) => n.toString().padLeft(2, '0');
 

@@ -45,13 +45,8 @@ final realtimeCountryResolverProvider = Provider<CountryResolver>((ref) {
 /// 표시 전용)에만 쓰인다.
 final realtimeTrackingEnabledProvider = StateProvider<bool>((ref) => true);
 
-/// "지금 걷고 있는 경로"를 국가 판정과 무관하게 그대로 이어 그리기 위한 좌표 목록이자,
-/// 각 좌표를 RoutePoints 테이블에 영구 저장하는 부수효과를 겸한다(live_route_tracker.dart).
-/// 경로가 뚝뚝 끊기지 않도록 촘촘한(10m) distanceFilter로 구독한다. 반환하는
-/// 좌표 목록 자체는 이번 구독 동안만 유효한 화면 표시용 캐시이고(화면을 벗어나면 autoDispose로 사라짐),
-/// DB에 쌓인 기록은 앱을 껐다 켜도 남는다 — CountryDetailMapPage가 그 기록을 다시 읽는다.
-/// 해외 매핑이 진행 중인지. 진행 중에는 한국에서의 실제 이동을 RoutePoints에 저장하지
-/// 않는다(해외 매핑 화면이 대신 해외 경로를 저장한다).
+/// 해외 매핑이 진행 중인지. 해외 매핑 화면이 대신 해외 경로를 RoutePoints에 저장한다.
+/// (실시간 경로는 R7부터 저장하지 않으므로 이 값이 저장을 막을 일은 없다.)
 final overseasMappingActiveProvider = StateProvider<bool>((ref) => false);
 
 /// 해외 매핑 중 투영된 해외 현재 위치(도로 위). 해외 매핑이 아닐 때는 null이다.
@@ -68,20 +63,14 @@ final livePositionsProvider = Provider<Stream<Position> Function()>(
       ),
 );
 
+/// "지금 걷고 있는 경로"를 화면에 이어 그리기 위한 좌표 목록(표시 전용, 설계 9-2). 저장하지 않는다 — 이동 기록은
+/// 여행 기간에만 기록 서비스가 남긴다. 경로가 뚝뚝 끊기지 않도록 촘촘한(10m) distanceFilter로 구독하고, 화면을
+/// 벗어나면 autoDispose로 사라진다. 국가 상세 지도·주변 정보·해외 매핑이 지금 위치로 쓴다.
 final liveRouteProvider = StreamProvider.autoDispose<List<LatLng>>((ref) {
   final enabled = ref.watch(realtimeTrackingEnabledProvider);
   if (!enabled) return const Stream.empty();
 
-  final positions = ref.watch(livePositionsProvider)();
-
-  return trackAndPersistLiveRoute(
-    positions: positions,
-    countryResolver: ref.watch(realtimeCountryResolverProvider),
-    repository: ref.watch(footstepsRepositoryProvider),
-    // 국가 판정을 기다리는 사이 추적이 꺼지거나(백그라운드 전환) 화면을 떠나 이 provider가 사라졌으면
-    // ref를 쓸 수 없다. 그때 들어온 좌표는 저장하지 않는다 — 구독이 이미 끝난 뒤의 마지막 한 점이다.
-    shouldPersist: () => ref.mounted && !ref.read(overseasMappingActiveProvider),
-  );
+  return trackLiveRoute(ref.watch(livePositionsProvider)());
 });
 
 /// 앱 전체 위치 스트림의 최신 좌표가 속한 국가(ISO2). 아직 위치가 없거나 판정할 수 없으면 null.

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/core/prefs/shared_preferences_provider.dart';
+import 'package:app/features/footsteps/trip/trip_recording_providers.dart';
 import 'package:app/features/rate_alert/notify/notification_permission.dart';
 import 'package:app/features/visa/data/trip_api.dart';
 import 'package:app/features/visa/data/trip_deletion.dart';
@@ -16,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../footsteps/trip/trip_fakes.dart';
 import 'fake_alarm_backend.dart';
 import 'fake_trip_api.dart';
 
@@ -61,6 +63,7 @@ Future<
       SharedPreferences prefs,
       _FakeTripDeleter deleter,
       FakeAlarmBackend alarms,
+      FakeTripRecordingCoordinator recording,
     })> pumpResultPage(
   WidgetTester tester, {
   Trip? trip,
@@ -83,6 +86,7 @@ Future<
   );
   final deleter = _FakeTripDeleter(fails: deleteFails);
   final alarmBackend = alarms ?? FakeAlarmBackend();
+  final recording = FakeTripRecordingCoordinator();
   final id = (trip ?? sampleTrip()).id;
 
   final router = GoRouter(
@@ -93,6 +97,10 @@ Future<
         path: '/visa/trip/:id',
         builder: (_, state) =>
             Scaffold(body: VisaResultPage(tripId: int.parse(state.pathParameters['id']!))),
+      ),
+      GoRoute(
+        path: '/visa/trip/:id/footsteps',
+        builder: (_, state) => Scaffold(body: Text('발걸음 ${state.pathParameters['id']}')),
       ),
       GoRoute(path: '/checklist', builder: (_, _) => const Scaffold(body: Text('준비물 탭'))),
       GoRoute(
@@ -115,6 +123,7 @@ Future<
                 AlarmScheduler(alarmBackend,
                     registry: MemoryAlarmRegistry('uid-a'), now: () => seoulTime(2026, 9, 7, 12))),
         notificationPermissionProvider.overrideWithValue(permission ?? FakePermission()),
+        tripRecordingCoordinatorProvider.overrideWithValue(recording),
       ],
       // 목록 provider를 누군가 보고 있어야 invalidate가 다시 조회로 이어진다(여행 목록 탭 역할).
       child: Consumer(builder: (context, ref, child) {
@@ -124,7 +133,7 @@ Future<
     ),
   );
   await tester.pumpAndSettle();
-  return (api: api, prefs: prefs, deleter: deleter, alarms: alarmBackend);
+  return (api: api, prefs: prefs, deleter: deleter, alarms: alarmBackend, recording: recording);
 }
 
 TripTask task({
@@ -176,6 +185,12 @@ void main() {
     expect(remaining, [8]);
   });
 
+  testWidgets('404면 그 여행의 발걸음 기록도 지운다', (tester) async {
+    final r = await pumpResultPage(tester, getTripStatusCode: 404);
+
+    expect(r.recording.forgotten, [7]);
+  });
+
   testWidgets('404면 여행 목록을 다시 불러온다', (tester) async {
     final r = await pumpResultPage(tester, getTripStatusCode: 404, watchTripList: true);
 
@@ -220,6 +235,56 @@ void main() {
 
     expect(find.text('여행을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.'), findsOneWidget);
     expect(find.text('여행 목록'), findsNothing);
+  });
+
+  group('국내 여행(설계 9-1)', () {
+    Trip domesticTrip() => Trip(
+          id: 7,
+          countryIso2: 'KR',
+          countryNameKo: '대한민국',
+          departDate: DateTime(2026, 12, 20),
+          returnDate: DateTime(2026, 12, 22),
+          passportExpiry: null,
+          visaResult: const VisaResult(verdict: VisaVerdict.domestic, stayDays: 2, passportOk: true),
+          // 서버가 일정을 보내 주더라도(울릴 시각이 남은 일정) 국내 여행은 알람도 권한 요청도 하지 않는다.
+          tasks: [task(id: 1, title: '여행자 보험 가입', dueDate: DateTime(2026, 12, 1))],
+        );
+
+    testWidgets('비자 결과·준비 일정·체크리스트·지갑을 숨기고 발걸음 기록만 보여 준다', (tester) async {
+      final permission = FakePermission();
+      final r = await pumpResultPage(tester, trip: domesticTrip(), permission: permission);
+
+      expect(find.text('대한민국 국내 여행'), findsOneWidget);
+      expect(find.byKey(const Key('tripFootstepsCard')), findsOneWidget);
+      expect(find.text('역산 일정'), findsNothing);
+      expect(find.textContaining('근거'), findsNothing);
+      expect(find.byKey(const Key('openChecklistButton')), findsNothing);
+      expect(find.byKey(const Key('openWalletButton')), findsNothing);
+      // 국내 여행은 준비 일정 알람을 쓰지 않으니 알람도, 알림 권한 요청도 없다.
+      expect(r.alarms.scheduled, isEmpty);
+      expect(permission.calls, 0);
+    });
+
+    testWidgets('삭제 확인은 발걸음 기록이 지워진다고 알린다', (tester) async {
+      await pumpResultPage(tester, trip: domesticTrip());
+
+      await tester.tap(find.byKey(const Key('tripMenu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('deleteTripMenuItem')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('이 여행의 발걸음 기록이 모두 지워집니다.'), findsOneWidget);
+    });
+  });
+
+  testWidgets('해외 여행 상세에도 발걸음 기록 칸이 있고, 날짜별 발걸음으로 간다', (tester) async {
+    await pumpResultPage(tester);
+
+    await tester.ensureVisible(find.byKey(const Key('openTripFootsteps')));
+    await tester.tap(find.byKey(const Key('openTripFootsteps')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('발걸음 7'), findsOneWidget);
   });
 
   testWidgets('국가 이름과 판정 결과를 서버 데이터로 보여준다', (tester) async {

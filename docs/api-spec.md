@@ -53,7 +53,7 @@ Spring Boot 기본 에러 바디 형식을 그대로 쓴다:
 ## 2. 국가 정보 (Country)
 
 ### `GET /api/countries`
-전체 국가 목록(한글 이름 오름차순).
+여행 목적지 국가 목록(한글 이름 오름차순). 국내 여행용 본국 행(`KR`, V17)은 넣지 않는다 — 앱이 '대한민국(국내 여행)'을 스스로 맨 위에 붙인다(R7).
 
 **응답 200**
 ```json
@@ -141,6 +141,8 @@ Spring Boot 기본 에러 바디 형식을 그대로 쓴다:
 ### `POST /api/trips`
 여행을 생성하고, 비자 판정 + 역산 준비 일정 + 준비물 체크리스트(스냅샷)를 한 번에 만든다.
 
+`countryIso2`가 `KR`(대소문자 무관)이면 **국내 여행**이다(R7): 비자 판정을 건너뛰고 `verdict: "DOMESTIC"`으로 저장하며, 준비 일정과 체크리스트를 만들지 않는다. 앱은 이 여행의 발걸음만 기록한다.
+
 **요청**
 ```json
 {
@@ -153,11 +155,12 @@ Spring Boot 기본 에러 바디 형식을 그대로 쓴다:
 | 필드 | 검증 |
 |---|---|
 | `countryIso2` | 필수 |
-| `departDate`, `returnDate`, `passportExpiry` | 필수, `returnDate`는 `departDate`보다 앞설 수 없음(위반 시 400) |
+| `departDate`, `returnDate` | 필수, `returnDate`는 `departDate`보다 앞설 수 없음(위반 시 400) |
+| `passportExpiry` | 해외 여행은 필수(없으면 400). 국내 여행(`KR`)은 빼도 되고, 보내도 저장하지 않는다(응답은 `null`) |
 
 **응답 200** — 아래 "TripResponse" 참고.
 **404** — 존재하지 않는 국가.
-**400** — 필수 필드 누락 / `returnDate < departDate`.
+**400** — 필수 필드 누락(해외 여행의 `passportExpiry` 포함) / `returnDate < departDate`.
 
 ### `GET /api/trips/{id}`
 저장된 스냅샷 그대로 조회.
@@ -186,20 +189,21 @@ Spring Boot 기본 에러 바디 형식을 그대로 쓴다:
 }
 ```
 
-`verdict` 값 (4가지, **문자열 그대로 클라이언트-바인딩 고정값** — 임의 변경 금지):
+`verdict` 값 (5가지, **문자열 그대로 클라이언트-바인딩 고정값** — 임의 변경 금지):
 | 값 | 의미 |
 |---|---|
 | `VISA_FREE_OK` | 무비자 체류일 이내 |
 | `VISA_FREE_EXCEEDED` | 무비자지만 체류일 초과 → 비자 필요 |
 | `VISA_REQUIRED` | 원래부터 비자 필요 |
 | `UNVERIFIED` | 데이터 미수집/파싱 실패 — 영사관 확인 필요 (절대 "무비자 OK"로 낙관 처리하지 않음) |
+| `DOMESTIC` | 국내 여행(대한민국) — 판정하지 않는다. `passportOk: true`, 허용 일수·여권 요건은 `null`, 준비 일정 없음, `judgementStale`은 언제나 `false` (R7) |
 
 `judgementStale: true`이면 여행 생성 이후 원본 비자 요건 데이터가 바뀌었다는 뜻 — 화면에서 "최신 정보로 새로고침하시겠어요?" 안내에 사용.
 
 **404** — 존재하지 않거나 **다른 사용자 소유**의 여행(구분 없이 404).
 
 ### `POST /api/trips/{id}/refresh`
-사용자가 명시적으로 동의했을 때만 호출. 판정을 다시 계산해 스냅샷을 덮어쓰고, 기존 준비 일정을 전부 지운 뒤 새로 만든다.
+사용자가 명시적으로 동의했을 때만 호출. 판정을 다시 계산해 스냅샷을 덮어쓰고, 기존 준비 일정을 전부 지운 뒤 새로 만든다. 국내 여행(`DOMESTIC`)은 아무것도 바꾸지 않고 지금 값을 그대로 돌려준다.
 
 > ⚠️ 이미 완료 체크한 준비 일정(`tasks[].done`)은 새로고침 시 초기화된다 — 앱에서 확인 다이얼로그로 미리 안내할 것.
 
@@ -612,7 +616,7 @@ SUBSCRIBE /topic/rooms/{roomId}/messages
 
 - `PlaceCategory`: `TOURIST`, `RESTAURANT`, `PHARMACY`, `ATM`
 - `source`(체크인): `AUTO`, `MANUAL`, `IMPORT`
-- `VisaVerdict`: `VISA_FREE_OK`, `VISA_FREE_EXCEEDED`, `VISA_REQUIRED`, `UNVERIFIED`
+- `VisaVerdict`: `VISA_FREE_OK`, `VISA_FREE_EXCEEDED`, `VISA_REQUIRED`, `UNVERIFIED`, `DOMESTIC`(국내 여행, R7)
 - `RoomType`(채팅방): `GROUP`, `DM`
 - `MessageType`(채팅 메시지): `TEXT`, `IMAGE`
 - 여행경보 `level`: 1~4 (실제 등급), 0 (파싱 실패/UNKNOWN)

@@ -10,6 +10,7 @@ import 'package:app/features/footsteps/recording/recording_config.dart';
 import 'package:app/features/footsteps/recording/recording_mode.dart';
 import 'package:app/features/footsteps/recording/recording_providers.dart';
 import 'package:app/features/footsteps/recording/session_library.dart';
+import 'package:app/features/footsteps/trip/trip_period.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
@@ -145,6 +146,36 @@ void main() {
     expect(tester.widget<DropdownButton<String>>(find.byKey(const Key('lab-policy'))).value, 'still_suppress');
     expect(tester.widget<DropdownButton<String>>(find.byKey(const Key('lab-detector'))).value, 'os');
     expect(tester.widget<TextField>(find.byKey(const Key('lab-policy-params'))).controller!.text, 'interval_s=120');
+  });
+
+  testWidgets('여행 기록 중에 열면 안내하고, 종료한 뒤 시작하면 여행 기록이 아니라 실험 모드로 켠다', (tester) async {
+    final controller = FakeRecordingController()
+      ..running = true
+      ..config = RecordingConfig(
+        mode: RecordingMode.trip,
+        policy: const PolicyChoice(policyId: 'step_budget', detectorId: 'adaptive'),
+        trip: TripPeriod(
+          tripId: 7,
+          countryIso2: 'KR',
+          countryNameKo: '대한민국',
+          departDate: DateTime(2026, 11, 20),
+          returnDate: DateTime(2026, 11, 22),
+        ),
+      );
+    await pumpLab(tester, controller);
+
+    expect(find.byKey(const Key('lab-trip-recording')), findsOneWidget);
+    final mode = tester.widget<SegmentedButton<RecordingMode>>(find.byKey(const Key('lab-mode')));
+    expect(mode.selected, {RecordingMode.groundTruth});
+
+    await tester.tap(find.byKey(const Key('lab-start-stop')));
+    await tester.pumpAndSettle();
+    expect(controller.stops, 1);
+    expect(find.byKey(const Key('lab-trip-recording')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('lab-start-stop')));
+    await tester.pumpAndSettle();
+    expect(controller.starts.single.mode, RecordingMode.groundTruth);
   });
 
   testWidgets('서비스가 보낸 상태를 보여 준다', (tester) async {

@@ -71,6 +71,15 @@ class CountryControllerTest {
     }
 
     @Test
+    void 목적지_목록에는_본국_한국을_넣지_않는다() throws Exception {
+        // V17가 국내 여행을 위해 country 표에 KR을 넣었지만, 이 API는 R7 전과 같은 목적지 20개국만 돌려준다.
+        mockMvc.perform(get("/api/countries").header("Authorization", "Bearer valid-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(20))
+                .andExpect(jsonPath("$[?(@.isoAlpha2=='KR')]").doesNotExist());
+    }
+
+    @Test
     void health_is_accessible_without_token() throws Exception {
         mockMvc.perform(get("/api/health"))
                 .andExpect(status().isOk());

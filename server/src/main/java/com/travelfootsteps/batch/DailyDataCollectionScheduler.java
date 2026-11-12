@@ -57,6 +57,8 @@ public class DailyDataCollectionScheduler {
         log.info("일일 공공데이터 수집 시작: {}개국", countries.size());
 
         for (Country country : countries) {
+            // 본국(한국, V17)은 여행 목적지가 아니라 비자 요건·여행경보·재외공관 자료가 없다 — 외부 API 쿼터를 쓰지 않는다.
+            if (country.isHome()) continue;
             collectSafely(country, "visa", () -> visaRequirementCollector.collectOne(country));
             collectSafely(country, "alert", () -> travelAlertCollector.collectOne(country));
             collectSafely(country, "embassy", () -> embassyCollector.collectOne(country));

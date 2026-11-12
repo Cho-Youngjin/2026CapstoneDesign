@@ -11,6 +11,9 @@ import '../../core/auth/auth_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
+import '../footsteps/trip/trip_footsteps_card.dart';
+import '../footsteps/trip/trip_period.dart';
+import '../footsteps/trip/trip_recording_providers.dart';
 import '../rate_alert/notify/notification_permission.dart';
 import 'data/trip_api.dart';
 import 'data/trip_deletion.dart';
@@ -48,18 +51,27 @@ class VisaResultPage extends ConsumerWidget {
       ref.read(alarmSchedulerProvider).cancelForTrip(tripId).catchError((Object e) {
         debugPrint('지워진 여행의 비자 준비 알람 정리 실패: $e');
       });
+      // 그 여행의 발걸음 기록(좌표·정지 구간·일시정지)도 지운다(설계 9-3).
+      ref.read(tripRecordingCoordinatorProvider).forgetTrip(tripId).catchError((Object e) {
+        debugPrint('지워진 여행의 발걸음 기록 정리 실패: $e');
+      });
       ref.read(tripListCacheProvider).remove(tripId).whenComplete(() {
         ref.invalidate(tripListProvider);
       });
     });
     final tripAsync = ref.watch(tripProvider(tripId));
-    final countryName = tripAsync.asData?.value.countryNameKo;
+    final loaded = tripAsync.asData?.value;
+    final title = switch (loaded) {
+      null => '판정 결과',
+      final trip when trip.isDomestic => '${trip.countryNameKo} 국내 여행',
+      final trip => '${trip.countryNameKo} 판정 결과',
+    };
 
     return Column(
       children: [
         _Header(
-          title: countryName == null ? '판정 결과' : '$countryName 판정 결과',
-          onDelete: tripAsync.hasValue ? () => _confirmDelete(context, ref) : null,
+          title: title,
+          onDelete: loaded == null ? null : () => _confirmDelete(context, ref, domestic: loaded.isDomestic),
         ),
         Expanded(
           child: tripAsync.when(
@@ -83,12 +95,14 @@ class VisaResultPage extends ConsumerWidget {
     );
   }
 
-  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref, {required bool domestic}) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('여행을 삭제할까요?'),
-        content: const Text('준비 일정·체크리스트와 이 여행의 지갑 기록이 모두 지워집니다.'),
+        content: Text(domestic
+            ? '이 여행의 발걸음 기록이 모두 지워집니다.'
+            : '준비 일정·체크리스트·지갑 기록과 이 여행의 발걸음 기록이 모두 지워집니다.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -219,6 +233,8 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
   @override
   void initState() {
     super.initState();
+    // 국내 여행은 준비 일정이 없어 알람도 없다(설계 9-1) — 알림 권한도 묻지 않는다.
+    if (_trip.isDomestic) return;
     // 열 때마다 서버의 최신 일정으로 알람을 맞춘다. 새로 만든 여행도 이 화면으로 오므로 여기서 예약된다.
     final trip = _trip;
     final permission = ref.read(notificationPermissionProvider);
@@ -326,6 +342,11 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
 
   @override
   Widget build(BuildContext context) {
+    final footsteps = TripFootstepsCard(trip: TripPeriod.fromTrip(_trip));
+    // 국내 여행은 비자 결과·준비 일정·체크리스트·지갑을 숨기고 발걸음 기록만 보여 준다(설계 9-1).
+    if (_trip.isDomestic) {
+      return SingleChildScrollView(padding: const EdgeInsets.all(18), child: footsteps);
+    }
     final visa = visaBadgeOf(_trip.visaResult);
     final passport = passportBadgeOf(_trip.visaResult);
     final tasks = [..._trip.tasks]
@@ -381,6 +402,8 @@ class _ResultBodyState extends ConsumerState<_ResultBody> {
                 onTap: () => _toggleDone(tasks[i]),
               ),
           const SizedBox(height: 24),
+          footsteps,
+          const SizedBox(height: 14),
           Row(
             children: [
               Expanded(

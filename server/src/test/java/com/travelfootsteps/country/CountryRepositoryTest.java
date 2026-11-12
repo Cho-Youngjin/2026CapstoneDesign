@@ -33,8 +33,13 @@ class CountryRepositoryTest {
     CountryRepository countryRepository;
 
     @Test
-    void seed_contains_20_tier_a_countries() {
-        assertThat(countryRepository.findAll()).hasSize(20);
+    void seed_contains_20_tier_a_destinations_and_home_country() {
+        // V1의 목적지 20개국 + V17의 본국(국내 여행용 KR).
+        assertThat(countryRepository.findAll()).hasSize(21);
+        Country home = countryRepository.findByIsoAlpha2("KR").orElseThrow();
+        assertThat(home.getNameKo()).isEqualTo("대한민국");
+        assertThat(home.isHome()).isTrue();
+        assertThat(countryRepository.findByIsoAlpha2("VN").orElseThrow().isHome()).isFalse();
     }
 
     @Test

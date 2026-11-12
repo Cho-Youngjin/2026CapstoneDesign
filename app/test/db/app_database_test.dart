@@ -1,7 +1,9 @@
 import 'package:app/core/db/app_database.dart';
 import 'package:app/features/footsteps/data/checkin.dart';
+import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:footstep_core/footstep_core.dart' show TimeSpan;
 
 void main() {
   late AppDatabase db;
@@ -83,5 +85,133 @@ void main() {
     expect(jp, hasLength(2));
     expect(jp.first.lat, 35.60); // 시간순이므로 9:00이 먼저
     expect(jp.last.lat, 35.61);
+  });
+
+  group('여행 기록(스키마 3)', () {
+    test('여행 점을 정확도·걸음·상태와 함께 저장하고 여행별로 시각순 조회한다', () async {
+      await db.insertTripPoint(tripId: 7, lat: 37.51, lng: 127.01, countryIso: 'KR',
+          recordedAt: DateTime.utc(2026, 11, 20, 9, 5), accuracyM: 8, stepsSincePrev: 64, state: 'walking');
+      await db.insertTripPoint(tripId: 7, lat: 37.50, lng: 127.00, countryIso: 'KR',
+          recordedAt: DateTime.utc(2026, 11, 20, 9), state: 'unknown');
+      await db.insertTripPoint(tripId: 8, lat: 35.6, lng: 139.7, countryIso: 'JP',
+          recordedAt: DateTime.utc(2026, 11, 20, 9, 1));
+      await db.insertRoutePoint(lat: 37.6, lng: 127.1, countryIso: 'KR', recordedAt: DateTime.utc(2026, 11, 20, 9, 2));
+
+      final points = await db.routePointsForTrip(7);
+
+      expect(points.map((p) => p.lat), [37.50, 37.51]);
+      expect(points.last.tripId, 7);
+      expect(points.last.accuracyM, 8);
+      expect(points.last.stepsSincePrev, 64);
+      expect(points.last.state, 'walking');
+      expect(points.first.accuracyM, isNull);
+      // 세계지도·국가 지도는 여행 점도 그대로 본다.
+      expect(await db.routePointsForCountry('KR'), hasLength(3));
+      expect((await db.routePointsForCountry('KR')).where((p) => p.tripId == null), hasLength(1));
+    });
+
+    test('정지 구간을 저장하고 여행별로 시작 시각순 밀리초 구간으로 돌려준다', () async {
+      await db.insertTripStillSpan(
+          tripId: 7, startAt: DateTime.utc(2026, 11, 20, 10), endAt: DateTime.utc(2026, 11, 20, 10, 30));
+      await db.insertTripStillSpan(
+          tripId: 7, startAt: DateTime.utc(2026, 11, 20, 9), endAt: DateTime.utc(2026, 11, 20, 9, 15));
+      await db.insertTripStillSpan(
+          tripId: 8, startAt: DateTime.utc(2026, 11, 20, 9), endAt: DateTime.utc(2026, 11, 20, 9, 1));
+
+      final spans = await db.stillSpansForTrip(7);
+
+      expect(spans, [
+        TimeSpan(DateTime.utc(2026, 11, 20, 9).millisecondsSinceEpoch,
+            DateTime.utc(2026, 11, 20, 9, 15).millisecondsSinceEpoch),
+        TimeSpan(DateTime.utc(2026, 11, 20, 10).millisecondsSinceEpoch,
+            DateTime.utc(2026, 11, 20, 10, 30).millisecondsSinceEpoch),
+      ]);
+    });
+
+    Future<void> seedTwoTripsAndLegacyPoint() async {
+      for (final tripId in [7, 8]) {
+        await db.insertTripPoint(tripId: tripId, lat: 37.5, lng: 127.0, countryIso: 'KR',
+            recordedAt: DateTime.utc(2026, 11, 20, 9));
+        await db.insertTripStillSpan(
+            tripId: tripId, startAt: DateTime.utc(2026, 11, 20, 9), endAt: DateTime.utc(2026, 11, 20, 9, 20));
+      }
+      await db.insertRoutePoint(lat: 37.6, lng: 127.1, countryIso: 'KR', recordedAt: DateTime.utc(2026, 11, 20, 9));
+    }
+
+    test('지운 여행의 점과 정지 구간만 지우고 여행에 속하지 않은 점은 남긴다', () async {
+      await seedTwoTripsAndLegacyPoint();
+
+      await db.deleteTripRecords([7]);
+
+      expect(await db.routePointsForTrip(7), isEmpty);
+      expect(await db.stillSpansForTrip(7), isEmpty);
+      expect(await db.routePointsForTrip(8), hasLength(1));
+      expect(await db.stillSpansForTrip(8), hasLength(1));
+      expect(await db.routePointsForCountry('KR'), hasLength(2));
+    });
+
+    test('남길 여행 밖의 여행 기록을 지운다 — 비우면 여행 기록 전부', () async {
+      await seedTwoTripsAndLegacyPoint();
+
+      await db.deleteTripRecordsExcept({8});
+      expect(await db.routePointsForTrip(7), isEmpty);
+      expect(await db.stillSpansForTrip(7), isEmpty);
+      expect(await db.routePointsForTrip(8), hasLength(1));
+
+      await db.deleteTripRecordsExcept({});
+      expect(await db.routePointsForTrip(8), isEmpty);
+      expect(await db.stillSpansForTrip(8), isEmpty);
+      expect(await db.routePointsForCountry('KR'), hasLength(1)); // tripId가 없는 기존 점
+    });
+  });
+
+  test('스키마 2에서 올리면 기존 점은 여행 열이 null로 남고 여행 기록을 쓸 수 있다', () async {
+    // setUp이 연 DB와 함께 두 번째 AppDatabase를 여는 것은 의도한 것이다(서로 다른 메모리 DB).
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    addTearDown(() => driftRuntimeOptions.dontWarnAboutMultipleDatabases = false);
+    // 스키마 2(R7 전)의 route_points를 만들어 둔 파일을 흉내 낸다. setup은 drift가 마이그레이션을 보기 전에 돈다.
+    final old = AppDatabase.forTesting(NativeDatabase.memory(setup: (raw) {
+      raw.execute('CREATE TABLE "route_points" ("id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, '
+          '"lat" REAL NOT NULL, "lng" REAL NOT NULL, '
+          '"country_iso" TEXT NOT NULL CHECK(length("country_iso") >= 2 AND length("country_iso") <= 2), '
+          '"recorded_at" INTEGER NOT NULL);');
+      raw.execute('INSERT INTO route_points (lat, lng, country_iso, recorded_at) VALUES (35.6, 139.7, \'JP\', 1792400000);');
+      raw.execute('PRAGMA user_version = 2;');
+    }));
+    addTearDown(old.close);
+
+    final legacy = await old.routePointsForCountry('JP');
+    expect(legacy, hasLength(1));
+    expect(legacy.single.tripId, isNull);
+    expect(legacy.single.state, isNull);
+
+    await old.insertTripPoint(tripId: 3, lat: 35.7, lng: 139.8, countryIso: 'JP',
+        recordedAt: DateTime.utc(2026, 11, 20), stepsSincePrev: 10, state: 'walking');
+    await old.insertTripStillSpan(
+        tripId: 3, startAt: DateTime.utc(2026, 11, 20), endAt: DateTime.utc(2026, 11, 20, 0, 20));
+    expect((await old.routePointsForTrip(3)).single.stepsSincePrev, 10);
+    expect(await old.stillSpansForTrip(3), hasLength(1));
+  });
+
+  test('스키마 2에서 올리다 열 일부가 이미 있으면(이전 실행이 도중에 끝났거나 다른 isolate가 먼저 올림) 그 열은 건너뛴다', () async {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    addTearDown(() => driftRuntimeOptions.dontWarnAboutMultipleDatabases = false);
+    // 열 넷 중 둘(trip_id, accuracy_m)만 더해진 채 user_version이 2로 남은 파일을 흉내 낸다.
+    final partial = AppDatabase.forTesting(NativeDatabase.memory(setup: (raw) {
+      raw.execute('CREATE TABLE "route_points" ("id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, '
+          '"lat" REAL NOT NULL, "lng" REAL NOT NULL, '
+          '"country_iso" TEXT NOT NULL CHECK(length("country_iso") >= 2 AND length("country_iso") <= 2), '
+          '"recorded_at" INTEGER NOT NULL, "trip_id" INTEGER NULL, "accuracy_m" REAL NULL);');
+      raw.execute('PRAGMA user_version = 2;');
+    }));
+    addTearDown(partial.close);
+
+    await partial.insertTripPoint(tripId: 4, lat: 37.5, lng: 127.0, countryIso: 'KR',
+        recordedAt: DateTime.utc(2026, 11, 21), accuracyM: 8, stepsSincePrev: 3, state: 'walking');
+    final point = (await partial.routePointsForTrip(4)).single;
+    expect(point.stepsSincePrev, 3);
+    expect(point.state, 'walking');
+    final version = await partial.customSelect('PRAGMA user_version').getSingle();
+    expect(version.read<int>('user_version'), 3);
   });
 }
