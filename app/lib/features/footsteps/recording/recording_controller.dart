@@ -33,7 +33,31 @@ abstract interface class RecordingController {
   Future<RecordingConfig?> activeConfig();
 }
 
-const _recordingServiceId = 7101;
+/// 기록 서비스의 서비스 id. 실험 모드와 여행 기록이 같은 서비스 하나를 번갈아 쓴다(설계 4-1 — 동시에 돌지 않는다).
+const recordingServiceId = 7101;
+
+/// 기록 서비스의 알림 채널·반복 주기를 정한다. 실험 화면(ForegroundRecordingController)과 여행 기록
+/// (ForegroundTripRecordingService)이 서비스를 켜기 전에 똑같이 부른다.
+void initRecordingService() {
+  FlutterForegroundTask.init(
+    androidNotificationOptions: AndroidNotificationOptions(
+      channelId: 'footstep_recording',
+      channelName: '발걸음 기록',
+      channelDescription: '발걸음 실험·여행 기록이 진행 중일 때 표시됩니다.',
+      onlyAlertOnce: true,
+    ),
+    iosNotificationOptions: const IOSNotificationOptions(),
+    foregroundTaskOptions: ForegroundTaskOptions(
+      // 5초마다 디스크에 쓰고 화면에 상태를 보낸다(설계 4-2). 여행 기록은 이 주기에 날짜를 확인한다(설계 9-2).
+      eventAction: ForegroundTaskEventAction.repeat(5000),
+      // 재부팅 뒤에는 다시 켜지 않는다 — 여행 기록은 다음에 앱을 열 때 다시 켜진다(설계 9-2).
+      autoRunOnBoot: false,
+      autoRunOnMyPackageReplaced: false,
+      allowWakeLock: true,
+      allowWifiLock: false,
+    ),
+  );
+}
 
 /// 세션 폴더들의 상위 폴더. adb pull로 꺼낼 수 있게 앱 전용 외부 저장소
 /// (`/sdcard/Android/data/<패키지>/files/sessions`)를 쓴다.
@@ -52,26 +76,6 @@ class ForegroundRecordingController implements RecordingController {
   final Future<Directory> Function() _sessionsRoot;
   final DateTime Function() _clock;
 
-  void _initService() {
-    FlutterForegroundTask.init(
-      androidNotificationOptions: AndroidNotificationOptions(
-        channelId: 'footstep_recording',
-        channelName: '발걸음 기록',
-        channelDescription: '발걸음 실험·여행 기록이 진행 중일 때 표시됩니다.',
-        onlyAlertOnce: true,
-      ),
-      iosNotificationOptions: const IOSNotificationOptions(),
-      foregroundTaskOptions: ForegroundTaskOptions(
-        // 5초마다 디스크에 쓰고 화면에 상태를 보낸다(설계 4-2).
-        eventAction: ForegroundTaskEventAction.repeat(5000),
-        autoRunOnBoot: false,
-        autoRunOnMyPackageReplaced: false,
-        allowWakeLock: true,
-        allowWifiLock: false,
-      ),
-    );
-  }
-
   @override
   Future<bool> isRunning() => FlutterForegroundTask.isRunningService;
 
@@ -82,6 +86,9 @@ class ForegroundRecordingController implements RecordingController {
     String? note,
     PolicyChoice? policy,
   }) async {
+    if (mode == RecordingMode.trip) {
+      throw ArgumentError('여행 기록은 실험 화면이 아니라 ForegroundTripRecordingService로 켭니다.');
+    }
     final root = await _sessionsRoot();
     final dir = Directory(p.join(root.path, sessionDirName(_clock(), mode)));
     await dir.create(recursive: true);
@@ -97,14 +104,15 @@ class ForegroundRecordingController implements RecordingController {
       value: jsonEncode(config.toJson()),
     );
 
-    _initService();
+    initRecordingService();
     final result = await FlutterForegroundTask.startService(
-      serviceId: _recordingServiceId,
+      serviceId: recordingServiceId,
       serviceTypes: [ForegroundServiceTypes.location],
       notificationTitle: '발걸음 실험 기록 중',
       notificationText: switch (mode) {
         RecordingMode.groundTruth => '정답 기록 모드 · 알림 버튼으로 도착·탑승을 표시하세요',
         RecordingMode.policy => '정책 실행 모드(${policy?.policyId}) · 알림 버튼으로 도착·탑승을 표시하세요',
+        RecordingMode.trip => '', // 위에서 막았다
       },
       notificationButtons: recordingNotificationButtons(FieldState()),
       callback: recordingStartCallback,

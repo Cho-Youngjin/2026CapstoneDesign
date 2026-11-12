@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'mark.dart';
 import 'recording_config.dart';
 import 'recording_messages.dart';
+import 'recording_mode.dart';
 import 'session_marks.dart';
 import 'session_meta.dart';
 import 'session_recorder.dart';
@@ -53,7 +54,13 @@ class RecordingTaskHandler extends TaskHandler {
         return;
       }
       final config = RecordingConfig.fromJson(jsonDecode(raw) as Map<String, Object?>);
-      final sessionDir = Directory(config.sessionDir);
+      final sessionPath = config.sessionDir;
+      if (config.mode == RecordingMode.trip || sessionPath == null) {
+        // 여행 기록 설정이다(TripRecordingTaskHandler가 맡는다). 실험 세션으로 열지 않는다.
+        await FlutterForegroundTask.stopService();
+        return;
+      }
+      final sessionDir = Directory(sessionPath);
       // 열기 전에 읽는다. 시스템이 서비스를 다시 띄운 경우 marks.csv에 이전 표시가 남아 있다.
       final previousMarks = await readSessionMarks(sessionDir);
       final metaStore = SessionMetaStore(File(p.join(sessionDir.path, SessionSchema.metaFile)));
@@ -71,7 +78,7 @@ class RecordingTaskHandler extends TaskHandler {
       _recorder = recorder;
       // 새 기록기의 토글 상태는 비어 있다. 이어 쓰는 세션이면 이미 남은 표시를 다시 흘려 넣어(marks.csv에는
       // 다시 쓰지 않는다) 도착/출발·탑승/하차 버튼과 휴대 위치가 끊기기 전 상태에서 이어지게 한다.
-      recorder.field.carry = config.carryInitial;
+      recorder.field.carry = config.carryInitial ?? CarryPosition.hand;
       for (final mark in previousMarks) {
         recorder.field.observe(mark);
       }
@@ -113,13 +120,13 @@ class RecordingTaskHandler extends TaskHandler {
       device = const DeviceInfo(model: 'unknown', sdkInt: 0, appVersion: 'unknown');
     }
     return SessionMeta(
-      sessionId: p.basename(config.sessionDir),
+      sessionId: p.basename(config.sessionDir!),
       mode: config.mode,
       deviceModel: device.model,
       androidSdk: device.sdkInt,
       appVersion: device.appVersion,
       startedAt: _now(),
-      carryInitial: config.carryInitial,
+      carryInitial: config.carryInitial ?? CarryPosition.hand,
       note: config.note,
       policy: config.policy,
     );

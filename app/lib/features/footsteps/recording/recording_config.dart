@@ -1,3 +1,4 @@
+import '../trip/trip_period.dart';
 import 'policy_choice.dart';
 import 'recording_mode.dart';
 
@@ -6,21 +7,27 @@ import 'recording_mode.dart';
 class RecordingConfig {
   const RecordingConfig({
     required this.mode,
-    required this.sessionDir,
-    required this.carryInitial,
+    this.sessionDir,
+    this.carryInitial,
     this.note,
     this.policy,
+    this.trip,
   });
 
   static const storageKey = 'recording_config';
 
   final RecordingMode mode;
-  final String sessionDir;
-  final String carryInitial;
+
+  /// 실험 모드(정답 기록·정책 실행)의 세션 폴더와 처음 휴대 위치. 여행 기록 모드는 세션 파일을 쓰지 않아 null이다.
+  final String? sessionDir;
+  final String? carryInitial;
   final String? note;
 
-  /// 정책 실행 모드에서 고른 정책·감지기. 정답 기록 모드에서는 null이다.
+  /// 정책 실행·여행 기록 모드에서 돌리는 정책·감지기. 정답 기록 모드에서는 null이다.
   final PolicyChoice? policy;
+
+  /// 여행 기록 모드에서 기록하는 여행. 실험 모드에서는 null이다.
+  final TripPeriod? trip;
 
   Map<String, Object?> toJson() => {
         'mode': mode.name,
@@ -28,15 +35,19 @@ class RecordingConfig {
         'carryInitial': carryInitial,
         'note': note,
         'policy': policy?.toJson(),
+        'trip': trip?.toJson(),
       };
 
   factory RecordingConfig.fromJson(Map<String, Object?> json) => RecordingConfig(
         mode: RecordingMode.values.byName(json['mode'] as String),
-        sessionDir: json['sessionDir'] as String,
-        carryInitial: json['carryInitial'] as String,
+        sessionDir: json['sessionDir'] as String?,
+        carryInitial: json['carryInitial'] as String?,
         note: json['note'] as String?,
         policy: json['policy'] == null
             ? null
             : PolicyChoice.fromJson((json['policy'] as Map).cast<String, Object?>()),
+        trip: json['trip'] == null
+            ? null
+            : TripPeriod.fromJson((json['trip'] as Map).cast<String, Object?>()),
       );
 }
