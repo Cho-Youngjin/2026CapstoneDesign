@@ -24,13 +24,37 @@ TripRecordingPhase tripRecordingPhaseOf(TripPeriod trip, DateTime now, {required
 
 /// 여행 상세의 '발걸음 기록' 칸(설계 9-2의 3번, 9-4의 입구). 기록 상태와 [기록 일시정지·재개], [날짜별 발걸음]을 둔다.
 /// 국내 여행 상세에는 이 칸만 있다(설계 9-1).
-class TripFootstepsCard extends ConsumerWidget {
+class TripFootstepsCard extends ConsumerStatefulWidget {
   const TripFootstepsCard({super.key, required this.trip});
 
   final TripPeriod trip;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TripFootstepsCard> createState() => _TripFootstepsCardState();
+}
+
+class _TripFootstepsCardState extends ConsumerState<TripFootstepsCard> {
+  /// 일시정지·재개 요청이 끝나기를 기다리는 중. 그동안 버튼을 막아 요청이 겹치지 않게 한다.
+  bool _busy = false;
+
+  TripPeriod get trip => widget.trip;
+
+  Future<void> _togglePaused(bool paused) async {
+    setState(() => _busy = true);
+    // 위젯이 사라진 뒤에도 쓸 수 있게 미리 꺼내 둔다.
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      await ref.read(pausedTripIdsProvider.notifier).setPaused(trip.tripId, !paused);
+    } catch (e) {
+      debugPrint('여행 기록 일시정지를 바꾸지 못했습니다: $e');
+      messenger?.showSnackBar(const SnackBar(content: Text('기록 상태를 바꾸지 못했습니다. 다시 시도해 주세요.')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final now = ref.watch(tripClockProvider)();
     final paused = ref.watch(pausedTripIdsProvider).contains(trip.tripId);
     final phase = tripRecordingPhaseOf(trip, now, paused: paused);
@@ -66,7 +90,7 @@ class TripFootstepsCard extends ConsumerWidget {
                     key: const Key('tripRecordingToggle'),
                     label: paused ? '기록 재개' : '기록 일시정지',
                     height: 44,
-                    onPressed: () => ref.read(pausedTripIdsProvider.notifier).setPaused(trip.tripId, !paused),
+                    onPressed: _busy ? null : () => _togglePaused(paused),
                   ),
                 ),
                 const SizedBox(width: 10),

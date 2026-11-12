@@ -5,6 +5,7 @@ import 'package:app/features/footsteps/trip/trip_period.dart';
 import 'package:app/features/footsteps/trip/trip_recording_coordinator.dart';
 import 'package:app/features/footsteps/trip/trip_recording_permissions.dart';
 import 'package:app/features/footsteps/trip/trip_recording_service.dart';
+import 'package:app/features/footsteps/trip/trip_recording_store.dart';
 import 'package:app/features/visa/models/trip_summary.dart';
 import 'package:footstep_core/footstep_core.dart';
 
@@ -83,6 +84,9 @@ class FakeTripRecordingService implements TripRecordingService {
   final started = <int>[];
   int stops = 0;
 
+  /// true이면 [start]가 던진다(서비스를 못 켜는 상황).
+  bool startThrows = false;
+
   /// true이면 [stop]이 던진다(서비스가 스스로 끝난 직후 stop을 부른 상황).
   bool stopThrows = false;
 
@@ -97,6 +101,7 @@ class FakeTripRecordingService implements TripRecordingService {
 
   @override
   Future<void> start(TripPeriod trip) async {
+    if (startThrows) throw StateError('서비스를 켤 수 없습니다');
     started.add(trip.tripId);
     runningTripId = trip.tripId;
   }
@@ -131,6 +136,15 @@ class FakeTripRecordingPermissions implements TripRecordingPermissions {
 
 /// 앱 셸·여행 상세 위젯 테스트용 코디네이터 대역. 불린 것만 기록한다.
 class FakeTripRecordingCoordinator implements TripRecordingCoordinator {
+  FakeTripRecordingCoordinator({this.store});
+
+  /// 주면 [setPaused]가 진짜 코디네이터처럼 저장소에 먼저 적는다(화면이 저장소를 다시 읽는다).
+  final TripRecordingStore? store;
+
+  /// 주면 [setPaused]가 저장한 뒤 이 오류를 던진다(서비스를 맞추다 실패한 상황). 풀면 기다리는 동안 멈춘다.
+  Object? pauseError;
+  Completer<void>? pauseGate;
+
   int syncs = 0;
   final updates = <List<int>>[];
   final pauses = <(int, bool)>[];
@@ -142,7 +156,13 @@ class FakeTripRecordingCoordinator implements TripRecordingCoordinator {
   Future<void> updateTrips(List<TripSummary> trips) async => updates.add([for (final t in trips) t.id]);
 
   @override
-  Future<void> setPaused(int tripId, bool paused) async => pauses.add((tripId, paused));
+  Future<void> setPaused(int tripId, bool paused) async {
+    pauses.add((tripId, paused));
+    await store?.setPaused(tripId, paused);
+    await pauseGate?.future;
+    final error = pauseError;
+    if (error != null) throw error;
+  }
 
   /// 출발일 알림이 곧 울릴 여행이 있는가(앱 셸이 알림 권한을 물을지 정한다).
   bool upcomingNotice = false;

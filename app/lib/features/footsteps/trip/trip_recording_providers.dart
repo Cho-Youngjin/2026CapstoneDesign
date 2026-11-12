@@ -42,18 +42,28 @@ final tripRecordingCoordinatorProvider = Provider<TripRecordingCoordinator>(
     permissions: ref.watch(tripRecordingPermissionsProvider),
     notices: ref.watch(tripDepartureNoticesProvider),
     db: ref.watch(appDatabaseProvider),
+    // 계정 전환·목록 갱신·여행 삭제가 저장소의 일시정지를 바꾸면 화면용 목록도 저장소를 다시 읽는다.
+    onPausedChanged: () {
+      if (ref.mounted) ref.invalidate(pausedTripIdsProvider);
+    },
   ),
 );
 
-/// 일시정지한 여행 id(여행 상세가 보여 준다). 바꿀 때는 [PausedTripsNotifier.setPaused]로 코디네이터를 거쳐 기록 서비스까지
-/// 맞춘다.
+/// 일시정지한 여행 id(여행 상세가 보여 준다). 저장소가 원본이고 이 목록은 그 사본이다. 바꿀 때는
+/// [PausedTripsNotifier.setPaused]로 코디네이터를 거쳐 기록 서비스까지 맞춘다. 코디네이터의 다른 작업(계정 전환·목록 갱신·
+/// 여행 삭제)이 저장소를 바꾸면 코디네이터가 이 목록을 다시 만들게 한다(`onPausedChanged`).
 class PausedTripsNotifier extends Notifier<Set<int>> {
   @override
   Set<int> build() => ref.watch(tripRecordingStoreProvider).readPaused();
 
+  /// 코디네이터는 저장소에 먼저 적고 나서 서비스를 맞춘다. 서비스를 맞추다 실패해도 일시정지는 이미 저장됐으므로,
+  /// 성공하든 실패하든 저장소 값대로 목록을 맞춘다(화면이 저장된 값과 어긋나지 않게). 오류는 부른 쪽으로 넘어간다.
   Future<void> setPaused(int tripId, bool paused) async {
-    await ref.read(tripRecordingCoordinatorProvider).setPaused(tripId, paused);
-    state = {...state.where((id) => id != tripId), if (paused) tripId};
+    try {
+      await ref.read(tripRecordingCoordinatorProvider).setPaused(tripId, paused);
+    } finally {
+      if (ref.mounted) state = ref.read(tripRecordingStoreProvider).readPaused();
+    }
   }
 }
 

@@ -28,6 +28,7 @@ class TripRecordingCoordinator {
     required this._notices,
     required this._db,
     DateTime Function()? clock,
+    this._onPausedChanged,
   }) : _clock = clock ?? DateTime.now;
 
   final TripRecordingStore _store;
@@ -37,6 +38,10 @@ class TripRecordingCoordinator {
   final AppDatabase _db;
   final DateTime Function() _clock;
 
+  /// 저장된 일시정지가 사용자 조작 밖에서 바뀔 수 있는 작업([updateTrips]·[forgetTrip]·[claimFor])이 끝날 때 부른다 —
+  /// 일시정지 목록을 화면에 보여 주는 쪽이 저장소를 다시 읽게 하려는 것이다.
+  final void Function()? _onPausedChanged;
+
   Future<void> _tail = Future.value();
 
   Future<T> _serial<T>(Future<T> Function() action) {
@@ -44,6 +49,15 @@ class TripRecordingCoordinator {
     _tail = result.then((_) {}, onError: (Object _) {}); // 한 작업이 실패해도 다음 작업은 이어간다.
     return result;
   }
+
+  /// [_serial]에 더해, 끝나면(실패해도) [_onPausedChanged]를 부른다.
+  Future<void> _serialNotifying(Future<void> Function() action) => _serial(() async {
+        try {
+          await action();
+        } finally {
+          _onPausedChanged?.call();
+        }
+      });
 
   /// 기록 서비스를 지금(일정·일시정지·날짜)에 맞춘다.
   Future<void> sync() => _serial(_sync);
@@ -55,7 +69,7 @@ class TripRecordingCoordinator {
   /// 안전장치: 이전에 일정이 있었는데 목록이 비어 오면 기록은 지우지 않는다. 좌표는 서버에 없고 이 폰에만 있는 연구 데이터라
   /// (설계 9-3), 서버를 초기화했거나 서버 오류로 빈 목록이 와도 모든 여행의 좌표가 한꺼번에 사라지면 되돌릴 수 없다. 일정은
   /// 비우고 기록 서비스도 끈다. 사용자가 직접 지운 여행([forgetTrip])·계정 전환([claimFor])은 그대로 지운다.
-  Future<void> updateTrips(List<TripSummary> trips) => _serial(() async {
+  Future<void> updateTrips(List<TripSummary> trips) => _serialNotifying(() async {
         final periods = [for (final t in trips) TripPeriod.fromSummary(t)];
         final hadTrips = _store.readTrips().isNotEmpty;
         await _store.replaceTrips(periods);
@@ -81,7 +95,7 @@ class TripRecordingCoordinator {
 
   /// 여행이 없어졌을 때(삭제, 다른 기기에서 지워져 404): 그 여행을 기록 중이면 끄고, 좌표·정지 구간·일시정지·출발일
   /// 알림을 지운다. 서비스가 끝나며 마저 쓴 점이 남으면 다음 [updateTrips]가 지운다.
-  Future<void> forgetTrip(int tripId) => _serial(() async {
+  Future<void> forgetTrip(int tripId) => _serialNotifying(() async {
         if (await _service.recordingTripId() == tripId) await _stopQuietly();
         await _db.deleteTripRecords([tripId]);
         await _store.forget({tripId});
@@ -94,7 +108,7 @@ class TripRecordingCoordinator {
   ///   보고, 멈춰 둔 여행이 몰래 다시 기록되지도 않는다(여행 id는 전체에서 유일하다).
   /// - 다른 계정이면 위에 더해 일시정지와 이전 계정의 여행 좌표·정지 구간을 모두 지운다.
   /// 주인이 적혀 있지 않으면(처음 실행) 지울 좌표가 없다고 보고 주인만 적는다.
-  Future<void> claimFor(String? uid) => _serial(() async {
+  Future<void> claimFor(String? uid) => _serialNotifying(() async {
         final owner = _store.readOwner();
         if (uid != null && owner == uid) return;
         if (await _service.recordingTripId() != null) await _stopQuietly();

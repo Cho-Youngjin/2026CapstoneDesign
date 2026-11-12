@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app/core/prefs/shared_preferences_provider.dart';
 import 'package:app/features/footsteps/trip/trip_footsteps_card.dart';
 import 'package:app/features/footsteps/trip/trip_recording_providers.dart';
@@ -27,7 +29,7 @@ void main() {
   }) async {
     SharedPreferences.setMockInitialValues(stored);
     final prefs = await SharedPreferences.getInstance();
-    final coordinator = FakeTripRecordingCoordinator();
+    final coordinator = FakeTripRecordingCoordinator(store: TripRecordingStore(prefs));
     final router = GoRouter(
       initialLocation: '/visa/trip/7',
       routes: [
@@ -66,6 +68,38 @@ void main() {
     await tester.pumpAndSettle();
     expect(coordinator.pauses, [(7, true), (7, false)]);
     expect(find.text('여행 중이라 발걸음을 기록하고 있어요.'), findsOneWidget);
+  });
+
+  testWidgets('일시정지를 맞추다 실패하면 안내를 띄우고, 저장된 값대로 화면을 보여 준다', (tester) async {
+    final coordinator = await pumpCard(tester, now: DateTime(2026, 11, 21, 9));
+    coordinator.pauseError = StateError('서비스를 켤 수 없습니다');
+
+    await tester.tap(find.text('기록 일시정지'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('기록 상태를 바꾸지 못했습니다. 다시 시도해 주세요.'), findsOneWidget);
+    // 일시정지는 이미 저장됐으므로 화면도 일시정지로 보여 준다(저장된 값과 어긋나지 않게).
+    expect(find.text('기록을 일시정지했어요.'), findsOneWidget);
+    expect(find.text('기록 재개'), findsOneWidget);
+  });
+
+  testWidgets('일시정지 요청이 끝날 때까지 버튼을 막아, 연타가 겹치지 않는다', (tester) async {
+    final coordinator = await pumpCard(tester, now: DateTime(2026, 11, 21, 9));
+    final gate = Completer<void>();
+    coordinator.pauseGate = gate;
+    final toggle = find.descendant(
+        of: find.byKey(const Key('tripRecordingToggle')), matching: find.byType(OutlinedButton));
+
+    await tester.tap(find.text('기록 일시정지'));
+    await tester.pump();
+    expect(tester.widget<OutlinedButton>(toggle).onPressed, isNull);
+    await tester.tap(find.byKey(const Key('tripRecordingToggle')), warnIfMissed: false);
+    expect(coordinator.pauses, [(7, true)]);
+
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(tester.widget<OutlinedButton>(toggle).onPressed, isNotNull);
+    expect(find.text('기록을 일시정지했어요.'), findsOneWidget);
   });
 
   testWidgets('일시정지 상태는 여행별로 기기에 남은 값을 보여 준다', (tester) async {
