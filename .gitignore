@@ -46,3 +46,8 @@ mock-server/
 # 연구 수집 데이터(실제 이동 경로)와 분석 산출물 — 절대 커밋하지 않는다(설계 2026-11-07 3-1)
 research/data/
 research/results/
+
+# R6 분석 Python 가상환경·캐시
+research/.venv/
+research/.pytest_cache/
+research/**/__pycache__/

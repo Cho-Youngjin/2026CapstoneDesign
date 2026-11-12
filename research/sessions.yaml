@@ -1,0 +1,13 @@
+# 세션 목록(설계 7-1). 세션 폴더는 research/data/sessions/<id>/에 둔다(커밋하지 않는다, 팀 드라이브로 공유).
+#
+# use
+#   pilot   — 파라미터(β·σ 하한, 감지기, E 등)를 정할 때만 쓴다
+#   eval    — 평가용. 파라미터를 정할 때 보지 않는다
+#   battery — 배터리 실험(정책 실행 모드) 한 회. 방식은 meta.json의 policy로 정해진다
+# course: 코스 요약(도보·실내 체류·버스·지하철), carry: 주된 휴대 위치(손·주머니·가방, 섞었으면 mixed)
+sessions:
+  - id: 20261109-213324-groundTruth
+    use: pilot
+    course: 골목 도보 약 7분 + 실내 정지 약 6분 (실기기 점검, 걸음 세기·탈것 표시 없음)
+    carry: hand
+    note: 머문 곳 정답(10분 이상) 없음
