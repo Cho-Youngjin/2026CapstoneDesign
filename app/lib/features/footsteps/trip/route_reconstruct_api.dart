@@ -3,6 +3,7 @@ import 'package:footstep_core/footstep_core.dart' show Stay;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../data/route_point.dart';
+import '../health/distance_step_estimator.dart' show totalDistanceMeters;
 
 /// 복원한 경로의 구간 하나(서버 `route/RouteSegment.java`). [kind]는 `walk`·`vehicle`·`estimated`다.
 /// [fallback]이면 OSRM이 없거나 매칭에 실패해 직선으로 대신 채운 구간이다.
@@ -57,16 +58,40 @@ List<ReconstructChunk> reconstructChunks(List<RoutePoint> points, List<Stay> sta
   }
 }
 
+/// 조각 경계를 이을 때 허용하는 어긋남(m). 서버 `RouteReconstructionService.CONNECT_TOLERANCE_M`과 같다.
+const _connectToleranceM = 0.5;
+
+/// 복원 요청의 받기 제한 시간.
+const _reconstructReceiveTimeout = Duration(seconds: 60);
+
+/// 조각마다 따로 복원하므로 겹친 점을 한 조각은 도로 위 A로, 다음 조각은 B로 붙이거나 한 조각만 직선 대체가 될 수 있다.
+/// 앞 조각의 끝과 다음 조각의 시작이 [_connectToleranceM] 넘게 벌어져 있으면 앞 조각의 끝 좌표를 다음 조각 첫 구간
+/// 맨 앞에 붙여 이어 준다(서버가 한 요청 안의 구간을 잇는 `connect()`와 같은 규칙). 구간의 종류·fallback 표시는 바꾸지 않는다.
+List<RouteSegmentView> _joinChunk(List<RouteSegmentView> joined, List<RouteSegmentView> next) {
+  if (joined.isEmpty || next.isEmpty || next.first.coords.isEmpty) return next;
+  final previousEnd = joined.last.coords.lastOrNull;
+  if (previousEnd == null) return next;
+  if (totalDistanceMeters([previousEnd, next.first.coords.first]) <= _connectToleranceM) return next;
+  final first = next.first;
+  return [
+    RouteSegmentView(kind: first.kind, coords: [previousEnd, ...first.coords], fallback: first.fallback),
+    ...next.skip(1),
+  ];
+}
+
 /// `POST /api/route/reconstruct`(R5)의 앱 쪽 클라이언트. 방법은 보내지 않아 서버 기본값(`osrm_match_radius`)을 쓴다(설계 9-4).
 /// 기록 좌표는 복원할 때만 보내고 서버는 저장하지 않는다(설계 9-3). 실패하면 dio의 [DioException]을 그대로 던진다.
 class RouteReconstructApi {
-  RouteReconstructApi(this._dio);
+  RouteReconstructApi(this._dio, {this._maxPoints = 2000});
 
   final Dio _dio;
 
+  /// 한 번에 보낼 점의 상한. 서버 상한과 같고, 테스트에서만 줄여 쓴다.
+  final int _maxPoints;
+
   Future<List<RouteSegmentView>> reconstruct(List<RoutePoint> points, List<Stay> stays) async {
     final segments = <RouteSegmentView>[];
-    for (final chunk in reconstructChunks(points, stays)) {
+    for (final chunk in reconstructChunks(points, stays, maxPoints: _maxPoints)) {
       final response = await _dio.post<Map<String, dynamic>>('/api/route/reconstruct', data: {
         'points': [
           for (final p in chunk.points)
@@ -82,10 +107,12 @@ class RouteReconstructApi {
         'stays': [
           for (final s in chunk.stays) {'arrive': s.arriveMs, 'leave': s.leaveMs, 'lat': s.lat, 'lng': s.lng},
         ],
-      });
-      segments.addAll([
+      },
+          // 하루 치가 길면 OSRM 매칭과 공백 구간 경로 계산이 공용 클라이언트의 10초를 넘길 수 있어 이 요청만 늘린다.
+          options: Options(receiveTimeout: _reconstructReceiveTimeout));
+      segments.addAll(_joinChunk(segments, [
         for (final s in response.data!['segments'] as List) RouteSegmentView.fromJson(s as Map<String, dynamic>),
-      ]);
+      ]));
     }
     return segments;
   }
