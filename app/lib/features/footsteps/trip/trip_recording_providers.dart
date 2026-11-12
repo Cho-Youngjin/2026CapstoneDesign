@@ -45,6 +45,20 @@ final tripRecordingCoordinatorProvider = Provider<TripRecordingCoordinator>(
   ),
 );
 
+/// 일시정지한 여행 id(여행 상세가 보여 준다). 바꿀 때는 [PausedTripsNotifier.setPaused]로 코디네이터를 거쳐 기록 서비스까지
+/// 맞춘다.
+class PausedTripsNotifier extends Notifier<Set<int>> {
+  @override
+  Set<int> build() => ref.watch(tripRecordingStoreProvider).readPaused();
+
+  Future<void> setPaused(int tripId, bool paused) async {
+    await ref.read(tripRecordingCoordinatorProvider).setPaused(tripId, paused);
+    state = {...state.where((id) => id != tripId), if (paused) tripId};
+  }
+}
+
+final pausedTripIdsProvider = NotifierProvider<PausedTripsNotifier, Set<int>>(PausedTripsNotifier.new);
+
 /// 로그아웃하거나 다른 계정으로 바뀌면 이전 계정의 여행 기록을 끄고 정리한다(설계 9-3, PR #32의 비자 알람 계정 가드와
 /// 같은 방식). 앱 최상단(main.dart의 _Root)이 watch해서 앱이 떠 있는 동안 계속 지켜본다. 인증 상태를 아직 모를 때(로딩)는
 /// 아무것도 하지 않는다 — 로그인한 사용자의 기록을 끄면 안 된다.

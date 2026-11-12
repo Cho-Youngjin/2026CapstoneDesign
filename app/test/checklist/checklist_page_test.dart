@@ -6,6 +6,7 @@ import 'package:app/core/prefs/shared_preferences_provider.dart';
 import 'package:app/features/checklist/checklist_page.dart';
 import 'package:app/features/visa/data/trip_api.dart';
 import 'package:app/features/visa/data/trip_list_providers.dart';
+import 'package:app/features/visa/models/trip.dart' show VisaVerdict;
 import 'package:app/features/visa/models/trip_checklist_item.dart';
 import 'package:app/features/visa/models/trip_summary.dart';
 import 'package:flutter/material.dart';
@@ -112,6 +113,29 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('새 여행 폼'), findsOneWidget);
+  });
+
+  testWidgets('국내 여행은 준비물 탭에서 고르지 않는다(체크리스트·지갑이 없다)', (tester) async {
+    final domestic = sampleSummary(
+      id: 3,
+      iso2: 'KR',
+      nameKo: '대한민국',
+      depart: _today.add(const Duration(days: 1)),
+      ret: _today.add(const Duration(days: 2)),
+      verdict: VisaVerdict.domestic,
+    );
+
+    final r = await _pumpChecklist(tester, trips: [domestic, _upcomingVn], stored: {'selected_trip_id.uid-a': 3});
+    expect(find.text('준비물 · 베트남'), findsOneWidget);
+    expect(r.api.getChecklistCalls, [1]);
+  });
+
+  testWidgets('국내 여행만 있으면 해외 여행계획을 만들라고 안내한다', (tester) async {
+    await _pumpChecklist(tester, trips: [
+      sampleSummary(id: 3, iso2: 'KR', nameKo: '대한민국', verdict: VisaVerdict.domestic),
+    ]);
+
+    expect(find.textContaining('국내 여행에는 준비물이 없어요'), findsOneWidget);
   });
 
   testWidgets('선택한 여행이 없으면 가장 가까운 다가오는 여행의 체크리스트를 보여준다', (tester) async {

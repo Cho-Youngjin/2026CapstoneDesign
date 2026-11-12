@@ -208,6 +208,40 @@ void main() {
       expect(api.createTripCalls.single['passportExpiry'], today);
     });
 
+    testWidgets('국가 목록 맨 위에 대한민국(국내 여행)이 있다', (tester) async {
+      await _pumpVisaPage(tester, api: FakeTripApi());
+
+      await tester.tap(find.byKey(const Key('countryField')));
+      await tester.pumpAndSettle();
+
+      final options = tester.widgetList<ListTile>(find.byType(ListTile)).toList();
+      expect((options.first.title as Text).data, '대한민국(국내 여행)');
+      expect((options[1].title as Text).data, '베트남');
+    });
+
+    testWidgets('국내 여행을 고르면 여권 만료일을 묻지 않고, 여권 없이 여행을 만든다', (tester) async {
+      final api = FakeTripApi(tripToReturn: sampleTrip(id: 43));
+      await _pumpVisaPage(tester, api: api);
+
+      await tester.tap(find.byKey(const Key('countryField')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('domesticTripOption')));
+      await tester.pumpAndSettle();
+      expect(find.text('국내 여행'), findsOneWidget);
+      expect(find.byKey(const Key('passportExpiryField')), findsNothing);
+
+      await _confirmDefaultDate(tester, 'departDateField');
+      await _confirmDefaultDate(tester, 'returnDateField');
+      expect(find.text('여행 만들기'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('submitTripButton')));
+      await tester.pumpAndSettle();
+
+      final call = api.createTripCalls.single;
+      expect(call['countryIso2'], 'KR');
+      expect(call['passportExpiry'], isNull);
+      expect(find.text('결과 43'), findsOneWidget);
+    });
+
     testWidgets('서버가 거절하면 오류 문구를 보여주고 화면에 남는다', (tester) async {
       final api = FakeTripApi(createTripStatusCode: 400);
       await _pumpVisaPage(tester, api: api);

@@ -98,6 +98,10 @@ Future<
         builder: (_, state) =>
             Scaffold(body: VisaResultPage(tripId: int.parse(state.pathParameters['id']!))),
       ),
+      GoRoute(
+        path: '/visa/trip/:id/footsteps',
+        builder: (_, state) => Scaffold(body: Text('발걸음 ${state.pathParameters['id']}')),
+      ),
       GoRoute(path: '/checklist', builder: (_, _) => const Scaffold(body: Text('준비물 탭'))),
       GoRoute(
         path: '/checklist/wallet',
@@ -231,6 +235,55 @@ void main() {
 
     expect(find.text('여행을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.'), findsOneWidget);
     expect(find.text('여행 목록'), findsNothing);
+  });
+
+  group('국내 여행(설계 9-1)', () {
+    Trip domesticTrip() => Trip(
+          id: 7,
+          countryIso2: 'KR',
+          countryNameKo: '대한민국',
+          departDate: DateTime(2026, 12, 20),
+          returnDate: DateTime(2026, 12, 22),
+          passportExpiry: null,
+          visaResult: const VisaResult(verdict: VisaVerdict.domestic, stayDays: 2, passportOk: true),
+          tasks: const [],
+        );
+
+    testWidgets('비자 결과·준비 일정·체크리스트·지갑을 숨기고 발걸음 기록만 보여 준다', (tester) async {
+      final permission = FakePermission();
+      final r = await pumpResultPage(tester, trip: domesticTrip(), permission: permission);
+
+      expect(find.text('대한민국 국내 여행'), findsOneWidget);
+      expect(find.byKey(const Key('tripFootstepsCard')), findsOneWidget);
+      expect(find.text('역산 일정'), findsNothing);
+      expect(find.textContaining('근거'), findsNothing);
+      expect(find.byKey(const Key('openChecklistButton')), findsNothing);
+      expect(find.byKey(const Key('openWalletButton')), findsNothing);
+      // 준비 일정이 없으니 알람도, 알림 권한 요청도 없다.
+      expect(r.alarms.scheduled, isEmpty);
+      expect(permission.calls, 0);
+    });
+
+    testWidgets('삭제 확인은 발걸음 기록이 지워진다고 알린다', (tester) async {
+      await pumpResultPage(tester, trip: domesticTrip());
+
+      await tester.tap(find.byKey(const Key('tripMenu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('deleteTripMenuItem')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('이 여행의 발걸음 기록이 모두 지워집니다.'), findsOneWidget);
+    });
+  });
+
+  testWidgets('해외 여행 상세에도 발걸음 기록 칸이 있고, 날짜별 발걸음으로 간다', (tester) async {
+    await pumpResultPage(tester);
+
+    await tester.ensureVisible(find.byKey(const Key('openTripFootsteps')));
+    await tester.tap(find.byKey(const Key('openTripFootsteps')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('발걸음 7'), findsOneWidget);
   });
 
   testWidgets('국가 이름과 판정 결과를 서버 데이터로 보여준다', (tester) async {

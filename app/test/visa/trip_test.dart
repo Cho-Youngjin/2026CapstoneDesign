@@ -89,7 +89,7 @@ void main() {
   test('VisaVerdict wire 값이 서버 enum과 일치한다', () {
     expect(
       VisaVerdict.values.map((v) => v.wireValue),
-      ['VISA_FREE_OK', 'VISA_FREE_EXCEEDED', 'VISA_REQUIRED', 'UNVERIFIED'],
+      ['VISA_FREE_OK', 'VISA_FREE_EXCEEDED', 'VISA_REQUIRED', 'UNVERIFIED', 'DOMESTIC'],
     );
   });
 
@@ -124,5 +124,27 @@ void main() {
     test('완료된 항목은 마감이 지나도 false다', () {
       expect(taskDue(DateTime(2026, 9, 29), done: true).isPastDueAt(now), isFalse);
     });
+  });
+
+  test('국내 여행은 여권 만료일 없이 파싱하고 국내 여행으로 본다', () {
+    final trip = Trip.fromJson({
+      ...json,
+      'countryIso2': 'KR',
+      'countryNameKo': '대한민국',
+      'passportExpiry': null,
+      'visaResult': {
+        'verdict': 'DOMESTIC',
+        'stayDays': 2,
+        'visaFreeDays': null,
+        'passportOk': true,
+        'passportValidityMonths': null,
+        'passportShortfallDays': null,
+      },
+      'tasks': <Object>[],
+    });
+
+    expect(trip.passportExpiry, isNull);
+    expect(trip.isDomestic, isTrue);
+    expect(Trip.fromJson(json).isDomestic, isFalse);
   });
 }

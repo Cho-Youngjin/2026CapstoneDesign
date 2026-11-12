@@ -48,14 +48,18 @@ class ChecklistPage extends ConsumerWidget {
         ],
       ),
       data: (state) {
-        final trip = resolveSelectedTrip(state.trips, selectedId, DateTime.now());
+        // 국내 여행은 체크리스트·지갑이 없다(설계 9-1) — 고를 여행에서 뺀다.
+        final trips = [for (final t in state.trips) if (!t.isDomestic) t];
+        final trip = resolveSelectedTrip(trips, selectedId, DateTime.now());
         if (trip == null) {
           return Column(
             children: [
               const _Header(),
               Expanded(
                 child: _CenteredMessage(
-                  message: '여행계획을 먼저 만들어 주세요.',
+                  message: state.trips.isEmpty
+                      ? '여행계획을 먼저 만들어 주세요.'
+                      : '국내 여행에는 준비물이 없어요.\n해외 여행계획을 만들어 주세요.',
                   actionLabel: '여행계획 만들기',
                   actionKey: const Key('createTripButton'),
                   onAction: () => context.go(AppRoutes.visaNew),
@@ -66,7 +70,7 @@ class ChecklistPage extends ConsumerWidget {
         }
         return Column(
           children: [
-            _Header(trip: trip, onChangeTrip: () => _pickTrip(context, ref, state.trips)),
+            _Header(trip: trip, onChangeTrip: () => _pickTrip(context, ref, trips)),
             if (state.offline) const _OfflineBanner(),
             // 여행이 바뀌면 낙관적 체크 상태를 새로 시작해야 하므로 id를 key로 준다.
             Expanded(child: _TripChecklistBody(key: ValueKey(trip.id), trip: trip)),

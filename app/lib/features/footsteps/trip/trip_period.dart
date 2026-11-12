@@ -1,3 +1,4 @@
+import '../../visa/models/trip.dart';
 import '../../visa/models/trip_summary.dart';
 
 String _two(int n) => n.toString().padLeft(2, '0');
@@ -19,6 +20,14 @@ class TripPeriod {
   });
 
   factory TripPeriod.fromSummary(TripSummary trip) => TripPeriod(
+        tripId: trip.id,
+        countryIso2: trip.countryIso2,
+        countryNameKo: trip.countryNameKo,
+        departDate: _dateOnly(trip.departDate),
+        returnDate: _dateOnly(trip.returnDate),
+      );
+
+  factory TripPeriod.fromTrip(Trip trip) => TripPeriod(
         tripId: trip.id,
         countryIso2: trip.countryIso2,
         countryNameKo: trip.countryNameKo,
