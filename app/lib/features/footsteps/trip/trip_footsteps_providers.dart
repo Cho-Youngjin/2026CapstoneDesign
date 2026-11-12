@@ -25,10 +25,16 @@ final routeReconstructApiProvider =
 /// 복원 결과의 캐시 키(설계 9-4): 여행, 날짜, 그날 마지막 점 시각. 점이 새로 쌓이면 마지막 점 시각이 바뀌어 다시 복원한다.
 /// [day]는 키가 아니라 서버에 보낼 재료다 — 같은 키면 같은 점이다.
 class DayRouteRequest {
-  const DayRouteRequest({required this.tripId, required this.day});
+  const DayRouteRequest({required this.tripId, required this.day, this.countryIso2 = snapCountryIso2});
+
+  /// 서버가 도로에 맞춰 줄 수 있는 나라(서버 `RouteReconstructionService.COUNTRY`). 해외 이동은 연구 범위 밖이다.
+  static const snapCountryIso2 = 'KR';
 
   final int tripId;
   final TripDay day;
+
+  /// 여행 국가. 한 여행의 국가는 변하지 않으므로 캐시 키에는 넣지 않는다.
+  final String countryIso2;
 
   @override
   bool operator ==(Object other) =>
@@ -73,6 +79,8 @@ final dayRouteProvider = FutureProvider.family<DayRoute, DayRouteRequest>((ref, 
   final points = request.day.points;
   // 점이 둘보다 적으면 이을 길이 없다 — 서버를 부르지 않는다.
   if (points.length < 2) return DayRoute.straight(points, roadMatched: true);
+  // 서버는 국내(KR)만 복원한다. 국내가 아닌 여행은 호출하지 않고 직선으로 그리며, 실패 안내도 띄우지 않는다.
+  if (request.countryIso2 != DayRouteRequest.snapCountryIso2) return DayRoute.straight(points, roadMatched: true);
   try {
     final segments = await ref.watch(routeReconstructApiProvider).reconstruct(points, request.day.stays);
     return DayRoute(segments: segments, roadMatched: !segments.any((s) => s.fallback));

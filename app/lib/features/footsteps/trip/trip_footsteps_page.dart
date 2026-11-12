@@ -115,7 +115,7 @@ class _TripFootstepsPageState extends ConsumerState<TripFootstepsPage> with Widg
                             selected: selected,
                             onSelected: (date) => setState(() => _selected = date),
                           ),
-                          Expanded(child: _DayView(tripId: widget.tripId, day: day)),
+                          Expanded(child: _DayView(tripId: widget.tripId, countryIso2: trip.countryIso2, day: day)),
                         ],
                       );
                     },
@@ -239,9 +239,10 @@ class _DateChips extends StatelessWidget {
 
 /// 고른 날의 지도와 요약.
 class _DayView extends ConsumerWidget {
-  const _DayView({required this.tripId, required this.day});
+  const _DayView({required this.tripId, required this.countryIso2, required this.day});
 
   final int tripId;
+  final String countryIso2;
   final TripDay day;
 
   @override
@@ -249,7 +250,7 @@ class _DayView extends ConsumerWidget {
     if (day.points.isEmpty) {
       return Center(child: Text('이 날의 발걸음 기록이 없어요', style: AppTextStyles.caption));
     }
-    final request = DayRouteRequest(tripId: tripId, day: day);
+    final request = DayRouteRequest(tripId: tripId, countryIso2: countryIso2, day: day);
     final route = ref.watch(dayRouteProvider(request)).asData?.value;
     final first = day.points.first;
 

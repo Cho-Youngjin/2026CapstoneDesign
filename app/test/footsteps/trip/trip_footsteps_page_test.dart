@@ -78,7 +78,7 @@ void main() {
     }
   }
 
-  Future<void> pumpPage(WidgetTester tester) async {
+  Future<void> pumpPage(WidgetTester tester, {String iso2 = 'KR'}) async {
     final router = GoRouter(
       initialLocation: '/visa/trip/7/footsteps',
       routes: [
@@ -93,7 +93,7 @@ void main() {
       overrides: [
         tripListProvider.overrideWith((ref) async => TripListState(trips: [
               sampleSummary(
-                  id: 7, iso2: 'KR', nameKo: '대한민국', depart: DateTime(2026, 11, 20), ret: DateTime(2026, 11, 22)),
+                  id: 7, iso2: iso2, nameKo: '대한민국', depart: DateTime(2026, 11, 20), ret: DateTime(2026, 11, 22)),
             ])),
         appDatabaseProvider.overrideWithValue(db),
         routeReconstructApiProvider.overrideWithValue(api),
@@ -166,6 +166,33 @@ void main() {
     await settle(tester);
     expect(api.calls, [3, 3]);
     expect(find.byKey(const Key('roadMatchFailed')), findsNothing);
+  });
+
+  testWidgets('오늘 새 점이 쌓이면 마지막 점 시각이 바뀌어 다시 복원하고, 점이 그대로면 다시 부르지 않는다', (tester) async {
+    await seedTwoDays();
+    await pumpPage(tester);
+    expect(api.calls, [3]);
+
+    await tester.tap(find.byKey(const Key('tripFootstepsRefresh')));
+    await settle(tester);
+    expect(api.calls, [3]); // 점이 그대로면 캐시
+
+    await addPoint(DateTime(2026, 11, 21, 9, 15), lat: 37.506, steps: 30);
+    await tester.tap(find.byKey(const Key('tripFootstepsRefresh')));
+    await settle(tester);
+    expect(api.calls, [3, 4]);
+  });
+
+  testWidgets('국내가 아닌 여행은 서버를 부르지 않고 직선으로 그리며 도로 맞춤 실패 안내는 띄우지 않는다', (tester) async {
+    await seedTwoDays();
+
+    await pumpPage(tester, iso2: 'JP');
+
+    expect(api.calls, isEmpty);
+    final line = polylines(tester).single;
+    expect(line.points, [const LatLng(37.5, 127.0), const LatLng(37.502, 127.0), const LatLng(37.504, 127.0)]);
+    expect(find.byKey(const Key('roadMatchFailed')), findsNothing);
+    expect(find.text('445m'), findsOneWidget);
   });
 
   testWidgets('서버가 직선으로 대신 채운 구간(fallback)이 있어도 안내한다', (tester) async {
