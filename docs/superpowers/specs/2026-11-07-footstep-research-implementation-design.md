@@ -374,6 +374,10 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
   1. 재생 CLI
   2. 로컬 서버 복원 호출(`local` 프로필, 로컬 OSRM)
   3. 지표 계산과 `research/results/` 저장
+- 실행은 `research/`에서 `.venv/Scripts/python -m analysis.run --config experiments.yaml`(가상환경·옵션은 `docs/research/analysis-guide.md`). 재생 결과와 서버 응답은 `research/results/`에 캐시한다.
+- 서버에 연결하지 못하면 복원을 건너뛰고, 서버는 떴는데 OSRM이 없어 모든 구간이 직선 대체면 그 방법의 지표를 내지 않는다(`skipped.csv`). 서버 없이도 남은 점을 직선으로 이은 `local_straight` 지표는 늘 나온다.
+- `sessions.yaml`의 용도는 `pilot`·`eval`·`battery`(배터리 실험 회차, 방식은 meta.json의 policy) 셋이다.
+- β·σ 하한 격자(6-3)는 `python -m analysis.tune`이 pilot 세션만으로 고른다(세션 평균 P95 최소, 같으면 작은 값).
 
 ### 7-2. 지표
 
@@ -384,6 +388,13 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 | 걸음 감지 | 걸음 수 오차(%), 탈것 구간의 가짜 걸음 수, 보행 판정 정밀도·재현율, 첫 걸음까지 지연 | `count_start`~`count_end`의 센 걸음 수, 탑승 구간 = 0걸음, 머문 곳·탈것 밖 = 보행 |
 | 배터리 | 시간당 mAh = 전하량 변화 ÷ 시간. 방식마다 3회 이상, 평균 ± 표준편차. GPS 사용 시간 | `battery.csv`, `dumpsys batterystats` 출력 파싱 |
 | (선택) 위치공유 | 메시지 수와 받는 쪽 위치 오차: 현재 5초 고정 ↔ "상태 변화, 20m 이상 이동, 60초 경과 중 하나면 전송" | 1초 GPS |
+
+R6에서 정한 세부 규칙:
+- 경로 오차는 정답 점마다 복원 경로 전체까지 가장 가까운 거리다(시간 순서는 보지 않는다). 정답 이동거리는 마지막으로 센 점에서 10m 이상 벗어난 점만 이어 잰다(서 있는 동안의 흔들림 제외).
+- 머문 곳의 "50% 이상 겹침"은 두 머문 곳 **각각**의 50%다(하루를 덮는 머문 곳 하나가 정답 여럿과 맞는 것을 막는다). 정답은 arrive~depart 중 10분 이상, 일대일로 짝짓는다.
+- 첫 걸음까지 지연은 걸음 세기 구간의 count_start에서 첫 감지 걸음까지다.
+- 배터리는 가장 길게 이어진 충전기 분리 구간에서 전하량 계단이 처음·마지막으로 바뀐 행 사이로 잰다(계단 3.7mAh 양자화 오차를 줄인다). 전류 평균(기종별 단위)과 batterystats `Sensor GPS` 시간(최선 노력)을 함께 낸다.
+- (선택) 위치공유 전송량은 R6 범위에서 뺐다. 필요하면 같은 1초 GPS로 함수 하나를 더한다.
 
 ### 7-3. 그래프
 
