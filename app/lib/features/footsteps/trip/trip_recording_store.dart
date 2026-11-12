@@ -87,6 +87,13 @@ class TripRecordingStore {
 
   Future<void> addPurged(Set<int> tripIds) => _writeIds(purgedKey, readPurged()..addAll(tripIds));
 
+  /// 지운 여행 표시를 푼다. 계정이 A→B→A로 돌아와 서버 목록이 A의 여행을 다시 주면, 그 여행은 다시 기록할 여행이다.
+  Future<void> removePurged(Set<int> tripIds) async {
+    final purged = readPurged();
+    if (!purged.any(tripIds.contains)) return;
+    await _writeIds(purgedKey, purged..removeAll(tripIds));
+  }
+
   Set<int> readNoticeTripIds() => _readIds(noticesKey);
 
   Future<void> writeNoticeTripIds(Set<int> tripIds) => _writeIds(noticesKey, tripIds);

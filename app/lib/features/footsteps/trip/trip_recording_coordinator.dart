@@ -76,6 +76,8 @@ class TripRecordingCoordinator {
   Future<void> updateTrips(List<TripSummary> trips) => _serialNotifying(() async {
         final periods = [for (final t in trips) TripPeriod.fromSummary(t)];
         await _store.replaceTrips(periods);
+        // 서버가 다시 준 여행은 지운 여행이 아니다(계정이 A→B→A로 돌아온 경우). 표시를 풀어야 새로 쓴 기록을 지우지 않는다.
+        await _store.removePurged({for (final p in periods) p.tripId});
         await _syncNotices();
         await _sync();
         await _db.deleteTripRecords(_store.readPurged());

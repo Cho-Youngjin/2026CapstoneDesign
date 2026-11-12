@@ -253,6 +253,20 @@ void main() {
       expect(await db.routePointsForTrip(7), isEmpty);
     });
 
+    test('계정이 A→B→A로 바뀌어 A의 여행이 목록에 다시 오면 지운 여행 표시를 풀고 새로 쓴 점을 지우지 않는다', () async {
+      await coordinator.claimFor('uid-a');
+      await coordinator.updateTrips([domestic]);
+      await coordinator.claimFor('uid-b'); // A의 여행 7을 지운 여행으로 적는다
+      await coordinator.claimFor('uid-a');
+
+      await coordinator.updateTrips([domestic]); // 서버가 A의 여행 7을 다시 준다
+      await addPoint(7); // 다시 켜진 기록이 쓴 점
+      await coordinator.updateTrips([domestic]);
+
+      expect(await db.routePointsForTrip(7), hasLength(1));
+      expect(store.readPurged(), isNot(contains(7)));
+    });
+
     test('일부러 지우지 않은 여행의 점은 빈 목록이 몇 번 와도 남는다(안전장치)', () async {
       await coordinator.updateTrips([domestic, later]);
       await addPoint(7);
