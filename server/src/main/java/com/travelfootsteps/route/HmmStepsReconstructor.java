@@ -36,6 +36,8 @@ class HmmStepsReconstructor implements Reconstructor {
 
     @Override
     public List<Piece> reconstruct(String country, List<Waypoint> run, HmmOptions options) {
+        // 점이 하나뿐이면 이을 구간이 없다. 아래 사슬 로직은 이웃한 두 점을 전제하므로, 그 한 점을 그대로 한 조각으로 돌려준다.
+        if (run.size() < 2) return List.of(Piece.straight(run));
         HmmOptions o = HmmOptions.orDefaults(options);
         int n = run.size();
         List<List<GeoPoint>> candidates = new ArrayList<>();
@@ -109,10 +111,17 @@ class HmmStepsReconstructor implements Reconstructor {
         return pieces(country, run, chosen, chain);
     }
 
-    /** 걸은 거리: 걸음 수 × 보폭. 걸음을 모르거나 탈것이거나 절제 실험(useSteps=false)이면 두 점의 직선거리. */
+    /**
+     * 걸은 거리: 걸음 수 × 보폭. 걸음 근거가 없으면(걸음을 모르거나 0걸음이거나) 탈것이거나 절제 실험(useSteps=false)이면
+     * 두 점의 직선거리.
+     */
     static double walkedDistance(Waypoint previous, Waypoint current, HmmOptions o) {
-        if (o.useSteps() && current.stepsSincePrev() != null && !current.isVehicle()) {
-            return current.stepsSincePrev() * o.strideM();
+        // 0걸음은 "걷지 않았다"는 근거가 아니라 "걸음 근거 없음"으로 본다. 예를 들어 otherMotion으로 버스를 탔는데
+        // 아직 탈것으로 감지되지 않은 점은 걸음이 0이다. 이때 걸은 거리를 0으로 두면 전이 확률이 제자리에 머무는
+        // 후보를 유리하게 만든다. 직선거리로 되돌리면 Newson & Krumm 원문 식과 같아진다.
+        Integer steps = current.stepsSincePrev();
+        if (o.useSteps() && steps != null && steps > 0 && !current.isVehicle()) {
+            return steps * o.strideM();
         }
         return GeoMath.haversine(previous.point(), current.point());
     }

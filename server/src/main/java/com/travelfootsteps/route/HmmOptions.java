@@ -8,6 +8,10 @@ import jakarta.validation.constraints.Positive;
 //  - sigmaMinM : 방사 확률 가우시안의 σ 하한(m). σ = max(점 정확도, 하한)
 //  - strideM   : 걸은 거리 = 걸음 수 × 보폭
 //  - useSteps  : false면 걸은 거리 대신 두 점의 직선거리(Newson & Krumm 원래 식, 절제 실험)
+// 아래 @Positive는 Bean Validation 애너테이션으로, 값이 있다면 0보다 커야 한다는 규칙이다(null은 통과하고 기본값이
+// 채워진다). 0이나 음수 β·σ·보폭은 0으로 나누거나 확률 식이 깨지므로 막는다. 이 규칙은 컨트롤러가 요청 본문을 받을 때
+// 검사되는데, ReconstructRequest에서 hmm 필드에 @Valid를 붙였기 때문에 안쪽 record까지 내려가 적용된다. @Valid가 없으면
+// 이 애너테이션은 있어도 검사되지 않는다.
 public record HmmOptions(
         @Positive Double betaM,
         @Positive Double sigmaMinM,

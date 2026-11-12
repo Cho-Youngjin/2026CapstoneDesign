@@ -111,4 +111,65 @@ class HmmStepsReconstructorTest {
         assertThat(HmmStepsReconstructor.walkedDistance(a, unknown, HmmOptions.DEFAULTS)).isCloseTo(100, within(0.1));
         assertThat(HmmStepsReconstructor.walkedDistance(a, walked, BASIC)).isCloseTo(100, within(0.1));
     }
+
+    @Test
+    void 걸음_수로_본_걸은_거리와_도로_거리가_모든_후보에서_2000m_넘게_어긋나면_그_전이에서_사슬이_끊긴다() {
+        // y=0 길 위의 네 측위. 셋째 점의 4000걸음(3000m)은 도로 거리 100m와 2900m 어긋나 어느 후보로도 건널 수 없다.
+        List<Waypoint> run = List.of(
+                point(0, 0, 3, 10.0, null),
+                point(60, 100, -3, 10.0, 100),
+                point(120, 200, 3, 10.0, 4000),
+                point(180, 300, -3, 10.0, 100));
+        HmmStepsReconstructor hmm = new HmmStepsReconstructor(new GridOsrm());
+
+        List<Reconstructor.Piece> pieces = hmm.reconstruct("KR", run, HmmOptions.DEFAULTS);
+
+        assertThat(pieces).extracting(Reconstructor.Piece::fallback).containsExactly(false, true, false);
+        assertThat(pieces.get(1).coords()).hasSize(2);
+        assertAt(pieces.get(1).coords().get(0), 100, 0);
+        assertAt(pieces.get(1).coords().get(1), 200, 0);
+    }
+
+    @Test
+    void 방사_확률의_표준편차는_보고된_정확도가_작아도_하한_5m_밑으로_내려가지_않는다() {
+        // 첫 점은 (0,2)로 세로 길 위에 있고 정확도 2m라고 보고했다. 하한 5m가 있으면 (0,0)에서 출발하는 쪽이 이기고,
+        // 하한이 없으면(σ=2m) 점 바로 위의 (0,2)에서 출발해 (0,0)을 거쳐 가는 쪽이 이긴다.
+        List<Waypoint> run = List.of(point(0, 0, 2, 2.0, null), point(40, 50, 0, 5.0, 67));
+        HmmStepsReconstructor hmm = new HmmStepsReconstructor(new GridOsrm());
+
+        List<Reconstructor.Piece> pieces = hmm.reconstruct("KR", run, HmmOptions.DEFAULTS);
+
+        assertThat(pieces).hasSize(1);
+        assertThat(pieces.get(0).fallback()).isFalse();
+        assertAt(pieces.get(0).coords().get(0), 0, 0);
+        assertAt(pieces.get(0).coords().get(1), 50, 0);
+        assertThat(pieces.get(0).coords()).hasSize(2);
+    }
+
+    @Test
+    void 걸음_근거가_없으면_직선거리를_걸은_거리로_쓴다() {
+        Waypoint a = point(0, 0, 0, 5.0, null);
+        Waypoint walking10 = point(60, 60, 80, 5.0, 10);
+        Waypoint otherMotion0 = new Waypoint(60_000, 60_000, at(60, 80), 5.0, 0, "otherMotion");
+        Waypoint vehicle100 = new Waypoint(60_000, 60_000, at(60, 80), 5.0, 100, "vehicle");
+        Waypoint stepsNull = point(60, 60, 80, 5.0, null);
+        double straight = GeoMath.haversine(a.point(), at(60, 80));
+
+        assertThat(HmmStepsReconstructor.walkedDistance(a, walking10, HmmOptions.DEFAULTS)).isCloseTo(7.5, within(1e-9));
+        assertThat(HmmStepsReconstructor.walkedDistance(a, otherMotion0, HmmOptions.DEFAULTS)).isCloseTo(straight, within(1e-9));
+        assertThat(HmmStepsReconstructor.walkedDistance(a, vehicle100, HmmOptions.DEFAULTS)).isCloseTo(straight, within(1e-9));
+        assertThat(HmmStepsReconstructor.walkedDistance(a, stepsNull, HmmOptions.DEFAULTS)).isCloseTo(straight, within(1e-9));
+        assertThat(HmmStepsReconstructor.walkedDistance(a, walking10, BASIC)).isCloseTo(straight, within(1e-9));
+    }
+
+    @Test
+    void 점이_하나뿐이면_그_점_하나의_구간을_돌려준다() {
+        List<Waypoint> run = List.of(point(0, 0, 0, 5.0, null));
+        HmmStepsReconstructor hmm = new HmmStepsReconstructor(new GridOsrm());
+
+        List<Reconstructor.Piece> pieces = hmm.reconstruct("KR", run, HmmOptions.DEFAULTS);
+
+        assertThat(pieces).hasSize(1);
+        assertThat(pieces.get(0).coords()).containsExactly(run.get(0).point());
+    }
 }
