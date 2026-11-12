@@ -17,14 +17,16 @@ import pandas as pd
 from .config import load_experiment, load_sessions
 from .path_metrics import path_metrics
 from .reconstruct import ReconstructClient, ReconstructError, ServerUnavailable, read_fixes
-from .replay import DartCli
+from .replay import CliError, DartCli
 from .session import load_session, truth_points, vehicle_intervals
 from .stay_metrics import read_stays
 
 
 def grid_search(evaluate: Callable[[float, float], list[float]], betas: list[float],
                 sigmas: list[float]) -> tuple[pd.DataFrame, dict]:
-    """evaluate(β, σ)는 세션마다 P95(m) 목록을 돌려준다. 가장 작은 평균 P95, 같으면 작은 β·σ를 고른다."""
+    """evaluate(β, σ)는 (세션 × 재생)마다 P95(m) 목록을 돌려준다. 가장 작은 평균 P95, 같으면 작은 β·σ를 고른다.
+    결과가 있는 (세션 × 재생) 수가 가장 꽉 찬 칸보다 적은 칸은 complete=False로 표에만 남기고 고르지 않는다.
+    표본이 적은 칸이 쉬운 세션만 평균 내 우연히 이기는 것을 막는다."""
     rows = []
     for b in betas:
         for s in sigmas:
@@ -32,7 +34,9 @@ def grid_search(evaluate: Callable[[float, float], list[float]], betas: list[flo
             rows.append({"betaM": b, "sigmaMinM": s, "sessions": len(p95s),
                          "p95_mean_m": float(np.mean(p95s)) if p95s else None})
     table = pd.DataFrame(rows)
-    ok = table.dropna(subset=["p95_mean_m"])
+    full = int(table["sessions"].max()) if not table.empty else 0
+    table["complete"] = (table["sessions"] == full) & (full > 0)
+    ok = table[table["complete"]].dropna(subset=["p95_mean_m"])
     if ok.empty:
         return table, {}
     best = ok.sort_values(["p95_mean_m", "betaM", "sigmaMinM"], kind="stable").iloc[0]
@@ -68,12 +72,18 @@ def main(argv: list[str] | None = None, cli=None, client=None) -> int:
     client = client or ReconstructClient(rec["server_url"], rec["token"], rec["timeout_s"])
 
     inputs = []   # (세션 id, 재생 이름, 정답, 탈것 구간, 점, 머문 곳)
-    for s in pilots:
-        session = load_session(exp.data_dir / s["id"])
-        truth = truth_points(session.gps, exp.truth_max_accuracy_m)
-        for spec in exp.tune["runs"]:
-            out = cli.replay(exp.data_dir / s["id"], spec, exp.results_dir / "replay" / s["id"] / spec.key)
-            inputs.append((s["id"], spec.label, truth, vehicle_intervals(session), read_fixes(out), read_stays(out)))
+    try:
+        for s in pilots:
+            session = load_session(exp.data_dir / s["id"])
+            truth = truth_points(session.gps, exp.truth_max_accuracy_m)
+            for spec in exp.tune["runs"]:
+                out = cli.replay(exp.data_dir / s["id"], spec, exp.results_dir / "replay" / s["id"] / spec.key)
+                inputs.append((s["id"], spec.label, truth, vehicle_intervals(session), read_fixes(out),
+                               read_stays(out)))
+    except CliError as e:
+        # 종료 코드 2(복원 서버 없음)와 구분해, dart 실행 실패는 3으로 알린다
+        print(f"재생 CLI 오류: {e}", file=sys.stderr)
+        return 3
 
     detail = []
 
@@ -81,10 +91,14 @@ def main(argv: list[str] | None = None, cli=None, client=None) -> int:
         out = []
         for sid, label, truth, vehicles, fixes, stays in inputs:
             segs = client.reconstruct(fixes, stays, "hmm_steps", {"betaM": beta, "sigmaMinM": sigma})
-            if segs and all(seg.get("fallback") for seg in segs):
+            n_fallback = sum(1 for seg in segs if seg.get("fallback"))
+            if segs and n_fallback == len(segs):
                 raise ServerUnavailable("모든 구간이 fallback — OSRM이 꺼져 있어 β·σ를 비교할 수 없다")
+            # 일부만 fallback이면 그 칸의 P95는 HMM 결과와 직선이 섞인 값이라, 비율을 표에 남겨 해석할 수 있게 한다
+            share = n_fallback / len(segs) if segs else 0.0
             p95 = path_metrics(truth, segs, vehicles, exp.truth_min_hop_m)["p95_m"]
-            detail.append({"session": sid, "run": label, "betaM": beta, "sigmaMinM": sigma, "p95_m": p95})
+            detail.append({"session": sid, "run": label, "betaM": beta, "sigmaMinM": sigma, "p95_m": p95,
+                           "fallback_share": share})
             out.append(p95)
         return out
 
@@ -94,10 +108,18 @@ def main(argv: list[str] | None = None, cli=None, client=None) -> int:
         print(f"복원 서버를 쓸 수 없습니다: {e}", file=sys.stderr)
         return 2
     exp.results_dir.mkdir(parents=True, exist_ok=True)
+    by_session = pd.DataFrame(detail)
+    if not by_session.empty:
+        share = by_session.groupby(["betaM", "sigmaMinM"])["fallback_share"].mean().reset_index()
+        table = table.merge(share, on=["betaM", "sigmaMinM"], how="left")
     table.to_csv(exp.results_dir / "hmm_grid.csv", index=False)
-    pd.DataFrame(detail).to_csv(exp.results_dir / "hmm_grid_by_session.csv", index=False)
-    (exp.results_dir / "hmm_best.json").write_text(json.dumps(best, indent=2), encoding="utf-8")
+    by_session.to_csv(exp.results_dir / "hmm_grid_by_session.csv", index=False)
     print(table.to_string(index=False))
+    if not best:
+        # 빈 hmm_best.json을 쓰면 뒤 단계가 값 없는 설정을 읽으므로 파일을 만들지 않는다
+        print("\n고를 수 있는 칸이 없습니다(모든 칸에 경로 오차 P95가 없거나 표본이 모자람).", file=sys.stderr)
+        return 1
+    (exp.results_dir / "hmm_best.json").write_text(json.dumps(best, indent=2), encoding="utf-8")
     print(f"\n고른 값: {best}  → experiments.yaml reconstruct.methods에 고정한다")
     return 0
 

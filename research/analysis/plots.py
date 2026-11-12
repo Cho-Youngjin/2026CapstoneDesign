@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from pathlib import Path
 
 import matplotlib
@@ -24,9 +25,25 @@ METHOD_ORDER = ["local_straight", "straight", "nearest", "osrm_match", "osrm_mat
 PREFERRED = ["hmm_steps", "osrm_match_radius", "straight", "local_straight"]
 
 # 한글 글꼴: 이 PC에 있는 것만 넣는다(없는 이름을 넣으면 그릴 때마다 경고가 난다).
-_FONTS = {f.name for f in font_manager.fontManager.ttflist}
+_KOREAN_FONTS = ["Malgun Gothic", "AppleGothic", "NanumGothic"]
+
+
+def _korean_fonts() -> list[str]:
+    installed = {f.name for f in font_manager.fontManager.ttflist}
+    return [f for f in _KOREAN_FONTS if f in installed]
+
+
+def _font_family() -> list[str]:
+    found = _korean_fonts()
+    if not found:
+        # 글꼴이 없으면 한글이 네모(두부)로 찍힌 그림이 조용히 나오므로 미리 알린다
+        warnings.warn("한글 글꼴(Malgun Gothic·AppleGothic·NanumGothic)이 없어 그래프의 한글이 네모로 보일 수 있습니다.",
+                      stacklevel=2)
+    return found + ["DejaVu Sans"]
+
+
 plt.rcParams.update({
-    "font.family": [f for f in ["Malgun Gothic", "AppleGothic", "NanumGothic"] if f in _FONTS] + ["DejaVu Sans"],
+    "font.family": _font_family(),
     "axes.unicode_minus": False, "axes.edgecolor": MUTED, "axes.labelcolor": INK, "text.color": INK,
     "xtick.color": MUTED, "ytick.color": MUTED, "axes.grid": True, "grid.color": GRID, "grid.linewidth": 0.8,
     "axes.spines.top": False, "axes.spines.right": False, "figure.dpi": 120, "savefig.bbox": "tight",
@@ -141,6 +158,9 @@ def _bars(ax, labels, values, color):
 def plot_stay_f1(stays: pd.DataFrame, out: Path):
     """3. 머문 곳 F1(방식·오류 예산별, 세션 평균)."""
     df, scope = _scope(stays)
+    if df.empty:
+        return None
+    df = main_runs(df)   # 그래프 1과 같이 본 실험만(절제·ttff 재생은 표로 본다)
     if df.empty or df["stay_f1"].isna().all():
         return None
     g = df.groupby("run")["stay_f1"].mean().dropna().sort_values()

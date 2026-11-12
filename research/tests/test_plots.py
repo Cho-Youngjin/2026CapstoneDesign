@@ -1,3 +1,5 @@
+import warnings
+
 import pandas as pd
 
 from analysis.plots import make_all, plot_reconstruct, plot_tradeoff
@@ -15,7 +17,8 @@ def _path_rows():
 
 def _tables(**over):
     t = {"path_metrics": _path_rows(),
-         "stay_metrics": pd.DataFrame([{"use": "pilot", "run": "fixed_1m", "stay_f1": 0.5}]),
+         "stay_metrics": pd.DataFrame([{"use": "pilot", "run": "fixed_1m", "policy": "fixed_1m", "detector": "os",
+                                        "params": "", "ttff": 0.0, "stay_f1": 0.5}]),
          "step_metrics": pd.DataFrame([{"use": "pilot", "detector": "os", "count_abs_error_pct": 5.0,
                                         "vehicle_false_steps": None}]),
          "battery_summary": pd.DataFrame([{"method": "fixed_1m", "n": 3, "mah_per_h_mean": 180.0,
@@ -73,3 +76,33 @@ def test_family_and_main_runs():
         {"run": "fixed_1m", "policy": "fixed_1m", "detector": "os", "params": "", "ttff": 0.0},
     ])
     assert main_runs(df)["run"].tolist() == ["step_budget[adaptive] e_m=50", "fixed_1m"]
+
+
+def test_stay_f1_uses_main_runs_only(tmp_path, monkeypatch):
+    from analysis import plots
+    rows = [
+        {"use": "pilot", "run": "fixed_1m", "policy": "fixed_1m", "detector": "os", "params": "", "ttff": 0.0,
+         "stay_f1": 0.5},
+        {"use": "pilot", "run": "fixed_1m ttff=5", "policy": "fixed_1m", "detector": "os", "params": "", "ttff": 5.0,
+         "stay_f1": 0.9},
+        {"use": "pilot", "run": "step_budget[os] e_m=50 stay.use_still=false", "policy": "step_budget",
+         "detector": "os", "params": "e_m=50", "ttff": 0.0, "stay_f1": 0.1},
+    ]
+    seen = {}
+    monkeypatch.setattr(plots, "_bars", lambda ax, labels, values, color: seen.update(labels=list(labels)))
+    assert plots.plot_stay_f1(pd.DataFrame(rows), tmp_path / "s.png") is not None
+    assert seen["labels"] == ["fixed_1m"]
+
+
+def test_warns_when_no_korean_font(monkeypatch):
+    from analysis import plots
+    monkeypatch.setattr(plots, "_korean_fonts", lambda: [])
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        family = plots._font_family()
+    assert family == ["DejaVu Sans"]
+    assert any("한글" in str(w.message) for w in caught)
+    monkeypatch.setattr(plots, "_korean_fonts", lambda: ["Malgun Gothic"])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert plots._font_family() == ["Malgun Gothic", "DejaVu Sans"]

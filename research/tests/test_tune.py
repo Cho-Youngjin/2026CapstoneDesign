@@ -5,6 +5,8 @@ import pytest
 
 from analysis.geo import offset
 from analysis.reconstruct import ServerUnavailable
+from analysis.replay import CliError
+import analysis.tune as tune
 from analysis.tune import grid_search, main
 from conftest import LAT0, LNG0, T0, gps_row, make_session, write_csv
 
@@ -33,15 +35,18 @@ class _Cli:
 class _Client:
     """β가 10에서 멀수록 북쪽으로 밀린 평행선을 돌려준다 → β=10이 최선."""
 
-    def __init__(self, fallback=False):
-        self.seen, self.fallback = [], fallback
+    def __init__(self, fallback=False, mixed=False):
+        self.seen, self.fallback, self.mixed = [], fallback, mixed
 
     def reconstruct(self, fixes, stays, method, hmm=None):
         self.seen.append((method, hmm))
         n = abs(hmm["betaM"] - 10) + hmm["sigmaMinM"]
         a, b = offset(LAT0, LNG0, 0, n), offset(LAT0, LNG0, 100, n)
-        return [{"kind": "walk", "coords": [{"lat": a[0], "lng": a[1]}, {"lat": b[0], "lng": b[1]}],
-                 "fallback": self.fallback}]
+        seg = {"kind": "walk", "coords": [{"lat": a[0], "lng": a[1]}, {"lat": b[0], "lng": b[1]}],
+               "fallback": self.fallback}
+        if self.mixed:   # 구간 둘 중 하나만 fallback
+            return [{**seg, "fallback": False}, {**seg, "fallback": True}]
+        return [seg]
 
 
 def _setup(tmp_path):
@@ -77,3 +82,48 @@ def test_main_without_pilot(tmp_path):
     (tmp_path / "sessions.yaml").write_text("sessions: []\n", encoding="utf-8")
     (tmp_path / "experiments.yaml").write_text("data_dir: data\n", encoding="utf-8")
     assert main(["--config", str(tmp_path / "experiments.yaml")]) == 1
+
+
+def test_grid_search_never_picks_cell_with_fewer_results():
+    # (β=2, σ=3)만 결과가 1개뿐이고 P95가 가장 낮다 → 표본이 모자란 칸이라 고르면 안 된다
+    def evaluate(b, s):
+        if (b, s) == (2, 3):
+            return [0.5, None]
+        return [abs(b - 10) + s] * 2
+    table, best = grid_search(evaluate, [2, 10], [3, 5])
+    assert (best["betaM"], best["sigmaMinM"]) == (10.0, 3.0)
+    done = table.set_index(["betaM", "sigmaMinM"])["complete"]
+    assert not done[(2, 3)] and done[(10, 3)] and done[(2, 5)]
+
+
+def test_main_writes_complete_column(tmp_path):
+    args = _setup(tmp_path)
+    assert main(args, cli=_Cli(), client=_Client()) == 0
+    grid = pd.read_csv(tmp_path / "results" / "hmm_grid.csv")
+    assert grid["complete"].all()
+
+
+def test_main_without_any_result_writes_no_best(tmp_path, capsys, monkeypatch):
+    args = _setup(tmp_path)
+    monkeypatch.setattr(tune, "path_metrics", lambda *a, **k: {"p95_m": None})
+    assert main(args, cli=_Cli(), client=_Client()) == 1
+    assert not (tmp_path / "results" / "hmm_best.json").exists()
+    assert "고를 수 있는 칸이 없습니다" in capsys.readouterr().err
+
+
+def test_main_replay_cli_error_exits_3(tmp_path, capsys):
+    class _BadCli:
+        def replay(self, *a, **k):
+            raise CliError("dart를 찾을 수 없습니다")
+    args = _setup(tmp_path)
+    assert main(args, cli=_BadCli(), client=_Client()) == 3
+    assert "dart" in capsys.readouterr().err
+
+
+def test_main_records_fallback_share_for_mixed_cells(tmp_path):
+    args = _setup(tmp_path)
+    assert main(args, cli=_Cli(), client=_Client(mixed=True)) == 0
+    grid = pd.read_csv(tmp_path / "results" / "hmm_grid.csv")
+    assert (grid["fallback_share"] == 0.5).all()
+    by_session = pd.read_csv(tmp_path / "results" / "hmm_grid_by_session.csv")
+    assert (by_session["fallback_share"] == 0.5).all()
