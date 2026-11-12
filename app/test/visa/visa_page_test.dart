@@ -242,6 +242,54 @@ void main() {
       expect(find.text('결과 43'), findsOneWidget);
     });
 
+    testWidgets('국내 여행을 골랐다가 해외 국가로 바꾸면 여권 만료일 칸이 다시 나타나고 입력해야 만들 수 있다', (tester) async {
+      final api = FakeTripApi(tripToReturn: sampleTrip(id: 44));
+      await _pumpVisaPage(tester, api: api);
+      await tester.tap(find.byKey(const Key('countryField')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('domesticTripOption')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('passportExpiryField')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('countryField')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('베트남'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('passportExpiryField')), findsOneWidget);
+
+      await _confirmDefaultDate(tester, 'departDateField');
+      await _confirmDefaultDate(tester, 'returnDateField');
+      expect(_submitButton(tester).onPressed, isNull, reason: '해외 여행은 여권 만료일이 있어야 한다');
+
+      await _confirmDefaultDate(tester, 'passportExpiryField');
+      expect(_submitButton(tester).onPressed, isNotNull);
+      await tester.tap(find.byKey(const Key('submitTripButton')));
+      await tester.pumpAndSettle();
+
+      final call = api.createTripCalls.single;
+      expect(call['countryIso2'], 'VN');
+      expect(call['passportExpiry'], isNotNull);
+    });
+
+    testWidgets('해외 국가에서 여권 만료일까지 입력한 뒤 국내 여행으로 바꾸면 칸이 사라지고 여권 없이 만든다', (tester) async {
+      final api = FakeTripApi(tripToReturn: sampleTrip(id: 45));
+      await _pumpVisaPage(tester, api: api);
+      await _fillForm(tester);
+      expect(find.byKey(const Key('passportExpiryField')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('countryField')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('domesticTripOption')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('passportExpiryField')), findsNothing);
+      await tester.tap(find.byKey(const Key('submitTripButton')));
+      await tester.pumpAndSettle();
+
+      final call = api.createTripCalls.single;
+      expect(call['countryIso2'], 'KR');
+      expect(call['passportExpiry'], isNull, reason: '앞서 입력한 여권 만료일이 국내 여행 요청에 딸려 가면 안 된다');
+    });
+
     testWidgets('서버가 거절하면 오류 문구를 보여주고 화면에 남는다', (tester) async {
       final api = FakeTripApi(createTripStatusCode: 400);
       await _pumpVisaPage(tester, api: api);

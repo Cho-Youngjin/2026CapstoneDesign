@@ -246,7 +246,8 @@ void main() {
           returnDate: DateTime(2026, 12, 22),
           passportExpiry: null,
           visaResult: const VisaResult(verdict: VisaVerdict.domestic, stayDays: 2, passportOk: true),
-          tasks: const [],
+          // 서버가 일정을 보내 주더라도(울릴 시각이 남은 일정) 국내 여행은 알람도 권한 요청도 하지 않는다.
+          tasks: [task(id: 1, title: '여행자 보험 가입', dueDate: DateTime(2026, 12, 1))],
         );
 
     testWidgets('비자 결과·준비 일정·체크리스트·지갑을 숨기고 발걸음 기록만 보여 준다', (tester) async {
@@ -259,7 +260,7 @@ void main() {
       expect(find.textContaining('근거'), findsNothing);
       expect(find.byKey(const Key('openChecklistButton')), findsNothing);
       expect(find.byKey(const Key('openWalletButton')), findsNothing);
-      // 준비 일정이 없으니 알람도, 알림 권한 요청도 없다.
+      // 국내 여행은 준비 일정 알람을 쓰지 않으니 알람도, 알림 권한 요청도 없다.
       expect(r.alarms.scheduled, isEmpty);
       expect(permission.calls, 0);
     });
