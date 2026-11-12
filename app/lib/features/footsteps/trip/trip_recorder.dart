@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:footstep_core/footstep_core.dart';
 
@@ -74,6 +75,9 @@ class TripRecorder {
   StepState? _detectorState;
   int? _stillSinceMs;
 
+  /// 마지막으로 남긴 정지 구간의 끝. 시계가 거꾸로 가도 다음 구간이 겹치지 않게 시작을 여기까지 당긴다.
+  int? _lastSpanEndMs;
+
   Future<void> start() async {
     if (_started) return;
     _started = true;
@@ -122,6 +126,7 @@ class TripRecorder {
   }
 
   void _savePoint(FixRecord record) {
+    final steps = _drainSteps(record);
     _enqueue(() async {
       var iso = Checkin.unknownCountry;
       try {
@@ -137,10 +142,27 @@ class TripRecorder {
         countryIso: iso,
         recordedAt: DateTime.fromMillisecondsSinceEpoch(record.tMs, isUtc: true),
         accuracyM: record.fix.accuracyM,
-        stepsSincePrev: record.stepsSincePrev,
+        stepsSincePrev: steps,
         state: record.state,
       );
     });
+  }
+
+  /// 직전 점 이후 걸음 수. 걸음 시각 목록(StepTimeline)을 내놓는 감지기는 점을 남길 때마다 그 목록을 비우고 비운 개수를 쓴다.
+  /// - 목록을 아무도 비우지 않으면 하루 종일 걸을 때 메모리가 계속 자란다.
+  /// - 점 뒤에 확인된 걸음(박자가 서야 소급해 세는 걸음 등)은 감지기의 실시간 값에서는 빠지지만 목록에는 남아, 사라지지
+  ///   않고 다음 점의 걸음 수가 된다.
+  /// 정책이 보는 값(감지기의 stepsSinceLastFix)은 건드리지 않는다. 목록이 없는 감지기는 그 값을 그대로 쓴다.
+  /// 쓰기를 맡기기 전에(같은 동작 안에서) 불러야 다음 점이 같은 걸음을 다시 세지 않는다.
+  int _drainSteps(FixRecord record) {
+    if (detector case final StepTimeline timeline) {
+      try {
+        return timeline.takeStepTimes().length;
+      } catch (e) {
+        _report(e);
+      }
+    }
+    return record.stepsSincePrev;
   }
 
   /// 상태가 바뀐 순간만 본다. 정지에 들어가면 시작 시각을 기억하고, 정지에서 나오면 그 구간을 남긴다.
@@ -149,13 +171,19 @@ class TripRecorder {
     if (previous == update.state) return;
     _detectorState = update.state;
     if (previous == StepState.still) _closeStill(update.tMs);
-    if (update.state == StepState.still) _stillSinceMs = update.tMs;
+    if (update.state == StepState.still) {
+      // 기기 시계가 거꾸로 가면 새 정지가 앞 구간 끝보다 이른 시각에 시작할 수 있다. 겹치는 구간은 정지 구간 계산이 거절하므로
+      // 앞 구간이 끝난 시각으로 시작을 당긴다.
+      final previousEnd = _lastSpanEndMs;
+      _stillSinceMs = previousEnd == null ? update.tMs : math.max(update.tMs, previousEnd);
+    }
   }
 
   void _closeStill(int endMs) {
     final startMs = _stillSinceMs;
     _stillSinceMs = null;
     if (startMs == null || endMs <= startMs) return;
+    _lastSpanEndMs = endMs;
     _enqueue(() => db.insertTripStillSpan(
           tripId: trip.tripId,
           startAt: DateTime.fromMillisecondsSinceEpoch(startMs, isUtc: true),

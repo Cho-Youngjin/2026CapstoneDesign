@@ -37,7 +37,11 @@ class TripRecordingSession {
       _ended = true;
       return false;
     }
+    // 아래 두 await 사이에 서비스가 꺼질 수 있다(onDestroy가 stop을 부른다). 이미 끝났으면 기록기를 켜지 않는다 —
+    // 켜 버리면 아무도 멈추지 않는 센서 구독이 남는다.
+    if (_ended) return false;
     final recorder = await openRecorder();
+    if (_ended) return false; // 열기만 했고 시작하지 않았으니 멈출 것이 없다
     _recorder = recorder;
     await recorder.start();
     return true;

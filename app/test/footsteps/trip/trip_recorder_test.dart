@@ -7,6 +7,76 @@ import 'package:footstep_core/footstep_core.dart';
 
 import 'trip_fakes.dart';
 
+/// 대본대로 움직이는 걸음 감지기. [next]를 채워 두고 OS 걸음 읽기를 흘리면 그 갱신을 돌려준다. 정책이 보는
+/// stepsSinceLastFix는 [live]로 따로 정한다 — 늦게 확인된 걸음처럼 실시간 값과 걸음 시각 목록이 다른 상황을 만든다.
+class PlainDetector implements StepDetector {
+  int live = 0;
+  StepUpdate? next;
+
+  @override
+  String get id => 'plain';
+
+  @override
+  Map<String, Object> get params => const {};
+
+  @override
+  StepState get state => StepState.still;
+
+  @override
+  int get totalSteps => live;
+
+  @override
+  int get stepsSinceLastFix => live;
+
+  @override
+  StepUpdate? onAccel(int tMs, List<AccelReading> batch) => null;
+
+  @override
+  StepUpdate? onOsStep(OsStepReading reading) {
+    final update = next;
+    next = null;
+    return update;
+  }
+
+  @override
+  void onFix() {}
+}
+
+/// 걸음 시각 목록도 내놓는 감지기(StepTimeline). 목록은 [takeStepTimes]가 비운다.
+class TimelineDetector extends PlainDetector implements StepTimeline {
+  final times = <int>[];
+
+  @override
+  List<int> takeStepTimes() {
+    final taken = List<int>.of(times);
+    times.clear();
+    return taken;
+  }
+}
+
+/// 예약을 붙잡아 두는 타이머 대역. [fire]가 예약된 깨우기를 부른다.
+class CapturingScheduler implements WakeScheduler {
+  final _callbacks = <Object, void Function()>{};
+
+  @override
+  Object schedule(int atMs, void Function() callback) {
+    final handle = Object();
+    _callbacks[handle] = callback;
+    return handle;
+  }
+
+  @override
+  void cancel(Object handle) => _callbacks.remove(handle);
+
+  void fire() {
+    final pending = _callbacks.values.toList();
+    _callbacks.clear();
+    for (final callback in pending) {
+      callback();
+    }
+  }
+}
+
 void main() {
   late AppDatabase db;
   late DateTime now;
@@ -19,6 +89,8 @@ void main() {
     String policyId = 'step_budget',
     String detectorId = 'os',
     Future<String> Function(double lat, double lng)? countryOf,
+    StepDetector? detector,
+    WakeScheduler? scheduler,
   }) {
     final choice = PolicyChoice(policyId: policyId, detectorId: detectorId);
     return TripRecorder(
@@ -28,9 +100,9 @@ void main() {
       clock: () => now,
       countryOf: countryOf ?? (lat, lng) async => 'KR',
       policy: createPolicy(policyId),
-      detector: createDetector(detectorId),
+      detector: detector ?? createDetector(detectorId),
       location: location,
-      scheduler: FakeTripScheduler(),
+      scheduler: scheduler ?? FakeTripScheduler(),
       needs: PolicySensorNeeds.of(choice),
       onError: errors.add,
     );
@@ -70,6 +142,94 @@ void main() {
     expect(points.single.state, 'walking');
     expect(points.single.recordedAt.toUtc(), DateTime.utc(2026, 11, 20, 1, 0, 10)); // drift는 현지 시각으로 돌려준다
     expect(errors, isEmpty);
+  });
+
+  test('폴리곤이 가린 나라가 여행의 나라와 다르면 가린 나라로 남긴다', () async {
+    final r = recorder(countryOf: (lat, lng) async => 'JP');
+    await r.start();
+    location.requests.single.complete(fixAt(now));
+    await settle();
+    await r.stop();
+
+    expect((await db.routePointsForTrip(7)).single.countryIso, 'JP');
+  });
+
+  test('걸음 수는 감지기의 걸음 시각 목록을 비우며 센다 — 늦게 확인된 걸음은 사라지지 않고 목록은 자라지 않는다', () async {
+    final detector = TimelineDetector();
+    final scheduler = CapturingScheduler();
+    final r = recorder(policyId: 'fixed_1m', detector: detector, scheduler: scheduler);
+    await r.start();
+
+    // 첫 점: 실시간 값은 5인데 시각 목록에는 2걸음뿐이다(나머지는 아직 확인 전). 목록의 2를 쓰고 목록은 비운다.
+    detector.live = 5;
+    detector.times.addAll([1000, 2000]);
+    location.requests.last.complete(fixAt(now));
+    await settle();
+    expect(detector.times, isEmpty);
+
+    // 둘째 점: 실시간 값은 0인데, 그사이 확인된 걸음 3개(첫 점 이전 시각 포함)가 목록에 들어왔다. 버려지지 않고 이 행에 든다.
+    detector.live = 0;
+    detector.times.addAll([500, 3000, 4000]);
+    now = now.add(const Duration(minutes: 1));
+    scheduler.fire();
+    await settle();
+    location.requests.last.complete(fixAt(now));
+    await settle();
+    await r.stop();
+
+    final points = await db.routePointsForTrip(7);
+    expect(points.map((p) => p.stepsSincePrev), [2, 3]);
+    expect(detector.times, isEmpty);
+  });
+
+  test('걸음 시각 목록이 없는 감지기는 감지기가 말하는 걸음 수를 그대로 쓴다', () async {
+    final detector = PlainDetector()..live = 4;
+    final r = recorder(policyId: 'fixed_1m', detector: detector);
+    await r.start();
+    location.requests.last.complete(fixAt(now));
+    await settle();
+    await r.stop();
+
+    expect((await db.routePointsForTrip(7)).single.stepsSincePrev, 4);
+  });
+
+  test('OS 센서판도 점을 남길 때 걸음 시각을 비운다', () async {
+    final detector = OsStepDetector();
+    final r = recorder(detector: detector);
+    await r.start();
+    sensors.step(now, 100);
+    sensors.step(now.add(const Duration(seconds: 8)), 112);
+    await settle();
+    now = now.add(const Duration(seconds: 10));
+    location.requests.single.complete(fixAt(now));
+    await settle();
+    await r.stop();
+
+    expect((await db.routePointsForTrip(7)).single.stepsSincePrev, 12);
+    expect(detector.takeStepTimes(), isEmpty);
+  });
+
+  test('시각이 거꾸로 가서 정지 구간이 겹치려 하면 앞 구간이 끝난 시각부터 시작한다', () async {
+    final detector = PlainDetector();
+    final start = now;
+    final r = recorder(detector: detector);
+    await r.start();
+
+    Future<void> update(int seconds, StepState state) async {
+      final at = start.add(Duration(seconds: seconds));
+      detector.next = StepUpdate(tMs: at.millisecondsSinceEpoch, state: state, totalSteps: 0, stepsSinceLastFix: 0);
+      sensors.step(at, seconds);
+      await settle();
+    }
+
+    await update(10, StepState.still);
+    await update(60, StepState.walking); // 첫 구간 [10, 60]
+    await update(40, StepState.still); // 시계가 20초 거꾸로 갔다
+    await update(90, StepState.walking); // 둘째 구간은 [60, 90]이어야 한다
+    await r.stop();
+
+    int ms(int seconds) => start.add(Duration(seconds: seconds)).millisecondsSinceEpoch;
+    expect(await db.stillSpansForTrip(7), [TimeSpan(ms(10), ms(60)), TimeSpan(ms(60), ms(90))]);
   });
 
   test('국가를 모르거나 가리다 오류가 나면 여행의 나라로 남기고 기록은 계속한다', () async {

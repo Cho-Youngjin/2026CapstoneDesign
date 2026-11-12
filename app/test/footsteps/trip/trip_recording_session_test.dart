@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app/core/db/app_database.dart';
 import 'package:app/features/footsteps/recording/policy_choice.dart';
 import 'package:app/features/footsteps/trip/trip_recorder.dart';
@@ -17,15 +19,21 @@ void main() {
   late int opened;
   final trip = period(7, DateTime(2026, 11, 20), DateTime(2026, 11, 22));
 
+  // 지도 GeoJSON을 읽는 것처럼 오래 걸리는 열기를 흉내 낸다. 채우기 전에는 openRecorder가 끝나지 않는다.
+  Completer<void>? openGate;
+  Completer<void>? wantedGate;
+
   TripRecordingSession session() => TripRecordingSession(
         trip: trip,
         clock: () => now,
         stillWanted: () async {
           wantedChecks++;
+          await wantedGate?.future;
           return wanted;
         },
         openRecorder: () async {
           opened++;
+          await openGate?.future;
           return TripRecorder(
             trip: trip,
             db: db,
@@ -48,6 +56,8 @@ void main() {
     wanted = true;
     wantedChecks = 0;
     opened = 0;
+    openGate = null;
+    wantedGate = null;
   });
 
   tearDown(() => db.close());
@@ -60,6 +70,36 @@ void main() {
     expect(sensors.stepsController.hasListener, isTrue);
     await s.stop();
     expect(sensors.stepsController.hasListener, isFalse);
+  });
+
+  test('기록기를 여는 동안 서비스가 멈추면(onDestroy) 멈춘 뒤에 기록기를 켜지 않는다', () async {
+    openGate = Completer<void>();
+    final s = session();
+
+    final started = s.start();
+    await settle();
+    expect(opened, 1);
+
+    await s.stop(); // 기록기가 열리는 중에 서비스가 꺼졌다
+    openGate!.complete();
+
+    expect(await started, isFalse);
+    expect(sensors.stepsController.hasListener, isFalse);
+    expect(sensors.accelController.hasListener, isFalse);
+    expect(await s.tick(), isFalse);
+  });
+
+  test('저장소를 읽는 동안 서비스가 멈춰도 기록기를 열지 않는다', () async {
+    wantedGate = Completer<void>();
+    final s = session();
+
+    final started = s.start();
+    await settle();
+    await s.stop();
+    wantedGate!.complete();
+
+    expect(await started, isFalse);
+    expect(opened, 0);
   });
 
   test('이미 기간이 끝났거나 지워졌거나 일시정지면 켜지 않는다(서비스를 끈다)', () async {
