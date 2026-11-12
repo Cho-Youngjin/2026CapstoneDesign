@@ -1,4 +1,8 @@
+import 'package:flutter/foundation.dart' show debugPrint;
+
+import '../../../core/db/app_database.dart';
 import '../../visa/models/trip_summary.dart';
+import 'trip_departure_notices.dart';
 import 'trip_period.dart';
 import 'trip_recording_permissions.dart';
 import 'trip_recording_service.dart';
@@ -9,21 +13,28 @@ import 'trip_recording_store.dart';
 ///
 /// 켜는 것은 언제나 앱이 화면에 있을 때다 — Android 14가 백그라운드에서 위치 포그라운드 서비스를 켜는 것을 막는다.
 /// 그래서 앱 셸이 앱을 열 때·포그라운드로 돌아올 때 [sync]를, 여행 목록을 받을 때 [updateTrips]를 부르고, 여행 상세의
-/// 일시정지·재개가 [setPaused]를 부른다. 끄는 것은 여기(일시정지·기간 밖)와 기록 서비스 자신(귀국 다음 날)이 한다.
+/// 일시정지·재개가 [setPaused]를 부른다. 끄는 것은 여기(일시정지·기간 밖·정리)와 기록 서비스 자신(귀국 다음 날)이 한다.
+///
+/// 기록 정리(설계 9-3)도 여기서 한다. 비자 알람 정리(PR #32)와 같은 때에 부른다: 여행 삭제·없는 여행(404)은 [forgetTrip],
+/// 목록을 다시 받을 때는 [updateTrips], 계정이 바뀔 때는 [claimFor].
 ///
 /// 모든 작업은 부른 순서대로 하나씩 한다. 앱을 열자마자 목록이 도착하면 두 작업이 동시에 "꺼져 있다"고 보고 서비스를
-/// 두 번 켜려 하기 때문이다.
+/// 두 번 켜려 하고, 지우는 중인 여행을 다른 작업이 다시 켤 수 있기 때문이다.
 class TripRecordingCoordinator {
   TripRecordingCoordinator({
     required this._store,
     required this._service,
     required this._permissions,
+    required this._notices,
+    required this._db,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
   final TripRecordingStore _store;
   final TripRecordingService _service;
   final TripRecordingPermissions _permissions;
+  final TripDepartureNotices _notices;
+  final AppDatabase _db;
   final DateTime Function() _clock;
 
   Future<void> _tail = Future.value();
@@ -37,17 +48,60 @@ class TripRecordingCoordinator {
   /// 기록 서비스를 지금(일정·일시정지·날짜)에 맞춘다.
   Future<void> sync() => _serial(_sync);
 
-  /// 서버에서 받은 내 여행 목록으로 일정을 바꾸고 기록 서비스를 다시 맞춘다. 오프라인 캐시 목록은 넘기지 않는다.
+  /// 서버에서 받은 내 여행 목록으로 일정을 바꾼다. 목록에 없는 여행의 기록(좌표·정지 구간)은 지운다 — 다른 기기에서
+  /// 지웠거나 다른 계정의 여행이다. 출발일 알림과 기록 서비스도 다시 맞춘다. 오프라인 캐시 목록은 넘기지 않는다.
   Future<void> updateTrips(List<TripSummary> trips) => _serial(() async {
-        await _store.replaceTrips([for (final t in trips) TripPeriod.fromSummary(t)]);
+        final periods = [for (final t in trips) TripPeriod.fromSummary(t)];
+        await _store.replaceTrips(periods);
+        await _db.deleteTripRecordsExcept({for (final p in periods) p.tripId});
+        await _syncNotices();
         await _sync();
       });
 
-  /// 여행 상세의 일시정지·재개. 일시정지 상태는 여행별로 기기에 남는다.
+  /// 여행 상세의 일시정지·재개. 일시정지 상태는 여행별로 기기에 남는다. 일시정지한 여행은 출발일 알림도 없다.
   Future<void> setPaused(int tripId, bool paused) => _serial(() async {
         await _store.setPaused(tripId, paused);
+        await _syncNotices();
         await _sync();
       });
+
+  /// 여행이 없어졌을 때(삭제, 다른 기기에서 지워져 404): 그 여행을 기록 중이면 끄고, 좌표·정지 구간·일시정지·출발일
+  /// 알림을 지운다. 서비스가 끝나며 마저 쓴 점이 남으면 다음 [updateTrips]가 지운다.
+  Future<void> forgetTrip(int tripId) => _serial(() async {
+        if (await _service.recordingTripId() == tripId) await _service.stop();
+        await _db.deleteTripRecords([tripId]);
+        await _store.forget({tripId});
+        await _syncNotices();
+      });
+
+  /// 지금 로그인한 계정([uid], 로그아웃이면 null)을 기록의 주인으로 정한다(PR #32의 알람 주인과 같은 방식).
+  /// - 같은 계정이면 아무것도 하지 않는다.
+  /// - 로그아웃이면 기록을 끄고 일정·일시정지·출발일 알림을 비운다. 좌표는 남긴다 — 같은 계정이 다시 로그인하면 그대로 본다.
+  /// - 다른 계정이면 위에 더해 이전 계정의 여행 좌표·정지 구간을 모두 지운다.
+  /// 주인이 적혀 있지 않으면(처음 실행) 지울 좌표가 없다고 보고 주인만 적는다.
+  Future<void> claimFor(String? uid) => _serial(() async {
+        final owner = _store.readOwner();
+        if (uid != null && owner == uid) return;
+        if (await _service.recordingTripId() != null) await _service.stop();
+        await _store.clearSchedule();
+        try {
+          await _notices.cancelAll();
+        } catch (e) {
+          debugPrint('출발일 알림을 지우지 못했습니다: $e');
+        }
+        if (uid == null) return;
+        if (owner != null) await _db.deleteTripRecordsExcept(const {});
+        await _store.writeOwner(uid);
+      });
+
+  /// 알림은 부가 기능이라 실패해도(플러그인·권한 오류) 기록을 맞추는 일은 막지 않는다.
+  Future<void> _syncNotices() async {
+    try {
+      await _notices.sync(_store.readTrips(), _store.readPaused());
+    } catch (e) {
+      debugPrint('출발일 알림을 맞추지 못했습니다: $e');
+    }
+  }
 
   Future<void> _sync() async {
     final running = await _service.isRunning();

@@ -1,5 +1,6 @@
 import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/core/prefs/shared_preferences_provider.dart';
+import 'package:app/features/footsteps/trip/trip_recording_providers.dart';
 import 'package:app/features/visa/data/trip_api.dart';
 import 'package:app/features/visa/data/trip_deletion.dart';
 import 'package:app/features/visa/data/trip_list_providers.dart';
@@ -11,11 +12,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../footsteps/trip/trip_fakes.dart';
 import 'fake_alarm_backend.dart';
 import 'fake_trip_api.dart';
 
-Future<({ProviderContainer container, WalletDatabase db, SharedPreferences prefs, FakeAlarmBackend alarms})>
-    _setUp(FakeTripApi api, {FakeAlarmBackend? alarms}) async {
+/// 정리하다 실패하는 여행 기록 대역.
+class _FailingRecording extends FakeTripRecordingCoordinator {
+  @override
+  Future<void> forgetTrip(int tripId) async => throw StateError('기록 정리 실패');
+}
+
+Future<
+        ({
+          ProviderContainer container,
+          WalletDatabase db,
+          SharedPreferences prefs,
+          FakeAlarmBackend alarms,
+          FakeTripRecordingCoordinator recording,
+        })>
+    _setUp(FakeTripApi api, {FakeAlarmBackend? alarms, FakeTripRecordingCoordinator? recording}) async {
   SharedPreferences.setMockInitialValues({
     'selected_trip_id.uid-a': 7,
     'checklist_powerbank_7': true,
@@ -25,7 +40,9 @@ Future<({ProviderContainer container, WalletDatabase db, SharedPreferences prefs
   final db = WalletDatabase.forTesting(NativeDatabase.memory());
   addTearDown(db.close);
   final alarmBackend = alarms ?? FakeAlarmBackend();
+  final trips = recording ?? FakeTripRecordingCoordinator();
   final container = ProviderContainer(overrides: [
+    tripRecordingCoordinatorProvider.overrideWithValue(trips),
     sharedPreferencesProvider.overrideWithValue(prefs),
     currentUidProvider.overrideWithValue('uid-a'),
     tripApiProvider.overrideWithValue(api),
@@ -43,7 +60,7 @@ Future<({ProviderContainer container, WalletDatabase db, SharedPreferences prefs
       ]));
     }
   }
-  return (container: container, db: db, prefs: prefs, alarms: alarmBackend);
+  return (container: container, db: db, prefs: prefs, alarms: alarmBackend, recording: trips);
 }
 
 void main() {
@@ -61,6 +78,15 @@ void main() {
     expect(s.prefs.getBool('checklist_powerbank_8'), isTrue);
     expect(s.container.read(selectedTripIdProvider), isNull);
     expect(s.alarms.scheduled.keys, [notificationIdFor(80)]);
+    expect(s.recording.forgotten, [7]); // 발걸음 기록(좌표·정지 구간)도 지운다
+  });
+
+  test('발걸음 기록 정리가 실패해도 삭제는 성공으로 끝나고 지갑까지 정리한다', () async {
+    final s = await _setUp(FakeTripApi(), recording: _FailingRecording());
+
+    await s.container.read(tripDeleterProvider).delete(7);
+
+    expect(await s.db.watchExpenses(7).first, isEmpty);
   });
 
   test('알람 취소가 실패해도 삭제는 성공으로 끝난다', () async {
@@ -91,5 +117,6 @@ void main() {
     expect(s.container.read(selectedTripIdProvider), 7);
     expect(s.alarms.scheduled.keys,
         unorderedEquals([notificationIdFor(70), notificationIdFor(80)]));
+    expect(s.recording.forgotten, isEmpty);
   });
 }

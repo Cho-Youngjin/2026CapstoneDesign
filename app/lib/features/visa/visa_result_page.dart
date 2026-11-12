@@ -11,6 +11,7 @@ import '../../core/auth/auth_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/wireframe_widgets.dart';
+import '../footsteps/trip/trip_recording_providers.dart';
 import '../rate_alert/notify/notification_permission.dart';
 import 'data/trip_api.dart';
 import 'data/trip_deletion.dart';
@@ -47,6 +48,10 @@ class VisaResultPage extends ConsumerWidget {
       // 다른 기기에서 지운 여행이면 이 기기에 예약해 둔 알람도 필요 없다.
       ref.read(alarmSchedulerProvider).cancelForTrip(tripId).catchError((Object e) {
         debugPrint('지워진 여행의 비자 준비 알람 정리 실패: $e');
+      });
+      // 그 여행의 발걸음 기록(좌표·정지 구간·일시정지)도 지운다(설계 9-3).
+      ref.read(tripRecordingCoordinatorProvider).forgetTrip(tripId).catchError((Object e) {
+        debugPrint('지워진 여행의 발걸음 기록 정리 실패: $e');
       });
       ref.read(tripListCacheProvider).remove(tripId).whenComplete(() {
         ref.invalidate(tripListProvider);

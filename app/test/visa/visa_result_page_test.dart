@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:app/core/auth/auth_providers.dart';
 import 'package:app/core/prefs/shared_preferences_provider.dart';
+import 'package:app/features/footsteps/trip/trip_recording_providers.dart';
 import 'package:app/features/rate_alert/notify/notification_permission.dart';
 import 'package:app/features/visa/data/trip_api.dart';
 import 'package:app/features/visa/data/trip_deletion.dart';
@@ -16,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../footsteps/trip/trip_fakes.dart';
 import 'fake_alarm_backend.dart';
 import 'fake_trip_api.dart';
 
@@ -61,6 +63,7 @@ Future<
       SharedPreferences prefs,
       _FakeTripDeleter deleter,
       FakeAlarmBackend alarms,
+      FakeTripRecordingCoordinator recording,
     })> pumpResultPage(
   WidgetTester tester, {
   Trip? trip,
@@ -83,6 +86,7 @@ Future<
   );
   final deleter = _FakeTripDeleter(fails: deleteFails);
   final alarmBackend = alarms ?? FakeAlarmBackend();
+  final recording = FakeTripRecordingCoordinator();
   final id = (trip ?? sampleTrip()).id;
 
   final router = GoRouter(
@@ -115,6 +119,7 @@ Future<
                 AlarmScheduler(alarmBackend,
                     registry: MemoryAlarmRegistry('uid-a'), now: () => seoulTime(2026, 9, 7, 12))),
         notificationPermissionProvider.overrideWithValue(permission ?? FakePermission()),
+        tripRecordingCoordinatorProvider.overrideWithValue(recording),
       ],
       // 목록 provider를 누군가 보고 있어야 invalidate가 다시 조회로 이어진다(여행 목록 탭 역할).
       child: Consumer(builder: (context, ref, child) {
@@ -124,7 +129,7 @@ Future<
     ),
   );
   await tester.pumpAndSettle();
-  return (api: api, prefs: prefs, deleter: deleter, alarms: alarmBackend);
+  return (api: api, prefs: prefs, deleter: deleter, alarms: alarmBackend, recording: recording);
 }
 
 TripTask task({
@@ -174,6 +179,12 @@ void main() {
     final remaining = (jsonDecode(r.prefs.getString('trips.cache.v1.uid-a')!) as List)
         .map((e) => (e as Map<String, dynamic>)['id']);
     expect(remaining, [8]);
+  });
+
+  testWidgets('404면 그 여행의 발걸음 기록도 지운다', (tester) async {
+    final r = await pumpResultPage(tester, getTripStatusCode: 404);
+
+    expect(r.recording.forgotten, [7]);
   });
 
   testWidgets('404면 여행 목록을 다시 불러온다', (tester) async {

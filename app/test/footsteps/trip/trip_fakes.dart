@@ -135,4 +135,13 @@ class FakeTripRecordingCoordinator implements TripRecordingCoordinator {
 
   @override
   Future<void> setPaused(int tripId, bool paused) async => pauses.add((tripId, paused));
+
+  final forgotten = <int>[];
+  final claims = <String?>[];
+
+  @override
+  Future<void> forgetTrip(int tripId) async => forgotten.add(tripId);
+
+  @override
+  Future<void> claimFor(String? uid) async => claims.add(uid);
 }
