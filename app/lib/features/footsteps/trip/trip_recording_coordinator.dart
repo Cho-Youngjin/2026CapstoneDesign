@@ -66,16 +66,17 @@ class TripRecordingCoordinator {
   /// 그 다음 목록에 없는 여행의 기록(좌표·정지 구간)을 지운다 — 다른 기기에서 지웠거나 다른 계정의 여행이다. 서비스를 먼저
   /// 끄는 것은 서비스가 끝나며 마지막으로 쓰는 점이 지운 뒤에 남지 않게 하려는 것이다. 오프라인 캐시 목록은 넘기지 않는다.
   ///
-  /// 안전장치: 이전에 일정이 있었는데 목록이 비어 오면 기록은 지우지 않는다. 좌표는 서버에 없고 이 폰에만 있는 연구 데이터라
-  /// (설계 9-3), 서버를 초기화했거나 서버 오류로 빈 목록이 와도 모든 여행의 좌표가 한꺼번에 사라지면 되돌릴 수 없다. 일정은
-  /// 비우고 기록 서비스도 끈다. 사용자가 직접 지운 여행([forgetTrip])·계정 전환([claimFor])은 그대로 지운다.
+  /// 안전장치: 빈 목록은 저장된 일정이 있었든 없었든 기록을 지우지 않는다. 좌표는 서버에 없고 이 폰에만 있는 연구 데이터라
+  /// (설계 9-3), 서버를 초기화했거나 서버 오류로 빈 목록이 와도 모든 여행의 좌표가 한꺼번에 사라지면 되돌릴 수 없다. 첫 빈
+  /// 목록이 일정을 비운 뒤 두 번째 빈 목록이 오거나, 로그아웃으로 일정이 비워진 뒤 빈 목록이 오는 경우에도 같다. 일정은 비우고
+  /// 기록 서비스도 끈다. 이때 남은 기록은 다음에 비어 있지 않은 목록이 올 때 그 목록에 없는 여행으로 정리된다. 사용자가 직접
+  /// 지운 여행([forgetTrip])·계정 전환([claimFor])은 그대로 지운다.
   Future<void> updateTrips(List<TripSummary> trips) => _serialNotifying(() async {
         final periods = [for (final t in trips) TripPeriod.fromSummary(t)];
-        final hadTrips = _store.readTrips().isNotEmpty;
         await _store.replaceTrips(periods);
         await _syncNotices();
         await _sync();
-        if (periods.isEmpty && hadTrips) {
+        if (periods.isEmpty) {
           debugPrint('빈 여행 목록을 받아 여행 기록(좌표)은 지우지 않았습니다.');
           return;
         }

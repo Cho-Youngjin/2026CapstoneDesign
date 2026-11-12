@@ -193,6 +193,36 @@ void main() {
       expect(await db.routePointsForTrip(7), hasLength(1));
     });
 
+    test('빈 목록이 연달아 와도 좌표는 지우지 않는다(첫 빈 목록이 일정을 비워도 두 번째가 안전장치를 우회하지 못한다)', () async {
+      await coordinator.updateTrips([domestic]);
+      await addPoint(7);
+      await db.insertTripStillSpan(
+          tripId: 7, startAt: DateTime.utc(2026, 11, 20, 1), endAt: DateTime.utc(2026, 11, 20, 2));
+
+      await coordinator.updateTrips(const []);
+      await coordinator.updateTrips(const []);
+
+      expect(store.readTrips(), isEmpty);
+      expect(await db.routePointsForTrip(7), hasLength(1));
+      expect(await db.stillSpansForTrip(7), hasLength(1));
+    });
+
+    test('로그아웃 뒤 다시 로그인해 빈 목록을 받아도 좌표는 지우지 않고, 다음 비어 있지 않은 목록이 고아 좌표를 정리한다', () async {
+      await coordinator.claimFor('uid-a');
+      await coordinator.updateTrips([domestic]);
+      await addPoint(7);
+
+      await coordinator.claimFor(null); // 일정이 비워진다
+      await coordinator.claimFor('uid-a');
+      await coordinator.updateTrips(const []);
+
+      expect(await db.routePointsForTrip(7), hasLength(1));
+
+      await coordinator.updateTrips([later]);
+
+      expect(await db.routePointsForTrip(7), isEmpty);
+    });
+
     test('비어 있지 않은 목록에서 빠진 여행의 좌표는 지운다', () async {
       await coordinator.updateTrips([domestic, later]);
       await addPoint(7);
