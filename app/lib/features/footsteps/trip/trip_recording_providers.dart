@@ -14,6 +14,9 @@ import 'trip_recording_permissions.dart';
 import 'trip_recording_service.dart';
 import 'trip_recording_store.dart';
 
+/// 날짜별 보기·여행 상세가 "오늘"을 정할 때 쓰는 시계. 위젯 테스트가 날짜를 고정한다.
+final tripClockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
+
 final tripRecordingStoreProvider = Provider<TripRecordingStore>(
   (ref) => TripRecordingStore(ref.watch(sharedPreferencesProvider)),
 );

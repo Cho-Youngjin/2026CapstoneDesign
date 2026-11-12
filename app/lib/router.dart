@@ -11,6 +11,7 @@ import 'features/footsteps/footsteps_detail_page.dart';
 import 'features/footsteps/footsteps_page.dart';
 import 'features/footsteps/lab/lab_page.dart';
 import 'features/footsteps/providers/footsteps_providers.dart';
+import 'features/footsteps/trip/trip_footsteps_page.dart';
 import 'features/footsteps/trip/trip_recording_providers.dart';
 import 'features/visa/data/trip_list_providers.dart';
 import 'features/nearby/providers/nearby_selection_providers.dart';
@@ -65,6 +66,11 @@ class AppRoutes {
 
   static String tripOf(int id) => '/visa/trip/$id';
 
+  /// 여행의 날짜별 발걸음(설계 2026-11-07 9-4). `tripFootstepsOf(3)` → `/visa/trip/3/footsteps`.
+  static const tripFootsteps = '/visa/trip/:id/footsteps';
+
+  static String tripFootstepsOf(int id) => '/visa/trip/$id/footsteps';
+
   static const footstepsDetail = '/footsteps/detail';
 
   /// 숨은 실험 화면(연구 R1). 세계지도 아래 요약 문구를 길게 눌러 연다.
@@ -116,6 +122,11 @@ GoRouter createRouter({required bool isLoggedIn}) {
             path: AppRoutes.tripDetail,
             builder: (_, state) =>
                 VisaResultPage(tripId: int.parse(state.pathParameters['id']!)),
+          ),
+          GoRoute(
+            path: AppRoutes.tripFootsteps,
+            builder: (_, state) =>
+                TripFootstepsPage(tripId: int.parse(state.pathParameters['id']!)),
           ),
           GoRoute(path: AppRoutes.checklist, builder: (_, _) => const ChecklistPage()),
           GoRoute(
