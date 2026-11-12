@@ -38,7 +38,7 @@ public class Trip {
     @Column(name = "return_date", nullable = false)
     private LocalDate returnDate;
 
-    // 국내 여행(설계 9-1)은 여권 만료일이 없어 null이다(V15에서 NOT NULL을 풀었다). 해외 여행은 요청 검증이 필수로 막는다.
+    // 국내 여행(설계 9-1)은 여권 만료일이 없어 null이다(V17에서 NOT NULL을 풀었다). 해외 여행은 요청 검증이 필수로 막는다.
     @Column(name = "passport_expiry")
     private LocalDate passportExpiry;
 

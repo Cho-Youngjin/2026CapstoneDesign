@@ -441,7 +441,7 @@ R6에서 정한 세부 규칙:
 - **서버:**
   - `countryIso2 = "KR"`이면 비자 판정을 건너뛴다. `verdict = "DOMESTIC"`으로 저장하고, 일정·준비물은 만들지 않는다.
   - refresh는 아무것도 하지 않고 현재 값을 돌려준다.
-  - `passportExpiry`는 null을 허용한다(`V15` 마이그레이션, `CreateTripRequest`의 `@NotNull` 해제). KR이 아닌 여행은 여전히 필수로 검증한다.
+  - `passportExpiry`는 null을 허용한다(`V17` 마이그레이션, `CreateTripRequest`의 `@NotNull` 해제). KR이 아닌 여행은 여전히 필수로 검증한다.
   - 국가 목록 API(`/api/countries`)는 바꾸지 않는다.
 
 ### 9-2. 여행 기간 기록

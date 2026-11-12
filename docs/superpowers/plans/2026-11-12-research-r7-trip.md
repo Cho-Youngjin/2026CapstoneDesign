@@ -6,7 +6,7 @@
 
 **Architecture:**
 - 서버(`trip/`, `country/`, `batch/`)
-  - V15가 country 표에 본국(KR) 행을 넣고 `trip.passport_expiry`의 NOT NULL을 푼다. 여행은 country 행을 가리켜야 하기 때문이다(외래 키).
+  - V17가 country 표에 본국(KR) 행을 넣고 `trip.passport_expiry`의 NOT NULL을 푼다. 여행은 country 행을 가리켜야 하기 때문이다(외래 키).
   - `TripController`는 본국이면 판정·준비 일정·준비물을 건너뛰고 `DOMESTIC` 스냅샷만 저장한다. refresh는 아무것도 바꾸지 않고 지금 값을 돌려준다.
   - 목적지 목록(`GET /api/countries`)과 일일 공공데이터 수집은 본국을 뺀다. 목록 응답은 R7 전과 같다.
 - 판단은 순수 함수 `shouldRecord(trips, now, pausedTripIds)` 하나다.
@@ -34,7 +34,7 @@
   - flutter_riverpod 3, drift 2.35(스키마 3), flutter_foreground_task 11, flutter_local_notifications 22, permission_handler 13, shared_preferences 2.5, google_maps_flutter
   - 새 의존성 없음
 - footstep_core(R2~R5): `PolicyRunner`에 선택 콜백 `onStepUpdate` 하나를 더한다. 의존성 변화 없음.
-- Spring Boot 3.5.3 / Java 21(server), PostgreSQL 16 + Flyway(V15). 의존성 변화 없음.
+- Spring Boot 3.5.3 / Java 21(server), PostgreSQL 16 + Flyway(V17). 의존성 변화 없음.
 
 **설계 문서·근거:**
 - `docs/superpowers/specs/2026-11-07-footstep-research-implementation-design.md`
@@ -62,11 +62,11 @@
 - PC에서 확인할 수 없는 것: 앱을 열 때 포그라운드 서비스 시작, 출발일 8시 알림, 화면이 꺼진 동안의 위치, 재부팅. 순수 함수·가짜로 시험하고, 실기기 확인은 Task 10에서 사용자가 한다.
 
 **검증하며 정한 것(설계가 열어 둔 부분)**
-1. **본국 행(V15).**
+1. **본국 행(V17).**
    - `trip.country_id`가 country 외래 키라 KR 여행에는 KR 행이 있어야 한다.
    - 목록 API는 그 행을 걸러 응답을 R7 전과 같게 둔다. 일일 수집(비자·경보·공관)도 본국을 건너뛴다.
    - 부수 효과: 발걸음 동기화(`/api/checkins`·`/api/daily-steps`)가 KR 기록을 400 없이 받는다. 앱 주석 하나를 고친다.
-2. **다음 마이그레이션 번호는 V15**다(V1~V14가 있다). 국내 여행은 여권 만료일을 보내도 저장하지 않는다. 해외 여행의 필수 검사는 `@AssertTrue` 교차 검증으로 옮겼다(국가 코드와 두 필드의 관계라 `@NotNull`로는 못 한다).
+2. **마이그레이션 번호는 V17**이다. master에는 V1~V14가 있고, 팀원 PR #35(`checklist-country`)가 V17·V16을 먼저 쓴다(그 PR이 먼저 머지돼도 순서가 맞게 V17로 둔다). 국내 여행은 여권 만료일을 보내도 저장하지 않는다. 해외 여행의 필수 검사는 `@AssertTrue` 교차 검증으로 옮겼다(국가 코드와 두 필드의 관계라 `@NotNull`로는 못 한다).
 3. **`DOMESTIC`은 서버·앱 `VisaVerdict` 둘 다에 넣는다.** wire 값 계약이라 앱이 모르는 값이면 '확인 필요'로 내려가기 때문이다. `judge()`는 이 값을 내지 않는다.
 4. **준비물 탭은 국내 여행을 고르지 않는다.** 국내 여행에는 체크리스트·지갑이 없다(설계는 여행 상세만 적었다). 국내 여행뿐이면 해외 여행계획을 만들라고 안내한다.
 5. **`shouldRecord`는 기록할 여행(`TripPeriod?`)을 돌려준다.** 겹치면 가장 늦게 출발한 여행, 출발일까지 같으면 id가 큰 여행이다. 점 하나는 한 여행에만 속한다(trip_id).
@@ -135,7 +135,7 @@
 ## 파일 구조
 
 ```
-server/src/main/resources/db/migration/V15__domestic_trip.sql   본국 행, passport_expiry NULL 허용 (Task 1)
+server/src/main/resources/db/migration/V17__domestic_trip.sql   본국 행, passport_expiry NULL 허용 (Task 1)
 server/src/main/java/com/travelfootsteps/
   country/Country.java, CountryController.java                  HOME_ISO2·isHome, 목록에서 본국 제외 (Task 1)
   visa/VisaVerdict.java, VisaJudgement.java                     DOMESTIC, VisaJudgement.domestic (Task 1)
@@ -182,10 +182,10 @@ docs/research/trip-check.md                                     실기기 확인
 
 ### Task 1: 서버 — 대한민국 여행은 비자 판정 없이 국내 여행(`DOMESTIC`)으로 만든다
 
-설계 9-1의 서버 쪽이다. 여행은 country 행을 외래 키로 가리키므로 V15가 본국(KR) 행을 넣는다. 목적지 목록과 일일 수집은 그 행을 건너뛴다. 국내 여행은 여권 만료일 없이 만들 수 있고, 비자 판정·준비 일정·준비물 없이 `DOMESTIC` 스냅샷만 저장한다. 해외 여행의 여권 만료일 필수 검사는 그대로다.
+설계 9-1의 서버 쪽이다. 여행은 country 행을 외래 키로 가리키므로 V17가 본국(KR) 행을 넣는다. 목적지 목록과 일일 수집은 그 행을 건너뛴다. 국내 여행은 여권 만료일 없이 만들 수 있고, 비자 판정·준비 일정·준비물 없이 `DOMESTIC` 스냅샷만 저장한다. 해외 여행의 여권 만료일 필수 검사는 그대로다.
 
 **Files:**
-- Create: `server/src/main/resources/db/migration/V15__domestic_trip.sql`
+- Create: `server/src/main/resources/db/migration/V17__domestic_trip.sql`
 - Modify: `server/src/main/java/com/travelfootsteps/country/Country.java`(`HOME_ISO2`, `isHomeIso2`, `isHome`)
 - Modify: `server/src/main/java/com/travelfootsteps/country/CountryController.java`(목록에서 본국을 뺀다)
 - Modify: `server/src/main/java/com/travelfootsteps/visa/VisaVerdict.java`(`DOMESTIC`)
@@ -353,7 +353,7 @@ import static org.hamcrest.Matchers.nullValue;
 ```java
     @Test
     void 목적지_목록에는_본국_한국을_넣지_않는다() throws Exception {
-        // V15가 국내 여행을 위해 country 표에 KR을 넣었지만, 이 API는 R7 전과 같은 목적지 20개국만 돌려준다.
+        // V17가 국내 여행을 위해 country 표에 KR을 넣었지만, 이 API는 R7 전과 같은 목적지 20개국만 돌려준다.
         mockMvc.perform(get("/api/countries").header("Authorization", "Bearer valid-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(20))
@@ -378,7 +378,7 @@ import static org.hamcrest.Matchers.nullValue;
 ```java
     @Test
     void seed_contains_20_tier_a_destinations_and_home_country() {
-        // V1의 목적지 20개국 + V15의 본국(국내 여행용 KR).
+        // V1의 목적지 20개국 + V17의 본국(국내 여행용 KR).
         assertThat(countryRepository.findAll()).hasSize(21);
         Country home = countryRepository.findByIsoAlpha2("KR").orElseThrow();
         assertThat(home.getNameKo()).isEqualTo("대한민국");
@@ -426,7 +426,7 @@ Expected: FAIL. 테스트가 쓰는 `Country.isHome()`이 없어 테스트 코�
 
 - [ ] **Step 3: 구현**
 
-`server/src/main/resources/db/migration/V15__domestic_trip.sql`:
+`server/src/main/resources/db/migration/V17__domestic_trip.sql`:
 
 ```sql
 -- 국내 여행(설계 2026-11-07 9-1). trip.country_id는 country 행을 가리켜야 하므로(외래 키) 본국(한국)을
@@ -452,7 +452,7 @@ public class Country {
 ```java
 public class Country {
 
-    // 본국(한국). V15 마이그레이션이 국내 여행을 위해 넣은 행이다(설계 9-1). 여행 목적지가 아니므로
+    // 본국(한국). V17 마이그레이션이 국내 여행을 위해 넣은 행이다(설계 9-1). 여행 목적지가 아니므로
     // 목적지 목록(CountryController.list)과 일일 공공데이터 수집(DailyDataCollectionScheduler)은 이 행을 건너뛰고,
     // 이 나라로 만든 여행은 비자 판정 대신 국내 여행(DOMESTIC)이 된다(TripController).
     // static final 상수는 엔티티의 필드가 아니라 클래스에 붙은 값이라 JPA가 컬럼으로 보지 않는다.
@@ -502,7 +502,7 @@ public class Country {
 ```java
         // DB에서 Country 엔티티 목록을 이름 오름차순으로 가져온 뒤, 엔티티를 그대로 반환하지 않고
         // CountryResponse(DTO)로 하나씩 변환한다. 스프링이 리턴값을 자동으로 JSON 배열로 직렬화해준다.
-        // 본국(한국, V15)은 여행 목적지가 아니라 뺀다 — 이 목록은 R7 전과 같은 목적지 20개국이고,
+        // 본국(한국, V17)은 여행 목적지가 아니라 뺀다 — 이 목록은 R7 전과 같은 목적지 20개국이고,
         // 앱은 국내 여행 항목을 스스로 맨 위에 붙인다(설계 9-1).
         return countryRepository.findAllByOrderByNameKoAsc()
                 .stream()
@@ -637,7 +637,7 @@ public record CreateTripRequest(
 다음으로 바꾼다:
 
 ```java
-    // 국내 여행(설계 9-1)은 여권 만료일이 없어 null이다(V15에서 NOT NULL을 풀었다). 해외 여행은 요청 검증이 필수로 막는다.
+    // 국내 여행(설계 9-1)은 여권 만료일이 없어 null이다(V17에서 NOT NULL을 풀었다). 해외 여행은 요청 검증이 필수로 막는다.
     @Column(name = "passport_expiry")
     private LocalDate passportExpiry;
 ```
@@ -741,7 +741,7 @@ isJudgementStale()의 다음 부분을
 
 ```java
         for (Country country : countries) {
-            // 본국(한국, V15)은 여행 목적지가 아니라 비자 요건·여행경보·재외공관 자료가 없다 — 외부 API 쿼터를 쓰지 않는다.
+            // 본국(한국, V17)은 여행 목적지가 아니라 비자 요건·여행경보·재외공관 자료가 없다 — 외부 API 쿼터를 쓰지 않는다.
             if (country.isHome()) continue;
             collectSafely(country, "visa", () -> visaRequirementCollector.collectOne(country));
 ```
@@ -757,7 +757,7 @@ Expected: 모두 통과(333개). 바뀐 클래스는 `TripControllerTest` 22개(
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add server/src/main/resources/db/migration/V15__domestic_trip.sql \
+git add server/src/main/resources/db/migration/V17__domestic_trip.sql \
   server/src/main/java/com/travelfootsteps/country/Country.java \
   server/src/main/java/com/travelfootsteps/country/CountryController.java \
   server/src/main/java/com/travelfootsteps/visa/VisaVerdict.java \
@@ -7526,7 +7526,7 @@ import '../footsteps/trip/trip_recording_providers.dart';
 다음으로 바꾼다:
 
 ```dart
-/// 테이블에 없는 국가 코드(판정 실패 시의 `XX` 등, `KR`은 V15부터 있다)가 한 줄이라도
+/// 테이블에 없는 국가 코드(판정 실패 시의 `XX` 등, `KR`은 V17부터 있다)가 한 줄이라도
 ```
 
 `app/lib/features/footsteps/trip/trip_period.dart`에서 다음 부분을
@@ -7831,7 +7831,7 @@ EOF
 
 ```markdown
 ### `GET /api/countries`
-여행 목적지 국가 목록(한글 이름 오름차순). 국내 여행용 본국 행(`KR`, V15)은 넣지 않는다 — 앱이 '대한민국(국내 여행)'을 스스로 맨 위에 붙인다(R7).
+여행 목적지 국가 목록(한글 이름 오름차순). 국내 여행용 본국 행(`KR`, V17)은 넣지 않는다 — 앱이 '대한민국(국내 여행)'을 스스로 맨 위에 붙인다(R7).
 ```
 
 같은 파일에서 다음 부분을
@@ -7951,7 +7951,7 @@ EOF
 
 구현 계획 `docs/superpowers/plans/2026-11-12-research-r7-trip.md`에서 정한 것이다. 안내는 `docs/research/trip-recording-guide.md`다.
 - 국내 여행
-  - V15가 country 표에 본국(KR) 행을 넣는다(여행의 외래 키). 목적지 목록 API와 일일 수집은 그 행을 건너뛴다.
+  - V17가 country 표에 본국(KR) 행을 넣는다(여행의 외래 키). 목적지 목록 API와 일일 수집은 그 행을 건너뛴다.
   - 국내 여행은 여권 만료일을 보내도 저장하지 않는다. `DOMESTIC`은 서버·앱 `VisaVerdict` 둘 다에 있다.
   - 준비물 탭은 국내 여행을 고르지 않는다(체크리스트·지갑이 없다).
 - `shouldRecord`는 기록할 여행 하나를 돌려준다. 겹치면 가장 늦게 출발한 여행, 같으면 id가 큰 여행이다.

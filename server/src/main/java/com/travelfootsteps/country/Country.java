@@ -22,7 +22,7 @@ import java.time.OffsetDateTime;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Country {
 
-    // 본국(한국). V15 마이그레이션이 국내 여행을 위해 넣은 행이다(설계 9-1). 여행 목적지가 아니므로
+    // 본국(한국). V17 마이그레이션이 국내 여행을 위해 넣은 행이다(설계 9-1). 여행 목적지가 아니므로
     // 목적지 목록(CountryController.list)과 일일 공공데이터 수집(DailyDataCollectionScheduler)은 이 행을 건너뛰고,
     // 이 나라로 만든 여행은 비자 판정 대신 국내 여행(DOMESTIC)이 된다(TripController).
     // static final 상수는 엔티티의 필드가 아니라 클래스에 붙은 값이라 JPA가 컬럼으로 보지 않는다.
