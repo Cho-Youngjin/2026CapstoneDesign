@@ -27,8 +27,11 @@ public class CountryController {
     public List<CountryResponse> list() {
         // DB에서 Country 엔티티 목록을 이름 오름차순으로 가져온 뒤, 엔티티를 그대로 반환하지 않고
         // CountryResponse(DTO)로 하나씩 변환한다. 스프링이 리턴값을 자동으로 JSON 배열로 직렬화해준다.
+        // 본국(한국, V15)은 여행 목적지가 아니라 뺀다 — 이 목록은 R7 전과 같은 목적지 20개국이고,
+        // 앱은 국내 여행 항목을 스스로 맨 위에 붙인다(설계 9-1).
         return countryRepository.findAllByOrderByNameKoAsc()
                 .stream()
+                .filter(country -> !country.isHome())
                 .map(CountryResponse::from)
                 .toList();
     }
