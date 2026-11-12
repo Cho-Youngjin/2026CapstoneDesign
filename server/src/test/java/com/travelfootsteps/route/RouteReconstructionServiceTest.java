@@ -213,4 +213,22 @@ class RouteReconstructionServiceTest {
                 .segments()).singleElement().satisfies(s -> assertThat(s.coords()).hasSize(1));
         assertThat(service.reconstruct(request(ReconstructMethod.HMM_STEPS, List.of(), List.of())).segments()).isEmpty();
     }
+
+    @Test
+    void 구간마다_따로_복원해_공유_점이_다르게_붙어도_앞_구간의_끝을_이어_끊기지_않는다() {
+        // 걸음 187걸음으로 (100,40) 근처까지 걸어 들어온 뒤 탈것으로 돌아간다. hmm_steps는 걷는 구간의 끝을
+        // (100,40)에, 탈것 구간의 시작을 (60,0)에 붙여 가운데 점에서 선이 끊긴다.
+        List<TrackPoint> points = List.of(walking(0, 0, 0), p(60, 60, 40, 187, "walking"),
+                p(120, 0, 0, null, "vehicle"));
+        RouteReconstructionService service = new RouteReconstructionService(new GridOsrm());
+
+        List<RouteSegment> segments = service.reconstruct(request(ReconstructMethod.HMM_STEPS, points, List.of())).segments();
+
+        assertThat(segments).extracting(RouteSegment::kind).containsExactly(SegmentKind.WALK, SegmentKind.VEHICLE);
+        for (int i = 0; i + 1 < segments.size(); i++) {
+            List<GeoPoint> end = segments.get(i).coords();
+            assertThat(segments.get(i + 1).coords().get(0)).isEqualTo(end.get(end.size() - 1));
+        }
+        assertThat(segments.get(1).fallback()).isFalse();
+    }
 }

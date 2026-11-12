@@ -35,6 +35,9 @@ public class RouteReconstructionService {
     // (hmm_steps에서는 방사 확률이 넓어져 가장 가까운 도로에 덜 끌린다).
     static final double STAY_CENTER_ACCURACY_M = 50.0;
 
+    // 앞 구간의 끝과 다음 구간의 시작이 이 거리(m) 안이면 같은 점으로 본다(좌표 반올림 오차는 잇지 않는다).
+    static final double CONNECT_TOLERANCE_M = 0.5;
+
     private final OsrmClient osrmClient;
     private final Map<ReconstructMethod, Reconstructor> reconstructors = new EnumMap<>(ReconstructMethod.class);
 
@@ -67,7 +70,30 @@ public class RouteReconstructionService {
             segments.addAll(runSegments);
             previousEnd = runSegments.isEmpty() ? run.get(run.size() - 1).point() : lastCoord(runSegments);
         }
-        return new ReconstructResponse(method, segments);
+        return new ReconstructResponse(method, connect(segments));
+    }
+
+    /**
+     * 구간이 서로 이어지게 다듬는다. 구간마다 따로 복원하므로 같은 측위 점을 한 구간은 도로 위 A로, 다음 구간은 B로
+     * 붙일 수 있다(예: 걸음 근거로 고른 후보가 구간마다 다르다). 그러면 지도에 두 점 사이가 끊긴 채 그려진다.
+     * 앞 구간의 끝과 다음 구간의 시작이 {@link #CONNECT_TOLERANCE_M} 넘게 벌어져 있으면 앞 구간의 끝 좌표를
+     * 다음 구간 맨 앞에 붙여 이어 준다. 구간의 종류와 fallback 표시는 바꾸지 않는다(앞 구간에 이어지는 선만 늘어난다).
+     */
+    private static List<RouteSegment> connect(List<RouteSegment> segments) {
+        List<RouteSegment> out = new ArrayList<>();
+        for (RouteSegment segment : segments) {
+            if (!out.isEmpty() && !segment.coords().isEmpty()) {
+                GeoPoint previousEnd = lastCoord(out);
+                if (GeoMath.haversine(previousEnd, segment.coords().get(0)) > CONNECT_TOLERANCE_M) {
+                    List<GeoPoint> coords = new ArrayList<>(segment.coords().size() + 1);
+                    coords.add(previousEnd);
+                    coords.addAll(segment.coords());
+                    segment = new RouteSegment(segment.kind(), coords, segment.fallback());
+                }
+            }
+            out.add(segment);
+        }
+        return out;
     }
 
     /** 1단계: 점을 시각순으로 놓고, 머문 곳 범위 안의 점은 빼고 머문 곳마다 중심 하나를 넣는다. */
