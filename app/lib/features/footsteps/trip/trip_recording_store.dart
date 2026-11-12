@@ -15,6 +15,8 @@ import 'trip_period.dart';
 /// - 일시정지: 사용자가 여행 상세에서 멈춘 여행 id(여행별)
 /// - 주인: 여행 기록을 남긴 계정 uid. 다른 계정이 로그인하면 이전 계정의 기록을 지우는 기준이다(PR #32의 알람 주인과 같은 방식)
 /// - 출발 알림: 출발일 아침 알림을 예약해 둔 여행 id(예약을 지울 때 쓴다)
+/// - 지운 여행: 사용자가 일부러 지운 여행(삭제·404·계정 전환) id. 기록 서비스가 끝나며 늦게 쓴 점을 나중에 지우는 기준이다.
+///   여행 id는 전체에서 유일하고 다시 쓰이지 않으므로 계속 쌓아도 아주 작다.
 class TripRecordingStore {
   TripRecordingStore(this._prefs);
 
@@ -24,6 +26,7 @@ class TripRecordingStore {
   static const pausedKey = 'trip_recording.paused.v1';
   static const ownerKey = 'trip_recording.owner.v1';
   static const noticesKey = 'trip_recording.notices.v1';
+  static const purgedKey = 'trip_recording.purged.v1';
 
   /// 다른 isolate가 쓴 값을 다시 읽어 온다.
   Future<void> reload() => _prefs.reload();
@@ -78,6 +81,11 @@ class TripRecordingStore {
   String? readOwner() => _prefs.getString(ownerKey);
 
   Future<void> writeOwner(String uid) => _prefs.setString(ownerKey, uid);
+
+  /// 사용자가 일부러 지운 여행 id. 일정·일시정지를 비워도 남는다.
+  Set<int> readPurged() => _readIds(purgedKey);
+
+  Future<void> addPurged(Set<int> tripIds) => _writeIds(purgedKey, readPurged()..addAll(tripIds));
 
   Set<int> readNoticeTripIds() => _readIds(noticesKey);
 

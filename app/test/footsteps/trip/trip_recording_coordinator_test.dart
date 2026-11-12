@@ -223,6 +223,49 @@ void main() {
       expect(await db.routePointsForTrip(7), isEmpty);
     });
 
+    test('여행을 일부러 지운 뒤 서비스가 늦게 쓴 점은 다음 목록이 비어 있어도 지운다', () async {
+      await coordinator.updateTrips([domestic]);
+      await addPoint(7);
+
+      await coordinator.forgetTrip(7);
+      await addPoint(7); // 끄기가 먼저 돌아온 서비스가 지운 뒤에 마저 쓴 점
+      await db.insertTripStillSpan(
+          tripId: 7, startAt: DateTime.utc(2026, 11, 20, 1), endAt: DateTime.utc(2026, 11, 20, 2));
+      expect(await db.routePointsForTrip(7), hasLength(1));
+
+      await coordinator.updateTrips(const []);
+
+      expect(await db.routePointsForTrip(7), isEmpty);
+      expect(await db.stillSpansForTrip(7), isEmpty);
+    });
+
+    test('계정을 바꾼 뒤 서비스가 늦게 쓴 이전 계정의 점은 다음 목록이 비어 있어도 지운다', () async {
+      await coordinator.claimFor('uid-a');
+      await coordinator.updateTrips([domestic]);
+      await addPoint(7);
+
+      await coordinator.claimFor('uid-b');
+      await addPoint(7); // 이전 계정의 여행을 기록하던 서비스가 늦게 쓴 점
+      expect(await db.routePointsForTrip(7), hasLength(1));
+
+      await coordinator.updateTrips(const []);
+
+      expect(await db.routePointsForTrip(7), isEmpty);
+    });
+
+    test('일부러 지우지 않은 여행의 점은 빈 목록이 몇 번 와도 남는다(안전장치)', () async {
+      await coordinator.updateTrips([domestic, later]);
+      await addPoint(7);
+      await addPoint(9);
+
+      await coordinator.forgetTrip(9);
+      await coordinator.updateTrips(const []);
+      await coordinator.updateTrips(const []);
+
+      expect(await db.routePointsForTrip(7), hasLength(1));
+      expect(await db.routePointsForTrip(9), isEmpty);
+    });
+
     test('비어 있지 않은 목록에서 빠진 여행의 좌표는 지운다', () async {
       await coordinator.updateTrips([domestic, later]);
       await addPoint(7);

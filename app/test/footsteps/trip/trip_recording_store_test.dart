@@ -96,6 +96,22 @@ void main() {
     expect(store.readNoticeTripIds(), {7});
   });
 
+  test('일부러 지운 여행 id는 기기에 남아 누적되고, 일정·일시정지를 비워도 남는다', () async {
+    final (store, _) = await _store();
+    expect(store.readPurged(), isEmpty);
+
+    await store.addPurged({7});
+    await store.addPurged({8, 7});
+    await store.replaceTrips([a]);
+    await store.clearTrips();
+    await store.clearPaused();
+
+    expect(store.readPurged(), {7, 8});
+    // 다시 만든 저장소(앱 재시작)에서도 읽힌다.
+    final (reopened, _) = await _store({TripRecordingStore.purgedKey: jsonEncode([7, 8])});
+    expect(reopened.readPurged(), {7, 8});
+  });
+
   test('다른 isolate가 쓴 값은 reload한 뒤에 보인다', () async {
     final (store, _) = await _store();
     expect(store.readTrips(), isEmpty);

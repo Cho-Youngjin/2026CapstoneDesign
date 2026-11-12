@@ -66,18 +66,21 @@ class TripRecordingCoordinator {
   /// 그 다음 목록에 없는 여행의 기록(좌표·정지 구간)을 지운다 — 다른 기기에서 지웠거나 다른 계정의 여행이다. 서비스를 먼저
   /// 끄는 것은 서비스가 끝나며 마지막으로 쓰는 점이 지운 뒤에 남지 않게 하려는 것이다. 오프라인 캐시 목록은 넘기지 않는다.
   ///
-  /// 안전장치: 빈 목록은 저장된 일정이 있었든 없었든 기록을 지우지 않는다. 좌표는 서버에 없고 이 폰에만 있는 연구 데이터라
+  /// 일부러 지운 여행([forgetTrip]·[claimFor]가 [TripRecordingStore.addPurged]로 적어 둔 id)의 기록은 목록이 비어 있어도
+  /// 언제나 다시 지운다. 서비스 끄기가 마지막 쓰기를 기다리지 않고 돌아오면 그 점이 지운 뒤에 늦게 들어올 수 있기 때문이다.
+  ///
+  /// 안전장치: 빈 목록은 저장된 일정이 있었든 없었든 위의 지운 여행 말고는 기록을 지우지 않는다. 좌표는 서버에 없고 이 폰에만 있는 연구 데이터라
   /// (설계 9-3), 서버를 초기화했거나 서버 오류로 빈 목록이 와도 모든 여행의 좌표가 한꺼번에 사라지면 되돌릴 수 없다. 첫 빈
   /// 목록이 일정을 비운 뒤 두 번째 빈 목록이 오거나, 로그아웃으로 일정이 비워진 뒤 빈 목록이 오는 경우에도 같다. 일정은 비우고
-  /// 기록 서비스도 끈다. 이때 남은 기록은 다음에 비어 있지 않은 목록이 올 때 그 목록에 없는 여행으로 정리된다. 사용자가 직접
-  /// 지운 여행([forgetTrip])·계정 전환([claimFor])은 그대로 지운다.
+  /// 기록 서비스도 끈다. 이때 남은 기록은 다음에 비어 있지 않은 목록이 올 때 그 목록에 없는 여행으로 정리된다.
   Future<void> updateTrips(List<TripSummary> trips) => _serialNotifying(() async {
         final periods = [for (final t in trips) TripPeriod.fromSummary(t)];
         await _store.replaceTrips(periods);
         await _syncNotices();
         await _sync();
+        await _db.deleteTripRecords(_store.readPurged());
         if (periods.isEmpty) {
-          debugPrint('빈 여행 목록을 받아 여행 기록(좌표)은 지우지 않았습니다.');
+          debugPrint('빈 여행 목록을 받아 지운 여행 말고는 여행 기록(좌표)을 지우지 않았습니다.');
           return;
         }
         await _db.deleteTripRecordsExcept({for (final p in periods) p.tripId});
@@ -95,8 +98,10 @@ class TripRecordingCoordinator {
       });
 
   /// 여행이 없어졌을 때(삭제, 다른 기기에서 지워져 404): 그 여행을 기록 중이면 끄고, 좌표·정지 구간·일시정지·출발일
-  /// 알림을 지운다. 서비스가 끝나며 마저 쓴 점이 남으면 다음 [updateTrips]가 지운다.
+  /// 알림을 지운다. 서비스가 끝나며 마저 쓴 점이 남으면 다음 [updateTrips]가 지운다 — 지운 여행 id를 기기에 적어 두므로
+  /// 그때 목록이 비어 있어도 지운다.
   Future<void> forgetTrip(int tripId) => _serialNotifying(() async {
+        await _store.addPurged({tripId});
         if (await _service.recordingTripId() == tripId) await _stopQuietly();
         await _db.deleteTripRecords([tripId]);
         await _store.forget({tripId});
@@ -107,12 +112,15 @@ class TripRecordingCoordinator {
   /// - 같은 계정이면 아무것도 하지 않는다.
   /// - 로그아웃이면 기록을 끄고 일정·출발일 알림을 비운다. 좌표와 일시정지는 남긴다 — 같은 계정이 다시 로그인하면 그대로
   ///   보고, 멈춰 둔 여행이 몰래 다시 기록되지도 않는다(여행 id는 전체에서 유일하다).
-  /// - 다른 계정이면 위에 더해 일시정지와 이전 계정의 여행 좌표·정지 구간을 모두 지운다.
+  /// - 다른 계정이면 위에 더해 일시정지와 이전 계정의 여행 좌표·정지 구간을 모두 지운다. 이전 계정의 일정에 있던 여행 id와
+  ///   기록 중이던 여행 id는 지운 여행으로 적어 둔다(서비스가 늦게 쓴 점을 다음 [updateTrips]가 지우게).
   /// 주인이 적혀 있지 않으면(처음 실행) 지울 좌표가 없다고 보고 주인만 적는다.
   Future<void> claimFor(String? uid) => _serialNotifying(() async {
         final owner = _store.readOwner();
         if (uid != null && owner == uid) return;
-        if (await _service.recordingTripId() != null) await _stopQuietly();
+        final recording = await _service.recordingTripId();
+        final oldTripIds = {for (final t in _store.readTrips()) t.tripId, ?recording};
+        if (recording != null) await _stopQuietly();
         await _store.clearTrips();
         try {
           await _notices.cancelAll();
@@ -121,6 +129,7 @@ class TripRecordingCoordinator {
         }
         if (uid == null) return;
         if (owner != null) {
+          await _store.addPurged(oldTripIds);
           await _store.clearPaused();
           await _db.deleteTripRecordsExcept(const {});
         }
