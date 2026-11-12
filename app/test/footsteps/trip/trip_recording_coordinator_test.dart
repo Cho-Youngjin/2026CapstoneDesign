@@ -267,6 +267,19 @@ void main() {
       expect(store.readPurged(), isNot(contains(7)));
     });
 
+    test('A→B→A 사이에 예전 세션이 늦게 쓴 점은 지운 표시를 풀기 전에 지운다', () async {
+      await coordinator.claimFor('uid-a');
+      await coordinator.updateTrips([domestic]);
+      await coordinator.claimFor('uid-b');
+      await coordinator.claimFor('uid-a');
+      await addPoint(7); // B로 바꿀 때 끈 서비스가 늦게 쓴 점(계정 전환이 지웠어야 할 기록)
+
+      await coordinator.updateTrips([domestic]);
+
+      expect(await db.routePointsForTrip(7), isEmpty);
+      expect(store.readPurged(), isNot(contains(7)));
+    });
+
     test('일부러 지우지 않은 여행의 점은 빈 목록이 몇 번 와도 남는다(안전장치)', () async {
       await coordinator.updateTrips([domestic, later]);
       await addPoint(7);

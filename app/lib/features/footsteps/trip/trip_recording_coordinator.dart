@@ -76,7 +76,9 @@ class TripRecordingCoordinator {
   Future<void> updateTrips(List<TripSummary> trips) => _serialNotifying(() async {
         final periods = [for (final t in trips) TripPeriod.fromSummary(t)];
         await _store.replaceTrips(periods);
-        // 서버가 다시 준 여행은 지운 여행이 아니다(계정이 A→B→A로 돌아온 경우). 표시를 풀어야 새로 쓴 기록을 지우지 않는다.
+        // 지운 여행의 기록을 먼저 지운다 — 예전 세션이 늦게 쓴 점까지(계정 전환이 지웠어야 할 기록). 그 다음 서버가 다시 준
+        // 여행(계정이 A→B→A로 돌아온 경우)의 지운 표시를 풀어야, 아래에서 다시 켜진 기록이 쓰는 점을 지우지 않는다.
+        await _db.deleteTripRecords(_store.readPurged());
         await _store.removePurged({for (final p in periods) p.tripId});
         await _syncNotices();
         await _sync();
