@@ -31,6 +31,14 @@ void main() {
     expect(store.readNoticeTripIds(), {7, 8});
   });
 
+  test('곧 울릴 알림이 있는지 알려 준다(일시정지했거나 아침 8시가 지난 여행은 세지 않는다)', () {
+    expect(notices.hasUpcoming([domestic, japan], const {}), isTrue);
+    expect(notices.hasUpcoming([domestic, japan], {7, 8}), isFalse);
+    expect(notices.hasUpcoming(const [], const {}), isFalse);
+    final late = TripDepartureNotices(backend, store, now: () => seoulTime(2026, 11, 20, 8, 1));
+    expect(late.hasUpcoming([domestic], const {}), isFalse);
+  });
+
   test('일시정지했거나 이미 아침 8시가 지난 여행은 예약하지 않는다', () async {
     final today = TripDepartureNotices(backend, store, now: () => seoulTime(2026, 11, 20, 8, 1));
 

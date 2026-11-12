@@ -13,7 +13,9 @@ import 'features/footsteps/lab/lab_page.dart';
 import 'features/footsteps/providers/footsteps_providers.dart';
 import 'features/footsteps/trip/trip_footsteps_page.dart';
 import 'features/footsteps/trip/trip_recording_providers.dart';
+import 'features/rate_alert/notify/notification_permission.dart';
 import 'features/visa/data/trip_list_providers.dart';
+import 'features/visa/models/trip_summary.dart';
 import 'features/nearby/providers/nearby_selection_providers.dart';
 import 'features/group/chat_room_page.dart';
 import 'features/group/group_page.dart';
@@ -187,7 +189,7 @@ class _TabScaffoldState extends ConsumerState<_TabScaffold> with WidgetsBindingO
     // 앱 실행 직후(로그인 후 탭 화면 진입 시) 위치 권한을 받고 실시간 경로 표시를 시작한다.
     // 권한이 없을 때 이미 구독된 스트림은 에러로 끝나므로, 응답을 받은 뒤 다시 구독한다.
     // 권한을 받은 뒤 오늘이 여행 기간이면 여행 기록을 켠다(설계 9-2의 1번 — 시작은 항상 앱을 연 순간이다).
-    Future.microtask(() async {
+    _locationAsked = Future.microtask(() async {
       try {
         await Geolocator.requestPermission();
       } catch (_) {}
@@ -200,10 +202,26 @@ class _TabScaffoldState extends ConsumerState<_TabScaffold> with WidgetsBindingO
     ref.listenManual(tripListProvider, (_, next) {
       final state = next.asData?.value;
       if (state == null || state.offline) return;
-      unawaited(ref.read(tripRecordingCoordinatorProvider).updateTrips(state.trips).catchError((Object e) {
-        debugPrint('여행 기록 일정을 바꾸지 못했습니다: $e');
-      }));
+      unawaited(_updateTripsAndAskNotification(state.trips));
     }, fireImmediately: true);
+  }
+
+  /// 위치 권한 요청이 끝난 시점. 알림 권한 대화상자를 위치 권한 대화상자와 동시에 띄우지 않으려고 기다리는 데 쓴다.
+  late final Future<void> _locationAsked;
+
+  Future<void> _updateTripsAndAskNotification(List<TripSummary> trips) async {
+    final coordinator = ref.read(tripRecordingCoordinatorProvider);
+    try {
+      await coordinator.updateTrips(trips);
+      // 곧 울릴 출발일 알림이 있으면 알림 권한을 묻는다. 국내 여행만 있는 사용자는 알림 권한을 묻는 비자 화면을 거치지 않아
+      // 안드로이드 13 이상에서 알림이 보이지 않을 수 있다. 이미 허용돼 있으면 아무것도 뜨지 않는다. 여행 목록을 서버에서
+      // 받을 때만 묻고 포그라운드 복귀(resume)에서는 묻지 않는다 — 대화상자가 다시 resume을 일으켜 되풀이되지 않게.
+      await _locationAsked;
+      if (!mounted || !coordinator.hasUpcomingNotice()) return;
+      await ref.read(notificationPermissionProvider).request();
+    } catch (e) {
+      debugPrint('여행 기록 일정을 바꾸지 못했습니다: $e');
+    }
   }
 
   void _syncTripRecording() {

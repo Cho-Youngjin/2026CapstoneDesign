@@ -141,6 +141,16 @@ void main() {
       expect(alarms.scheduled.keys, [departureNoticeIdFor(7)]);
     });
 
+    test('저장된 일정에 곧 울릴 알림이 있는지 알려 준다', () async {
+      expect(coordinator.hasUpcomingNotice(), isFalse);
+
+      await coordinator.updateTrips([domestic]);
+      expect(coordinator.hasUpcomingNotice(), isTrue);
+
+      await coordinator.setPaused(7, true);
+      expect(coordinator.hasUpcomingNotice(), isFalse);
+    });
+
     test('알림이 실패해도 기록은 켠다', () async {
       final failing = TripRecordingCoordinator(
         store: store,

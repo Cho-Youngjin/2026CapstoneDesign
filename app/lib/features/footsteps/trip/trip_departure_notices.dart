@@ -43,6 +43,12 @@ class TripDepartureNotices {
   final TripRecordingStore _store;
   final tz.TZDateTime Function() _now;
 
+  /// 일시정지하지 않았고 아직 아침 8시 전인 여행이 있는가. 있으면 알림이 울릴 테니 앱 셸이 알림 권한을 묻는다.
+  bool hasUpcoming(List<TripPeriod> trips, Set<int> paused) {
+    final now = _now();
+    return trips.any((t) => !paused.contains(t.tripId) && departureNoticeTime(t).isAfter(now));
+  }
+
   /// [trips] 중 일시정지하지 않았고 아직 아침 8시 전인 여행마다 알림을 예약하고, 그 밖에 예약해 둔 알림은 지운다.
   Future<void> sync(List<TripPeriod> trips, Set<int> paused) async {
     final now = _now();

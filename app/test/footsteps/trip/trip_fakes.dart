@@ -144,6 +144,12 @@ class FakeTripRecordingCoordinator implements TripRecordingCoordinator {
   @override
   Future<void> setPaused(int tripId, bool paused) async => pauses.add((tripId, paused));
 
+  /// 출발일 알림이 곧 울릴 여행이 있는가(앱 셸이 알림 권한을 물을지 정한다).
+  bool upcomingNotice = false;
+
+  @override
+  bool hasUpcomingNotice() => upcomingNotice;
+
   final forgotten = <int>[];
   final claims = <String?>[];
 

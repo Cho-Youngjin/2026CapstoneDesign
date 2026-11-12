@@ -68,6 +68,10 @@ class TripRecordingCoordinator {
         await _db.deleteTripRecordsExcept({for (final p in periods) p.tripId});
       });
 
+  /// 저장된 일정에 곧 울릴 출발일 알림이 있는가. 앱 셸이 일정을 바꾼 뒤 알림 권한을 물을지 정하는 데 쓴다 — 국내 여행만
+  /// 있는 사용자는 알림 권한을 묻는 비자 화면을 거치지 않기 때문이다.
+  bool hasUpcomingNotice() => _notices.hasUpcoming(_store.readTrips(), _store.readPaused());
+
   /// 여행 상세의 일시정지·재개. 일시정지 상태는 여행별로 기기에 남는다. 일시정지한 여행은 출발일 알림도 없다.
   Future<void> setPaused(int tripId, bool paused) => _serial(() async {
         await _store.setPaused(tripId, paused);
