@@ -36,6 +36,70 @@ abstract interface class RecordingController {
 /// 기록 서비스의 서비스 id. 실험 모드와 여행 기록이 같은 서비스 하나를 번갈아 쓴다(설계 4-1 — 동시에 돌지 않는다).
 const recordingServiceId = 7101;
 
+/// 기록 서비스 플러그인(flutter_foreground_task)을 부르는 창구. 실험 화면과 여행 기록이 같은 서비스·같은 설정 저장소를
+/// 쓰므로 둘이 한 창구를 공유한다. 테스트는 가짜로 바꿔 어떤 설정을 저장하고 무엇을 켜고 껐는지 본다.
+abstract interface class RecordingServiceGateway {
+  Future<bool> isRunning();
+
+  /// 시작할 때 저장한 [RecordingConfig] JSON. 없으면 null이다.
+  Future<String?> readConfig();
+
+  Future<void> saveConfig(String json);
+
+  /// 알림 채널을 맞춘 뒤 위치 포그라운드 서비스를 켠다. 이미 돌고 있으면 플러그인이 실패 결과를 돌려준다.
+  Future<ServiceRequestResult> start({
+    required String notificationTitle,
+    required String notificationText,
+    required Function callback,
+    List<NotificationButton>? notificationButtons,
+  });
+
+  Future<ServiceRequestResult> stop();
+}
+
+/// [RecordingServiceGateway]의 실제 구현. 플러그인을 그대로 부른다.
+class PluginRecordingServiceGateway implements RecordingServiceGateway {
+  const PluginRecordingServiceGateway();
+
+  @override
+  Future<bool> isRunning() => FlutterForegroundTask.isRunningService;
+
+  @override
+  Future<String?> readConfig() => FlutterForegroundTask.getData<String>(key: RecordingConfig.storageKey);
+
+  @override
+  Future<void> saveConfig(String json) => FlutterForegroundTask.saveData(key: RecordingConfig.storageKey, value: json);
+
+  @override
+  Future<ServiceRequestResult> start({
+    required String notificationTitle,
+    required String notificationText,
+    required Function callback,
+    List<NotificationButton>? notificationButtons,
+  }) {
+    initRecordingService();
+    return FlutterForegroundTask.startService(
+      serviceId: recordingServiceId,
+      serviceTypes: [ForegroundServiceTypes.location],
+      notificationTitle: notificationTitle,
+      notificationText: notificationText,
+      notificationButtons: notificationButtons,
+      callback: callback,
+    );
+  }
+
+  @override
+  Future<ServiceRequestResult> stop() => FlutterForegroundTask.stopService();
+}
+
+/// 서비스가 이미 돌고 있으면 던진다. 설정을 저장하기 전에 불러야 한다 — 거절될 시작이 돌고 있는 서비스의 설정(모드·여행)을
+/// 덮어쓰면, 서비스는 그대로인데 화면은 다른 모드로 보게 된다(예: 실험 화면의 낡은 [기록 시작]이 여행 기록을 실험 세션으로 바꾼다).
+Future<void> ensureRecordingServiceIdle(RecordingServiceGateway gateway) async {
+  if (await gateway.isRunning()) {
+    throw StateError('기록 서비스가 이미 돌고 있어 새로 시작하지 않습니다.');
+  }
+}
+
 /// 기록 서비스의 알림 채널·반복 주기를 정한다. 실험 화면(ForegroundRecordingController)과 여행 기록
 /// (ForegroundTripRecordingService)이 서비스를 켜기 전에 똑같이 부른다.
 void initRecordingService() {
@@ -71,13 +135,15 @@ class ForegroundRecordingController implements RecordingController {
   ForegroundRecordingController({
     this._sessionsRoot = defaultSessionsRoot,
     this._clock = DateTime.now,
+    this._service = const PluginRecordingServiceGateway(),
   });
 
   final Future<Directory> Function() _sessionsRoot;
   final DateTime Function() _clock;
+  final RecordingServiceGateway _service;
 
   @override
-  Future<bool> isRunning() => FlutterForegroundTask.isRunningService;
+  Future<bool> isRunning() => _service.isRunning();
 
   @override
   Future<void> start({
@@ -89,6 +155,7 @@ class ForegroundRecordingController implements RecordingController {
     if (mode == RecordingMode.trip) {
       throw ArgumentError('여행 기록은 실험 화면이 아니라 ForegroundTripRecordingService로 켭니다.');
     }
+    await ensureRecordingServiceIdle(_service);
     final root = await _sessionsRoot();
     final dir = Directory(p.join(root.path, sessionDirName(_clock(), mode)));
     await dir.create(recursive: true);
@@ -99,15 +166,9 @@ class ForegroundRecordingController implements RecordingController {
       note: note,
       policy: policy,
     );
-    await FlutterForegroundTask.saveData(
-      key: RecordingConfig.storageKey,
-      value: jsonEncode(config.toJson()),
-    );
+    await _service.saveConfig(jsonEncode(config.toJson()));
 
-    initRecordingService();
-    final result = await FlutterForegroundTask.startService(
-      serviceId: recordingServiceId,
-      serviceTypes: [ForegroundServiceTypes.location],
+    final result = await _service.start(
       notificationTitle: '발걸음 실험 기록 중',
       notificationText: switch (mode) {
         RecordingMode.groundTruth => '정답 기록 모드 · 알림 버튼으로 도착·탑승을 표시하세요',
@@ -124,7 +185,7 @@ class ForegroundRecordingController implements RecordingController {
 
   @override
   Future<void> stop() async {
-    final result = await FlutterForegroundTask.stopService();
+    final result = await _service.stop();
     if (result is ServiceRequestFailure) {
       throw StateError('기록 서비스를 멈추지 못했습니다: ${result.error}');
     }
@@ -135,8 +196,8 @@ class ForegroundRecordingController implements RecordingController {
 
   @override
   Future<RecordingConfig?> activeConfig() async {
-    if (!await FlutterForegroundTask.isRunningService) return null;
-    final raw = await FlutterForegroundTask.getData<String>(key: RecordingConfig.storageKey);
+    if (!await _service.isRunning()) return null;
+    final raw = await _service.readConfig();
     if (raw == null) return null;
     try {
       return RecordingConfig.fromJson((jsonDecode(raw) as Map).cast<String, Object?>());
