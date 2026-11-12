@@ -1,0 +1,93 @@
+import 'dart:convert';
+
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'trip_period.dart';
+
+/// 여행 기록 상태(설계 2026-11-07 9-2). 화면·기록 서비스·WorkManager가 서로 다른 isolate에서 같이 읽는다.
+/// 셋 다 같은 Android SharedPreferences를 보지만 Dart 쪽 값은 isolate마다 따로 들고 있으므로, 다른 isolate가 쓴 값을
+/// 보려면 읽기 전에 [reload]해야 한다. 값은 모두 JSON 문자열 하나씩이고, 깨진 값은 없는 것으로 본다.
+///
+/// - 일정: 마지막으로 서버에서 받은 내 여행 목록(기록할 여행을 고르는 재료)
+/// - 일시정지: 사용자가 여행 상세에서 멈춘 여행 id(여행별)
+/// - 주인: 여행 기록을 남긴 계정 uid. 다른 계정이 로그인하면 이전 계정의 기록을 지우는 기준이다(PR #32의 알람 주인과 같은 방식)
+/// - 출발 알림: 출발일 아침 알림을 예약해 둔 여행 id(예약을 지울 때 쓴다)
+class TripRecordingStore {
+  TripRecordingStore(this._prefs);
+
+  final SharedPreferences _prefs;
+
+  static const tripsKey = 'trip_recording.trips.v1';
+  static const pausedKey = 'trip_recording.paused.v1';
+  static const ownerKey = 'trip_recording.owner.v1';
+  static const noticesKey = 'trip_recording.notices.v1';
+
+  /// 다른 isolate가 쓴 값을 다시 읽어 온다.
+  Future<void> reload() => _prefs.reload();
+
+  List<TripPeriod> readTrips() {
+    final raw = _prefs.getString(tripsKey);
+    if (raw == null) return const [];
+    try {
+      return [
+        for (final e in jsonDecode(raw) as List) TripPeriod.fromJson((e as Map).cast<String, Object?>()),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// 일정을 [trips]로 바꾼다. 목록에 없는 여행의 일시정지도 함께 지운다 — 일정이 곧 지금 있는 여행이다.
+  Future<void> replaceTrips(List<TripPeriod> trips) async {
+    await _prefs.setString(tripsKey, jsonEncode([for (final t in trips) t.toJson()]));
+    final ids = {for (final t in trips) t.tripId};
+    final paused = readPaused();
+    if (paused.any((id) => !ids.contains(id))) {
+      await _writeIds(pausedKey, paused.where(ids.contains).toSet());
+    }
+  }
+
+  Set<int> readPaused() => _readIds(pausedKey);
+
+  Future<void> setPaused(int tripId, bool paused) {
+    final ids = readPaused();
+    paused ? ids.add(tripId) : ids.remove(tripId);
+    return _writeIds(pausedKey, ids);
+  }
+
+  /// 없어진 여행을 일정·일시정지에서 뺀다.
+  Future<void> forget(Set<int> tripIds) async {
+    await _prefs.setString(
+      tripsKey,
+      jsonEncode([for (final t in readTrips()) if (!tripIds.contains(t.tripId)) t.toJson()]),
+    );
+    await _writeIds(pausedKey, readPaused()..removeAll(tripIds));
+  }
+
+  /// 일정·일시정지를 비운다(로그아웃·계정 전환). 주인과 출발 알림 기록은 부르는 쪽이 다룬다.
+  Future<void> clearSchedule() async {
+    await _prefs.remove(tripsKey);
+    await _prefs.remove(pausedKey);
+  }
+
+  String? readOwner() => _prefs.getString(ownerKey);
+
+  Future<void> writeOwner(String uid) => _prefs.setString(ownerKey, uid);
+
+  Set<int> readNoticeTripIds() => _readIds(noticesKey);
+
+  Future<void> writeNoticeTripIds(Set<int> tripIds) => _writeIds(noticesKey, tripIds);
+
+  Set<int> _readIds(String key) {
+    final raw = _prefs.getString(key);
+    if (raw == null) return <int>{};
+    try {
+      return {for (final e in jsonDecode(raw) as List) e as int};
+    } catch (_) {
+      return <int>{};
+    }
+  }
+
+  Future<void> _writeIds(String key, Set<int> ids) =>
+      ids.isEmpty ? _prefs.remove(key) : _prefs.setString(key, jsonEncode(ids.toList()..sort()));
+}
