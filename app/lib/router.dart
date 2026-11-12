@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -9,6 +11,8 @@ import 'features/footsteps/footsteps_detail_page.dart';
 import 'features/footsteps/footsteps_page.dart';
 import 'features/footsteps/lab/lab_page.dart';
 import 'features/footsteps/providers/footsteps_providers.dart';
+import 'features/footsteps/trip/trip_recording_providers.dart';
+import 'features/visa/data/trip_list_providers.dart';
 import 'features/nearby/providers/nearby_selection_providers.dart';
 import 'features/group/chat_room_page.dart';
 import 'features/group/group_page.dart';
@@ -169,14 +173,32 @@ class _TabScaffoldState extends ConsumerState<_TabScaffold> with WidgetsBindingO
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // 앱 실행 직후(로그인 후 탭 화면 진입 시) 위치 권한을 받고 이동 기록 저장을 시작한다.
+    // 앱 실행 직후(로그인 후 탭 화면 진입 시) 위치 권한을 받고 실시간 경로 표시를 시작한다.
     // 권한이 없을 때 이미 구독된 스트림은 에러로 끝나므로, 응답을 받은 뒤 다시 구독한다.
+    // 권한을 받은 뒤 오늘이 여행 기간이면 여행 기록을 켠다(설계 9-2의 1번 — 시작은 항상 앱을 연 순간이다).
     Future.microtask(() async {
       try {
         await Geolocator.requestPermission();
       } catch (_) {}
-      if (mounted) ref.invalidate(liveRouteProvider);
+      if (!mounted) return;
+      ref.invalidate(liveRouteProvider);
+      _syncTripRecording();
     });
+    // 서버에서 여행 목록을 받을 때마다 여행 기록 일정을 바꾼다. 오프라인 캐시 목록은 낡았을 수 있어 쓰지 않는다
+    // (비자 알람 정리와 같은 규칙, PR #32).
+    ref.listenManual(tripListProvider, (_, next) {
+      final state = next.asData?.value;
+      if (state == null || state.offline) return;
+      unawaited(ref.read(tripRecordingCoordinatorProvider).updateTrips(state.trips).catchError((Object e) {
+        debugPrint('여행 기록 일정을 바꾸지 못했습니다: $e');
+      }));
+    }, fireImmediately: true);
+  }
+
+  void _syncTripRecording() {
+    unawaited(ref.read(tripRecordingCoordinatorProvider).sync().catchError((Object e) {
+      debugPrint('여행 기록을 맞추지 못했습니다: $e');
+    }));
   }
 
   @override
@@ -190,6 +212,8 @@ class _TabScaffoldState extends ConsumerState<_TabScaffold> with WidgetsBindingO
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     ref.read(realtimeTrackingEnabledProvider.notifier).state = state == AppLifecycleState.resumed;
+    // 앱이 포그라운드로 돌아오면 여행 기록을 다시 맞춘다 — 출발일 아침 알림을 눌러 연 경우, 재부팅 뒤 다시 연 경우.
+    if (state == AppLifecycleState.resumed) _syncTripRecording();
   }
 
   int get _activeTabIndex {
@@ -201,7 +225,7 @@ class _TabScaffoldState extends ConsumerState<_TabScaffold> with WidgetsBindingO
 
   @override
   Widget build(BuildContext context) {
-    // 구독만 유지한다(화면 갱신 불필요) — 어느 탭에 있든 이동 좌표가 계속 저장된다.
+    // 구독만 유지한다(화면 갱신 불필요) — 어느 탭에 있든 지도·주변 정보가 지금 위치를 바로 쓴다(저장은 하지 않는다).
     ref.listen(liveRouteProvider, (_, _) {});
     // 주변 정보의 기준 위치도 탭과 무관하게 앱이 켜져 있는 동안 최신으로 유지한다.
     ref.watch(nearbyAnchorUpdaterProvider);

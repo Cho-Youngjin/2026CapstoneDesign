@@ -2,6 +2,10 @@ import 'dart:async';
 
 import 'package:app/features/footsteps/recording/sensor_samples.dart';
 import 'package:app/features/footsteps/trip/trip_period.dart';
+import 'package:app/features/footsteps/trip/trip_recording_coordinator.dart';
+import 'package:app/features/footsteps/trip/trip_recording_permissions.dart';
+import 'package:app/features/footsteps/trip/trip_recording_service.dart';
+import 'package:app/features/visa/models/trip_summary.dart';
 import 'package:footstep_core/footstep_core.dart';
 
 /// 테스트용 여행 기간. 날짜는 시각 없는 달력 날짜로 준다.
@@ -71,3 +75,64 @@ class FakeTripScheduler implements WakeScheduler {
 }
 
 Future<void> settle() => Future<void>.delayed(Duration.zero);
+
+/// 기록 서비스 대역. 켜고 끈 기록을 남긴다. [labRunning]이면 실험 세션이 도는 중이다.
+class FakeTripRecordingService implements TripRecordingService {
+  int? runningTripId;
+  bool labRunning = false;
+  final started = <int>[];
+  int stops = 0;
+
+  @override
+  Future<bool> isRunning() async => labRunning || runningTripId != null;
+
+  @override
+  Future<int?> recordingTripId() async => runningTripId;
+
+  @override
+  Future<void> start(TripPeriod trip) async {
+    started.add(trip.tripId);
+    runningTripId = trip.tripId;
+  }
+
+  @override
+  Future<void> stop() async {
+    stops++;
+    runningTripId = null;
+    labRunning = false;
+  }
+}
+
+/// 권한 대역.
+class FakeTripRecordingPermissions implements TripRecordingPermissions {
+  FakeTripRecordingPermissions({this.location = true, this.absent = const {}});
+
+  bool location;
+  Set<TripRecordingPermission> absent;
+  int settingsOpened = 0;
+
+  @override
+  Future<bool> canRecord() async => location;
+
+  @override
+  Future<Set<TripRecordingPermission>> missing() async => absent;
+
+  @override
+  Future<void> openSettings() async => settingsOpened++;
+}
+
+/// 앱 셸·여행 상세 위젯 테스트용 코디네이터 대역. 불린 것만 기록한다.
+class FakeTripRecordingCoordinator implements TripRecordingCoordinator {
+  int syncs = 0;
+  final updates = <List<int>>[];
+  final pauses = <(int, bool)>[];
+
+  @override
+  Future<void> sync() async => syncs++;
+
+  @override
+  Future<void> updateTrips(List<TripSummary> trips) async => updates.add([for (final t in trips) t.id]);
+
+  @override
+  Future<void> setPaused(int tripId, bool paused) async => pauses.add((tripId, paused));
+}
