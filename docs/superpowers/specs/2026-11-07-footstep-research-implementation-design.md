@@ -249,7 +249,7 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 - `RequestFix`가 시각 t에 오면 `t + ttff` 이후의 첫 `gps.csv` 행을 돌려준다. 제한 시간(15초) 안에 행이 없으면 실패다. 정책은 요청한 시각 이후의 정보만 받으므로 **미래 정보를 쓸 수 없다.**
 - `StartContinuous`는 그 뒤의 `gps.csv` 행을 간격·거리 필터에 맞춰 흘려보낸다.
 - 출력:
-  - `fixes.csv`: `t_ms,lat,lng,accuracy_m,steps_since_prev,state,kind(single|continuous)` — `state`는 측위 시점의 정책 상태(`still`·`walking`·`otherMotion`·`vehicle`)다. `vehicle`은 정책이 판단한 상태라 걸음 감지기 출력에는 없다.
+  - `fixes.csv`: `t_ms,lat,lng,accuracy_m,steps_since_prev,state,kind(single|continuous)` — `state`는 측위 시점의 정책 상태(`still`·`walking`·`otherMotion`·`vehicle`)다. `vehicle`은 정책이 판단한 상태라 걸음 감지기 출력에는 없다. `steps_since_prev`는 재생이 끝난 뒤 걸음 시각으로 다시 센다(직전 측위 시각 이상 ~ 이 측위 시각 미만). 정책이 받은 값은 그 순간까지 센 걸음뿐이라, 제안판 감지기가 연속 5걸음 확인 뒤 소급해 센 걸음이 빠졌다(R5에서 고침).
   - `actions.csv`: `t_ms,action,args`
   - `stays.csv`: 5-6
   - `summary.json`: 측위 횟수, 추정 GPS 켜짐 시간(단발 측위는 ttff + 응답 지연, 연속 측위는 켜진 시간), 정책 id와 파라미터
@@ -270,10 +270,15 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 
 ### 5-6. 머문 곳 묶기 (모듈 C-1, R5에서 구현, 패키지에 위치)
 
-- Li 외(2008): 연속한 점들이 반경 R(기본 100m) 안에 T(기본 10분) 이상 머물면 머문 곳 하나로 묶는다. 결과는 중심, 도착 시각, 출발 시각, 점 수다.
+- Li 외(2008): 연속한 점들이 반경 R(기본 100m) 안에 T(기본 10분) 이상 머물면 머문 곳 하나로 묶는다. 결과는 중심, 도착 시각, 출발 시각, 점 수다. 반경은 무리의 첫 점에서 잰다(원문 정의). 기록 끝까지 머문 무리도 머문 곳이다.
 - 제안: 걸음 감지기가 낸 정지 구간 시작·끝을 도착·출발 시각으로 쓴다. 점이 드물어도 머문 시간을 알 수 있다.
-- 비교·절제: 점만으로 묶는 방식(`useStillIntervals=false`)
-- 출력 `stays.csv`: `arrive_ms,leave_ms,lat,lng,n_points`
+  - 무리 안에서 정지 구간에 든 첫 점의 구간 시작이 도착, 마지막 점의 구간 끝이 출발이다. 걸어 들어오거나 떠나며 반경 안에 찍힌 점은 머문 시간과 중심에서 뺀다.
+  - 정지 구간이 이웃 점보다 먼저 시작하거나 늦게 끝나면 걸음 없이 옮겨 온 것(OS 센서판의 버스)이라 그쪽은 점 시각을 쓴다.
+  - 정지 구간 안의 점이 없으면 Li 외(2008) 그대로다.
+  - 재생기는 정책을 돌린 같은 감지기의 상태 변화(`step_states.csv`와 같은 규칙)로 정지 구간을 만든다.
+- 비교·절제: 점만으로 묶는 방식(`useStillIntervals=false`, CLI `--stay-param use_still=false`)
+- 출력 `stays.csv`: `arrive_ms,leave_ms,lat,lng,n_points`. `summary.json`에 `stay_params`와 `stays`(개수)를 더한다.
+- R5 설계 검증: 실제 세션 `fixed_5m` 재생에서 점만으로는 걷던 점 하나와 실내 점 두 개가 딱 10분으로 묶였다(정지 구간으로 재면 6분이라 머문 곳이 아니다). 처음에는 무리의 첫·끝 점이 정지 구간에 있을 때만 늘렸는데, 이 경우를 걸러 내지 못해 위 규칙으로 바꿨다.
 
 ### 5-7. 테스트
 
@@ -301,8 +306,9 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 }
 ```
 
-- `state`: `still` · `walking` · `otherMotion` · `vehicle`. `stepsSincePrev`는 모를 때 null.
-- 한 요청의 점은 최대 2000개(하루치 드문 점 기준)다. 대상 국가는 KR 고정이다.
+- `state`: `still` · `walking` · `otherMotion` · `vehicle` · `unknown`(step_budget 시작 직후). `stepsSincePrev`·`accuracy`·`state`는 모를 때 null.
+- 한 요청의 점은 최대 2000개(하루치 드문 점 기준), 머문 곳은 최대 500개다. 대상 국가는 KR 고정이다.
+- `method`를 빼면 앱 기본값 `osrm_match_radius`다. `hmm`(선택)은 `hmm_steps` 조정값 `{betaM, sigmaMinM, strideM, useSteps}`이고, 빠진 값은 기본값(10, 5, 0.75, true)이다.
 
 응답:
 
@@ -315,14 +321,15 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 }
 ```
 
-- `kind`: `walk` · `vehicle` · `estimated`. `estimated`는 GPS가 없던 구간(지하철 등)을 최단경로로 이은 것이다.
-- OSRM이 꺼져 있거나 매칭에 실패하면 해당 구간을 `straight`로 대신 채운다. 응답 구간에는 `fallback: true`를 붙인다.
+- `kind`: `walk` · `vehicle` · `estimated`. `estimated`는 GPS가 없던 구간(지하철 등)을 최단경로로 이은 것이다. 점 사이의 종류는 도착하는 점의 `state`로 정한다(`vehicle`이면 탈것, 그 밖은 도보).
+- OSRM이 꺼져 있거나 매칭에 실패하면 해당 구간을 `straight`로 대신 채운다. 응답 구간에는 `fallback: true`를 붙인다. `fallback`은 모든 구간에 늘 있다(성공이면 false).
+- 점이 하나뿐이면 좌표 하나짜리 `walk` 구간 하나, 없으면 빈 목록이다.
 
 ### 6-2. 처리 순서
 
-1. 머문 곳 시간 범위 안의 점을 그 머문 곳 중심 하나로 바꾼다.
-2. 측위 실패나 걸음 없는 10분 이상의 공백에서 구간을 자른다. 공백 양 끝은 `/route`로 잇고 `estimated`로 표시한다.
-3. 남은 구간마다 `method`로 잇는다.
+1. 머문 곳 시간 범위 안의 점을 그 머문 곳 중심 하나로 바꾼다. 중심은 [도착, 출발]을 차지하고, 그 안에 처음 든 점의 `stepsSincePrev`·`state`를 이어받는다. 안에 든 점이 없어도 중심을 넣는다.
+2. 측위 실패나 걸음 없는 10분 이상의 공백에서 구간을 자른다. 공백은 앞 점(머문 곳이면 출발 시각)에서 다음 점까지로 잰다 — 머문 시간 자체는 공백이 아니다. 공백 양 끝은 `/route`로 잇고 `estimated`로 표시한다.
+3. 남은 구간을 도보·탈것으로 나눠 `method`로 잇는다.
 
 | method | 내용 |
 |---|---|
@@ -334,20 +341,23 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 
 ### 6-3. `hmm_steps` (Newson & Krumm 틀 + 걸음 거리 전이)
 
-- 후보: 점마다 `/nearest?number=5`로 반경 안의 도로 위 점 최대 5개
+- 후보: 점마다 `/nearest?number=5`로 반경 200m(Newson & Krumm 3.1절) 안의 도로 위 점 최대 5개. 1m 안의 같은 위치(양방향 도로)는 하나로 본다.
 - 방사 확률: 점과 후보 사이 거리의 가우시안. σ는 그 점의 정확도(최소 5m)
 - 전이 확률: `exp(-|도로 경로거리 − 걸은 거리| / β)`
   - 걸은 거리 = `stepsSincePrev × 0.75m`
-  - 걸음 정보가 없으면(탈것 등) 두 점의 직선거리로 대신한다 (Newson & Krumm 원래 식)
+  - 걸음 정보가 없으면(탈것 등) 두 점의 직선거리로 대신한다 (Newson & Krumm 원래 식). `state`가 `vehicle`이어도 직선거리다.
   - 도로 경로거리는 연속한 두 점의 후보 쌍에 대해 `/table`로 한 번에 구한다
+  - 차이가 2000m 이상이면 불가능한 전이다(원문 4.2절, OSRM `MAX_DISTANCE_DELTA`)
 - 비터비로 가장 그럴듯한 후보 순서를 고르고, 고른 후보 사이를 `/route`로 이어 좌표를 만든다.
-- β와 σ 하한은 예비용 세션으로 정한다.
+- 후보가 없는 점이나 모든 전이가 불가능한 곳에서 사슬이 끊긴다. 원문은 끊긴 곳 양옆 점을 지워 가며 다시 잇지만, 여기서는 끊긴 곳만 직선(`fallback: true`)으로 잇고 양쪽을 따로 매칭한다.
+- β와 σ 하한은 예비용 세션으로 정한다. 조정 전 기본값은 β 10m(OSRM 자체 맵 매칭의 `MATCHING_BETA`와 같아 `osrm_match_radius`와 같은 β로 견준다), σ 하한 5m다. 요청의 `hmm`으로 바꿀 수 있어 서버를 다시 빌드하지 않고 격자 탐색한다(R6: β ∈ {2, 5, 10, 20, 50}, σ 하한 ∈ {3, 5, 10}, 경로 오차 P95 최소). Newson & Krumm은 정답 경로에서 β = median|직선거리 − 도로 경로거리| / ln 2로 추정했고(식 6), 성능을 최대로 하는 값 찾기는 후속 과제로 남겼다.
 - 비교·절제: `hmm_steps`에서 걸은 거리 대신 직선거리를 쓰면 기본 HMM이 된다(`useSteps=false`).
 
 ### 6-4. 구현 위치와 테스트
 
-- `server/.../route/`에 `ReconstructController`, `RouteReconstructionService`, 방법별 `Reconstructor` 구현을 둔다.
-- 기존 `OsrmClient`에 `nearest`(후보 여러 개), `table`, `match`(반경·시각 옵션)를 추가한다.
+- `server/.../route/`에 `ReconstructController`, `RouteReconstructionService`, 방법별 `Reconstructor` 구현을 둔다. `Reconstructor`는 서비스만 쓰는 보통 객체라 빈으로 만들지 않고 서비스 생성자에서 만든다.
+- 기존 `OsrmClient`에 `nearestCandidates`(후보 여러 개), `table`, `match`(반경·시각 옵션)를 default 메서드로 추가한다(기본 구현은 빈 결과 = 지원 안 함). 기존 `nearest`·`route`·`match`와 `/snap`·해외 매핑의 동작은 그대로다.
+- 인증은 다른 `/api/**`와 같다(Firebase 토큰). R6 분석은 서버를 `local` 프로필로 띄워 더미 토큰 `dev-fake-token`으로 부른다(`docs/research/route-guide.md`).
 - 서버 프로덕션 코드는 CLAUDE.md의 Spring 학습용 주석 규칙을 따른다.
 - 테스트:
   - 가짜 `OsrmClient`와 격자 도로 합성 예제로 HMM이 정답 후보를 고르는지 확인한다.

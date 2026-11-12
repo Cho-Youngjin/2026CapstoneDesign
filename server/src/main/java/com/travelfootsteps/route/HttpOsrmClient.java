@@ -6,15 +6,23 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 
+import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 // OsrmClient의 진짜 구현체(자체 호스팅 OSRM HTTP API). GooglePlacesClient와 같은 이유로
 // @Profile("!test") — 테스트 프로필에서는 support.StubOsrmClient가 이 자리를 채운다.
@@ -32,8 +40,19 @@ public class HttpOsrmClient implements OsrmClient {
     // 너무 크면 나란한 옆 도로로 잘못 붙을 수 있어 30m로 한다.
     private static final int MATCH_RADIUS_METERS = 30;
 
+    // OSRM이 연결만 받고 답이 없으면 호출마다 위 5초를 다 기다린다. 복원(hmm_steps)은 점 2000개에 호출이 6000번쯤
+    // 나가므로 그대로 두면 요청 스레드 하나가 몇 시간 붙잡힌다. 그래서 전송 실패가 나면 이 시간 동안은 OSRM을
+    // 부르지 않고 바로 빈 결과를 돌려준다(차단기). 빈 결과는 호출자가 직선 fallback으로 처리하는 기존 약속이다.
+    private static final long BREAKER_OPEN_MS = 30_000L;
+
     private final RestClient restClient;
     private final OsrmProperties properties;
+    // OSRM 주소(호스트:포트)마다 차단기가 풀리는 시각(ms). 국가마다 다른 OSRM 인스턴스를 쓰므로, 한 나라 서버가
+    // 멈췄다고 멀쩡한 다른 나라 서버까지 막지 않게 주소별로 따로 둔다. @Component는 싱글톤 빈이라 여러 요청
+    // 스레드가 이 맵을 함께 쓰므로 동시 접근에 안전한 ConcurrentHashMap을 쓴다.
+    private final Map<String, Long> skipUntilMs = new ConcurrentHashMap<>();
+    // 현재 시각 공급자. 운영에서는 시스템 시계이고, 테스트는 30초를 실제로 기다리지 않도록 가짜 시계를 넣는다.
+    private final LongSupplier nowMs;
 
     // 스프링이 주입하는 RestClient.Builder는 호출마다 새로 만들어지는 prototype이라 여기서
     // requestFactory를 바꿔도 다른 클라이언트에 영향이 없다.
@@ -44,8 +63,13 @@ public class HttpOsrmClient implements OsrmClient {
 
     // 테스트가 MockRestServiceServer에 묶은 RestClient를 직접 넘기기 위한 생성자.
     HttpOsrmClient(RestClient restClient, OsrmProperties properties) {
+        this(restClient, properties, System::currentTimeMillis);
+    }
+
+    HttpOsrmClient(RestClient restClient, OsrmProperties properties, LongSupplier nowMs) {
         this.restClient = restClient;
         this.properties = properties;
+        this.nowMs = nowMs;
     }
 
     private static SimpleClientHttpRequestFactory timeoutFactory() {
@@ -83,21 +107,37 @@ public class HttpOsrmClient implements OsrmClient {
         return geometry(data.path("routes").path(0).path("geometry"));
     }
 
+    // 실시간 경로 스냅(/api/route/snap)이 쓰는 기존 방식: 모든 점에 30m 반경을 보낸다.
+    @Override
+    public List<GeoPoint> match(String country, List<GeoPoint> points) {
+        return match(country, points, Collections.nCopies(points.size(), (double) MATCH_RADIUS_METERS), null);
+    }
+
     // OSRM /match는 한 번에 받는 좌표 수가 제한돼 있다(osrm-routed --max-matching-size).
     // 컨트롤러는 500점까지 받는데 앱은 10m 간격으로 좌표를 쌓으므로, 1km가 넘는 평범한
     // 경로도 이 한계를 넘는다. 앞 100점만 보내고 그 결과를 "전체 경로"라고 돌려주면
     // 뒷부분이 통째로 사라지므로, 구간을 나눠 호출하고 결과를 이어 붙인다.
+    // 반경·시각은 점과 짝이라 같은 경계로 함께 자른다.
     @Override
-    public List<GeoPoint> match(String country, List<GeoPoint> points) {
+    public List<GeoPoint> match(String country, List<GeoPoint> points, List<Double> radiuses, List<Long> timestamps) {
         String baseUrl = properties.baseUrl(country);
         if (baseUrl.isEmpty() || points.size() < 2) return List.of();
+        if ((radiuses != null && radiuses.size() != points.size())
+                || (timestamps != null && timestamps.size() != points.size())) {
+            return List.of();
+        }
+        // 반경에 null·NaN·무한대가 섞이면 URL을 만들다 예외가 난다. 인터페이스 약속대로 예외 대신 빈 결과로 끝낸다.
+        if (radiuses != null && radiuses.stream().anyMatch(r -> r == null || !Double.isFinite(r) || r < 0)) {
+            return List.of();
+        }
 
         List<GeoPoint> out = new ArrayList<>();
         // 구간 경계에서 선이 끊기지 않게 좌표 1점을 겹쳐서 자른다(그래서 step은 한계 - 1).
         for (int start = 0; start < points.size() - 1; start += MAX_MATCH_POINTS - 1) {
-            List<GeoPoint> chunk =
-                    points.subList(start, Math.min(start + MAX_MATCH_POINTS, points.size()));
-            List<GeoPoint> matched = matchChunk(baseUrl, chunk);
+            int end = Math.min(start + MAX_MATCH_POINTS, points.size());
+            List<GeoPoint> matched = matchChunk(baseUrl, points.subList(start, end),
+                    radiuses == null ? null : radiuses.subList(start, end),
+                    timestamps == null ? null : timestamps.subList(start, end));
             // 한 구간이라도 실패하면 전체를 실패로 다룬다 — 일부만 그리면 "성공했지만
             // 엉뚱한 경로"가 되어, 호출자가 원본 좌표로 폴백할 기회를 잃는다.
             if (matched.isEmpty()) return List.of();
@@ -107,13 +147,71 @@ public class HttpOsrmClient implements OsrmClient {
         return out;
     }
 
-    private List<GeoPoint> matchChunk(String baseUrl, List<GeoPoint> chunk) {
+    @Override
+    public List<GeoPoint> nearestCandidates(String country, GeoPoint point, int number, double maxDistanceMeters) {
+        String baseUrl = properties.baseUrl(country);
+        if (baseUrl.isEmpty() || number < 1) return List.of();
+
+        JsonNode data = get(baseUrl + "/nearest/v1/" + properties.profile() + "/" + lngLat(point)
+                + "?number=" + number);
+        if (data == null || !"Ok".equals(data.path("code").asText())) return List.of();
+
+        List<GeoPoint> out = new ArrayList<>();
+        for (JsonNode waypoint : data.path("waypoints")) {
+            if (waypoint.path("distance").asDouble(Double.MAX_VALUE) > maxDistanceMeters) continue;
+            out.add(new GeoPoint(waypoint.path("location").path(1).asDouble(),
+                    waypoint.path("location").path(0).asDouble()));
+        }
+        return out;
+    }
+
+    // 좌표 목록에 출발점들을 먼저, 도착점들을 뒤에 넣고 sources·destinations 번호로 나눈다.
+    @Override
+    public List<List<Double>> table(String country, List<GeoPoint> sources, List<GeoPoint> destinations) {
+        String baseUrl = properties.baseUrl(country);
+        if (baseUrl.isEmpty() || sources.isEmpty() || destinations.isEmpty()) return List.of();
+
+        String coords = Stream.concat(sources.stream(), destinations.stream())
+                .map(HttpOsrmClient::lngLat).collect(Collectors.joining(";"));
+        String sourceIndexes = IntStream.range(0, sources.size()).mapToObj(String::valueOf)
+                .collect(Collectors.joining(";"));
+        String destinationIndexes = IntStream.range(sources.size(), sources.size() + destinations.size())
+                .mapToObj(String::valueOf).collect(Collectors.joining(";"));
+        JsonNode data = get(baseUrl + "/table/v1/" + properties.profile() + "/" + coords
+                + "?sources=" + sourceIndexes + "&destinations=" + destinationIndexes + "&annotations=distance");
+        if (data == null || !"Ok".equals(data.path("code").asText())) return List.of();
+
+        JsonNode rows = data.path("distances");
+        if (rows.size() != sources.size()) return List.of();
+        List<List<Double>> out = new ArrayList<>();
+        for (JsonNode row : rows) {
+            if (row.size() != destinations.size()) return List.of();
+            List<Double> cells = new ArrayList<>();
+            // 길이 없는 칸은 JSON null이다 — 0으로 읽지 않도록 null로 둔다.
+            row.forEach(cell -> cells.add(cell.isNumber() ? cell.asDouble() : null));
+            out.add(cells);
+        }
+        return out;
+    }
+
+    private List<GeoPoint> matchChunk(String baseUrl, List<GeoPoint> chunk, List<Double> radiuses, List<Long> timestamps) {
         if (chunk.size() < 2) return List.of();
         String coords = chunk.stream().map(HttpOsrmClient::lngLat).collect(Collectors.joining(";"));
-        String radiuses = chunk.stream().map(p -> String.valueOf(MATCH_RADIUS_METERS))
-                .collect(Collectors.joining(";"));
-        JsonNode data = get(baseUrl + "/match/v1/" + properties.profile() + "/" + coords
-                + "?overview=full&geometries=geojson&radiuses=" + radiuses);
+        StringBuilder url = new StringBuilder(baseUrl + "/match/v1/" + properties.profile() + "/" + coords
+                + "?overview=full&geometries=geojson");
+        if (radiuses != null) {
+            url.append("&radiuses=").append(radiuses.stream().map(HttpOsrmClient::meters)
+                    .collect(Collectors.joining(";")));
+        }
+        if (timestamps != null) {
+            url.append("&timestamps=").append(timestamps.stream().map(String::valueOf)
+                    .collect(Collectors.joining(";")));
+            // 시각을 주면 OSRM은 기본값(gaps=split)으로 시각이 크게 벌어진 곳에서 궤적을 쪼갠다. 드문 측위(수십 초~
+            // 몇 분 간격)는 자주 쪼개져 점 하나짜리 조각이 버려지고 경로가 끊긴다. 10분 넘는 공백은 복원 서비스가 이미
+            // 따로 잘라 넘기므로(estimated), 여기서는 한 궤적으로 맞추게 한다.
+            url.append("&gaps=ignore");
+        }
+        JsonNode data = get(url.toString());
         if (data == null || !"Ok".equals(data.path("code").asText())) return List.of();
 
         // GPS가 끊기거나 튀는 구간이 있으면 OSRM은 궤적을 matching 여러 개로 쪼개 돌려준다.
@@ -127,11 +225,19 @@ public class HttpOsrmClient implements OsrmClient {
 
     // 실패(연결 거부, 타임아웃, 4xx/5xx, JSON 아님)는 전부 null로 바꾼다 — OsrmClient 주석 참고.
     // OSRM은 도로를 못 찾았을 때도 HTTP 400에 {"code":"NoRoute"}를 주므로 정상적인 경우다.
+    // 연결 거부·타임아웃 같은 전송 실패(ResourceAccessException)만 차단기를 연다. 4xx/5xx는 위 onStatus가 먼저
+    // 삼키므로 예외가 아니고(OSRM이 살아서 답한 것), 본문이 JSON이 아닌 경우도 서버가 응답은 한 것이라 열지 않는다.
     private JsonNode get(String url) {
+        URI uri = URI.create(url);
+        String instance = String.valueOf(uri.getAuthority());
+        if (nowMs.getAsLong() < skipUntilMs.getOrDefault(instance, 0L)) return null;
         try {
-            return restClient.get().uri(URI.create(url)).retrieve()
+            return restClient.get().uri(uri).retrieve()
                     .onStatus(status -> true, (request, response) -> { })
                     .body(JsonNode.class);
+        } catch (ResourceAccessException e) {
+            skipUntilMs.put(instance, nowMs.getAsLong() + BREAKER_OPEN_MS);
+            return null;
         } catch (RestClientException e) {
             return null;
         }
@@ -140,6 +246,11 @@ public class HttpOsrmClient implements OsrmClient {
     // OSRM은 lon,lat 순서를 쓴다(Google과 반대). 소수 7자리면 약 1cm 정밀도다.
     private static String lngLat(GeoPoint p) {
         return String.format(Locale.ROOT, "%.7f,%.7f", p.lng(), p.lat());
+    }
+
+    // 30.0은 "30", 12.5는 "12.5"로 쓴다 — 기존 스냅 요청 URL(radiuses=30;30;...)을 그대로 지킨다.
+    private static String meters(double value) {
+        return BigDecimal.valueOf(value).stripTrailingZeros().toPlainString();
     }
 
     // GeoJSON LineString은 [lng, lat] 순서다 — 우리 응답 스키마({lat, lng})로 뒤집는다.
