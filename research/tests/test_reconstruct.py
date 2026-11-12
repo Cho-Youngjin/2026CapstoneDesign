@@ -1,10 +1,13 @@
+import warnings
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+import requests
 
+from analysis import reconstruct as rc
 from analysis.reconstruct import (ReconstructClient, ReconstructError, ServerUnavailable, build_requests, read_fixes,
-                                  to_points)
+                                  to_points, to_stays)
 from conftest import write_csv
 
 
@@ -70,3 +73,86 @@ def test_default_post_turns_refused_connection_into_server_unavailable():
     c = ReconstructClient("http://127.0.0.1:9", timeout_s=5)     # 아무도 듣지 않는 포트
     with pytest.raises(ServerUnavailable):
         c.reconstruct(_fixes(1), [], "straight")
+
+
+def _raising_requests_post(monkeypatch, exc):
+    def boom(*a, **k):
+        raise exc
+    monkeypatch.setattr(requests, "post", boom)
+
+
+def test_connect_timeout_is_sticky_server_unavailable(monkeypatch):
+    _raising_requests_post(monkeypatch, requests.ConnectTimeout("no route"))
+    c = ReconstructClient()
+    with pytest.raises(ServerUnavailable):
+        c.reconstruct(_fixes(1), [], "straight")
+    assert c.unavailable
+
+
+def test_read_timeout_is_not_sticky(monkeypatch):
+    _raising_requests_post(monkeypatch, requests.ReadTimeout("slow hmm_steps"))
+    c = ReconstructClient()
+    with pytest.raises(ReconstructError) as e:
+        c.reconstruct(_fixes(1), [], "straight")
+    assert not isinstance(e.value, ServerUnavailable) and not c.unavailable
+    calls = []
+
+    def ok(*a, **k):
+        calls.append(1)
+        return SimpleNamespace(status_code=200, text="", json=lambda: {"segments": []})
+
+    c.post = ok
+    assert c.reconstruct(_fixes(1), [], "straight") == [] and calls == [1]       # 다음 호출은 서버로 간다
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_auth_failure_is_sticky(status):
+    calls = []
+
+    def deny(*a, **k):
+        calls.append(1)
+        return SimpleNamespace(status_code=status, text="denied", json=dict)
+
+    c = ReconstructClient(post=deny)
+    with pytest.raises(rc.ReconstructAuthError, match=str(status)):
+        c.reconstruct(_fixes(1), [], "straight")
+    with pytest.raises(rc.ReconstructAuthError):                 # 토큰이 틀리면 이후 호출도 모두 실패하므로 부르지 않는다
+        c.reconstruct(_fixes(1), [], "straight")
+    assert calls == [1] and issubclass(rc.ReconstructAuthError, ReconstructError)
+
+
+def test_token_is_not_in_repr():
+    assert "secret-token" not in repr(ReconstructClient(token="secret-token"))
+
+
+@pytest.mark.parametrize("n", [0, 1, -3])
+def test_max_points_below_two_is_rejected(n):
+    with pytest.raises(ValueError):
+        build_requests(_fixes(5), [], "straight", max_points=n)
+
+
+def test_malformed_200_body_is_reconstruct_error():
+    def bad_json():
+        raise ValueError("Expecting value")
+
+    c = ReconstructClient(post=lambda *a, **k: SimpleNamespace(status_code=200, text="<html>", json=bad_json))
+    with pytest.raises(ReconstructError):
+        c.reconstruct(_fixes(1), [], "straight")
+    c.post = lambda *a, **k: SimpleNamespace(status_code=200, text="[]", json=lambda: [])
+    with pytest.raises(ReconstructError):
+        c.reconstruct(_fixes(1), [], "straight")
+
+
+def test_too_many_stays_warns_instead_of_truncating_silently():
+    stays = [{"arrive_ms": 0, "leave_ms": 1, "lat": 1, "lng": 2}] * (rc.MAX_STAYS + 3)
+    with pytest.warns(UserWarning, match=str(rc.MAX_STAYS)):
+        reqs = build_requests(_fixes(2), stays, "straight")
+    assert len(reqs[0]["stays"]) == rc.MAX_STAYS
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")                           # 상한 이하면 경고가 없다
+        build_requests(_fixes(2), stays[:rc.MAX_STAYS], "straight")
+
+
+def test_to_stays_key_names():
+    assert to_stays([{"arrive_ms": 5, "leave_ms": 9, "lat": 1.5, "lng": 2.5, "extra": 1}]) == [
+        {"arrive": 5, "leave": 9, "lat": 1.5, "lng": 2.5}]

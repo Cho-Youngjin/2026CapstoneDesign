@@ -1,6 +1,7 @@
 """footstep_core의 replay·steps CLI를 부른다(replay-guide, steps-guide). 재생은 결정적이라 결과 폴더가 있으면 다시 돌리지 않는다."""
 from __future__ import annotations
 
+import locale
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -67,12 +68,32 @@ class CliError(RuntimeError):
     pass
 
 
+def decode_output(data) -> str:
+    """dart의 stderr 바이트를 문자열로 푼다. Windows에서 Dart는 콘솔 코드 페이지(cp949)로 쓰므로 UTF-8로만 읽으면
+    한글 오류 메시지가 깨진다. UTF-8을 엄격하게 먼저 시도하고(cp949 한글 바이트는 거의 항상 여기서 실패한다),
+    안 되면 시스템 기본 인코딩, 그래도 안 되면 깨진 글자를 대체하며 UTF-8로 읽는다."""
+    if data is None:
+        return ""
+    if isinstance(data, str):                      # 테스트의 가짜 run이 문자열을 돌려주는 경우
+        return data
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    try:
+        return data.decode(locale.getpreferredencoding(False))
+    except (UnicodeDecodeError, LookupError):
+        return data.decode("utf-8", errors="replace")
+
+
 @dataclass
 class DartCli:
     """packages/footstep_core에서 `dart run`을 부른다. run은 테스트에서 가짜로 바꾼다."""
     package_dir: Path
     dart: str | None = None
     run: Callable = field(default=subprocess.run)
+    # 기본 None = 시간 제한 없음(기존 동작 그대로). 멈춘 dart 하나가 전체 실험을 붙잡지 않게 하고 싶을 때만 쓴다.
+    timeout_s: float | None = None
 
     def _dart(self) -> str:
         found = self.dart or shutil.which("dart")
@@ -81,18 +102,31 @@ class DartCli:
         return found
 
     def _call(self, args: list[str]) -> None:
-        proc = self.run([self._dart(), *args], cwd=str(self.package_dir), capture_output=True, text=True,
-                        encoding="utf-8", errors="replace")
+        # text=True를 쓰면 파이썬이 UTF-8 고정으로 풀어 버리므로 바이트로 받아 decode_output으로 직접 푼다.
+        kwargs = {"cwd": str(self.package_dir), "capture_output": True}
+        if self.timeout_s is not None:
+            kwargs["timeout"] = self.timeout_s
+        try:
+            proc = self.run([self._dart(), *args], **kwargs)
+        except subprocess.TimeoutExpired as e:
+            # run.py는 CliError만 잡아 그 실험을 건너뛴다. TimeoutExpired를 그대로 두면 전체 분석이 죽는다.
+            raise CliError(f"dart {' '.join(args[:2])} 시간 초과({self.timeout_s:g}s)") from e
         if proc.returncode != 0:
-            raise CliError(f"dart {' '.join(args[:2])} 실패({proc.returncode}): {proc.stderr.strip()[:500]}")
+            message = decode_output(proc.stderr).strip()[:500]
+            raise CliError(f"dart {' '.join(args[:2])} 실패({proc.returncode}): {message}")
 
     def replay(self, session_dir: Path, spec: RunSpec, out_dir: Path, force: bool = False) -> Path:
         if force or not (out_dir / "summary.json").exists():
+            if force:
+                # 강제 재실행이 도중에 죽으면 예전 summary.json이 남아 다음 실행이 유효한 캐시로 착각한다.
+                (Path(out_dir) / "summary.json").unlink(missing_ok=True)
             self._call(replay_args(Path(session_dir).resolve(), spec, Path(out_dir).resolve()))
         return out_dir
 
     def steps(self, session_dir: Path, detector: str, out_dir: Path, detector_params: tuple = (),
               force: bool = False) -> Path:
         if force or not (out_dir / "step_summary.json").exists():
+            if force:
+                (Path(out_dir) / "step_summary.json").unlink(missing_ok=True)   # replay와 같은 이유
             self._call(steps_args(Path(session_dir).resolve(), detector, Path(out_dir).resolve(), detector_params))
         return out_dir
