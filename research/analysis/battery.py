@@ -132,7 +132,7 @@ def gps_seconds_from_batterystats(text: str, package: str | None = None) -> dict
 def method_label(policy_id: str, detector_id: str | None = None, params: dict | None = None) -> str:
     """방식 이름. 재생 결과와 배터리 실험을 같은 이름으로 잇는다. 걸음 감지기는 걸음 정책일 때만 붙인다."""
     label = policy_id
-    if policy_id in {"still_suppress", "step_budget"} and detector_id:
+    if policy_id in {"time_speed_still", "still_suppress", "step_budget"} and detector_id:
         label += f"[{detector_id}]"
     if params:
         label += " " + " ".join(f"{k}={params[k]}" for k in sorted(params))

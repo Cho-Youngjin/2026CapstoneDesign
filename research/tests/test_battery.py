@@ -127,6 +127,9 @@ Statistics since last unplugged:
 def test_method_label():
     assert method_label("fixed_1m", "os", {}) == "fixed_1m"
     assert method_label("step_budget", "adaptive", {"e_m": "50"}) == "step_budget[adaptive] e_m=50"
+    # 멈춤 감지판 time_speed는 걸음 감지기를 쓰므로 감지기를 붙이고, 기본판은 붙이지 않는다
+    assert method_label("time_speed_still", "os", {"e_m": "50"}) == "time_speed_still[os] e_m=50"
+    assert method_label("time_speed", "os", {"e_m": "50"}) == "time_speed e_m=50"
 
 
 def test_battery_run_and_summary(tmp_path):

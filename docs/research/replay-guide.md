@@ -26,11 +26,12 @@ dart run footstep_core:replay --session <세션 폴더> --policy <정책 id> --o
 | `fixed_30s` · `fixed_1m` · `fixed_5m` | 고정 주기 | 없음 |
 | `speed_adaptive` | Galeana-Zapién 외(2014): 마지막 속도로 간격 조절(정지 2분, 보행 30초, 시속 9km 이상 10초) | 없음 |
 | `time_speed` | EnTracked·RAPS: 마지막 오차 + 속도 × 시간 > E이면 측위(속도 하한 1.4m/s) | `e_m`(기본 50) |
+| `time_speed_still` | `time_speed` + EnTracked(4.1절)의 멈춤 감지: 걸음 감지기가 정지면 다음 측위를 미루고(예약 시각도 건너뜀), 다시 움직이면 바로 측위. 측위 실패 재시도는 정지 중에도 한다 | `e_m`(기본 50) |
 | `still_suppress` | Zhuang 외(2010): 1분마다 확인, 직전·이번 확인이 모두 정지면 건너뜀, 억제 중에도 5분마다 확인 측위 | `interval_s`(기본 60), `verify_s`(기본 300) |
 | `step_budget` | **제안**: 보행은 '오차 + 걸음 수 × 보폭 > E'일 때(최소 5초 간격), 정지는 30초 이어지면 한 번 + 5분 확인, 기타 움직임은 확인 측위 두 번으로 탈것(시속 12km 이상)이면 time_speed 규칙(감지기 정지와 측위상 한 자리가 2분, GPS가 흔들리면 E 안 5분 넘을 때만 정지로) | `e_m`(50), `stride_m`(0.75), `use_steps`·`suppress_still`·`vehicle_probe`(true, 절제 실험) |
 | `activity_gated` | 상용 방식: 활동 인식 STILL이면 연속 측위 끔, 움직임이면 켬 | 없음 |
 
-`time_speed`는 RAPS(Paek 외 2010)의 장소·시간대별 속도 이력과 가속도 활동 비율을 쓰지 않고, 마지막 측위 속도만 쓰는 단순화판이다. 보고서에 이 차이를 적는다. 같은 정책을 폰에서 돌리는 방법(배터리 실험)은 `docs/research/battery-experiment-guide.md`에 있다.
+`time_speed`는 RAPS(Paek 외 2010)의 장소·시간대별 속도 이력과 가속도 활동 비율을 쓰지 않고, 마지막 측위 속도만 쓰는 단순화판이다. EnTracked(Kjærgaard 외 2009)는 가속도로 멈춤을 감지해 GPS를 쉬므로, 공정한 비교를 위해 그 판(`time_speed_still`)을 따로 둔다. 두 판 모두 EnTracked의 기기 전력 모델(GPS 끄기 지연 등)과 동적 계획법 스케줄링은 넣지 않았다. 보고서에 이 차이를 적는다. 같은 정책을 폰에서 돌리는 방법(배터리 실험)은 `docs/research/battery-experiment-guide.md`에 있다.
 
 ## 머문 곳 (`--stay-param`)
 

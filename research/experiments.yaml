@@ -27,6 +27,8 @@ runs:                       # 정책 × 설정. 목록 값은 모든 조합으�
   - policy: speed_adaptive
   - policy: time_speed
     params: {e_m: [25, 50, 100]}
+  - policy: time_speed_still   # EnTracked처럼 멈춰 있으면 GPS를 쉬는 판(공정한 비교용)
+    params: {e_m: [25, 50, 100]}
   - policy: still_suppress
   - policy: activity_gated
   - policy: step_budget
