@@ -37,8 +37,12 @@ class TimeSpeedPolicy implements CollectionPolicy {
 
   StepState? _state;
 
-  /// 멈춰 있어서 다음 측위를 미뤄 둔 상태. 다시 움직이면 바로 잰다.
-  bool _waitingForMove = false;
+  /// 측위를 요청하고 응답을 기다리는 중.
+  bool _awaitingFix = false;
+
+  /// 지금 유효한 예약 시각. 그보다 이른 깨우기와, 예약이 없을 때의 깨우기는 버린 예약이다(멈춤에서 다시 움직여
+  /// 바로 잰 뒤 남은 옛 예약 등).
+  int? _wakeAtMs;
 
   /// 마지막 측위가 실패해 다시 시도하는 중. 멈춰 있어도 위치 하나는 얻을 때까지 잰다.
   bool _retrying = false;
@@ -54,8 +58,9 @@ class TimeSpeedPolicy implements CollectionPolicy {
   @override
   List<PolicyAction> onStart(PolicyContext ctx) {
     _state = null;
-    _waitingForMove = false;
+    _wakeAtMs = null;
     _retrying = false;
+    _awaitingFix = true;
     return [const RequestFix()];
   }
 
@@ -63,29 +68,39 @@ class TimeSpeedPolicy implements CollectionPolicy {
   List<PolicyAction> onEvent(PolicyEvent event, PolicyContext ctx) {
     switch (event) {
       case StepUpdate(:final state):
+        final wasStill = _still;
         _state = state;
-        if (_waitingForMove && !_still) {
-          _waitingForMove = false;
+        // 멈춤에서 움직임으로 바뀌면 남은 예약을 버리고 바로 잰다 — 예약은 멈추기 전의 속도로 잡은 것이다.
+        if (wasStill && !_still && !_awaitingFix) {
+          _wakeAtMs = null;
+          _awaitingFix = true;
           return [const RequestFix()];
         }
         return const [];
       case FixResult(:final fix):
+        _awaitingFix = false;
         _retrying = fix == null;
-        if (fix == null) return [WakeAt(tMs: event.tMs + failureRetryMs, tag: _tag)];
+        if (fix == null) return [_schedule(event.tMs + failureRetryMs)];
         if (_still) {
-          _waitingForMove = true;
+          _wakeAtMs = null; // 움직일 때까지 기다린다
           return const [];
         }
-        return [WakeAt(tMs: event.tMs + _waitFor(fix.accuracyM, fix.speedMps ?? 0), tag: _tag)];
+        return [_schedule(event.tMs + _waitFor(fix.accuracyM, fix.speedMps ?? 0))];
       case Wakeup(:final tag) when tag == _tag:
-        if (_still && !_retrying) {
-          _waitingForMove = true;
-          return const [];
-        }
+        final due = _wakeAtMs;
+        if (due == null || event.tMs < due) return const []; // 버린 예약
+        _wakeAtMs = null;
+        if (_still && !_retrying) return const []; // 멈춰 있다 — 다시 움직일 때 잰다
+        _awaitingFix = true;
         return [const RequestFix()];
       default:
         return const [];
     }
+  }
+
+  WakeAt _schedule(int tMs) {
+    _wakeAtMs = tMs;
+    return WakeAt(tMs: tMs, tag: _tag);
   }
 
   int _waitFor(double accuracyM, double speedMps) {

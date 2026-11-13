@@ -115,6 +115,30 @@ void main() {
           [const RequestFix()]);
     });
 
+    test('예약 시각 전에 멈췄다가 다시 움직여도 바로 재고, 이전 예약은 버린다', () {
+      final policy = TimeSpeedPolicy(stillGate: true);
+      policy.onStart(const PolicyContext(nowMs: 0));
+      policy.onEvent(step(500, StepState.walking), const PolicyContext(nowMs: 500));
+      expect(afterFix(policy, fix(1000, accuracy: 8, speed: 1.2)), [const WakeAt(tMs: 31000, tag: 'next')]);
+
+      expect(policy.onEvent(step(5000, StepState.still), const PolicyContext(nowMs: 5000)), isEmpty);
+      // 31초 예약이 남아 있어도 움직임을 감지하면 바로 잰다(EnTracked: 움직이면 GPS로 속도를 잰다).
+      expect(policy.onEvent(step(10000, StepState.otherMotion), const PolicyContext(nowMs: 10000)),
+          [const RequestFix()]);
+      // 측위를 기다리는 동안의 상태 변화로는 다시 요청하지 않는다.
+      expect(policy.onEvent(step(11000, StepState.still), const PolicyContext(nowMs: 11000)), isEmpty);
+      expect(policy.onEvent(step(11500, StepState.walking), const PolicyContext(nowMs: 11500)), isEmpty);
+      // 새 속도로 다음 예약: (50 - 8) / 8 = 5.25초.
+      expect(afterFix(policy, fix(12000, accuracy: 8, speed: 8)), [const WakeAt(tMs: 17250, tag: 'next')]);
+      expect(policy.onEvent(const Wakeup(tMs: 17250, tag: 'next'), const PolicyContext(nowMs: 17250)),
+          [const RequestFix()]);
+      // 버린 31초 예약이 와도(측위 응답을 기다리는 중) 다시 요청하지 않는다.
+      expect(policy.onEvent(const Wakeup(tMs: 31000, tag: 'next'), const PolicyContext(nowMs: 31000)), isEmpty);
+      // 응답 뒤 새 예약(22550)보다 이른 버린 예약도 무시한다.
+      afterFix(policy, fix(17300, accuracy: 8, speed: 8));
+      expect(policy.onEvent(const Wakeup(tMs: 20000, tag: 'next'), const PolicyContext(nowMs: 20000)), isEmpty);
+    });
+
     test('움직이는 동안의 상태 변화(걷기 ↔ 기타 움직임)로는 따로 재지 않는다', () {
       final policy = TimeSpeedPolicy(stillGate: true);
       policy.onStart(const PolicyContext(nowMs: 0));
