@@ -5,7 +5,7 @@ void main() {
   test('설계 문서 5-3의 정책 id로 정책을 만든다', () {
     expect(policyIds, [
       'hourly', 'fixed_30s', 'fixed_1m', 'fixed_5m', 'continuous_10m',
-      'speed_adaptive', 'time_speed', 'still_suppress', 'activity_gated', 'step_budget',
+      'speed_adaptive', 'time_speed', 'time_speed_still', 'still_suppress', 'activity_gated', 'step_budget',
     ]);
     for (final id in policyIds) {
       expect(createPolicy(id).id, id);
@@ -16,6 +16,10 @@ void main() {
 
   test('파라미터를 받는 정책은 값을 바꿀 수 있다', () {
     expect(createPolicy('time_speed', {'e_m': '25'}).params, {'e_m': 25.0});
+    final gated = createPolicy('time_speed_still', {'e_m': '25'}) as TimeSpeedPolicy;
+    expect((gated.id, gated.stillGate), ('time_speed_still', true));
+    expect(gated.params, {'e_m': 25.0});
+    expect((createPolicy('time_speed') as TimeSpeedPolicy).stillGate, isFalse);
     expect(createPolicy('still_suppress', {'interval_s': '120'}).params,
         {'interval_s': 120, 'verify_s': 300});
     expect(createPolicy('still_suppress', {'verify_s': '600'}).params, {'interval_s': 60, 'verify_s': 600});

@@ -216,6 +216,7 @@ abstract class StepDetector {
 | `fixed_30s` · `fixed_1m` · `fixed_5m` | 고정 주기 `RequestFix` | R2 |
 | `speed_adaptive` | Galeana-Zapién 외(2014): 마지막 측위 속도 구간에 따라 다음 간격을 정한다 | R2 |
 | `time_speed` | EnTracked·RAPS: `마지막 오차 + 속도 × 경과 시간 > E`가 되는 시각에 측위 | R2 |
+| `time_speed_still` | `time_speed` + EnTracked의 멈춤 감지(걸음 감지기가 정지면 측위를 미루고, 움직이면 바로 측위). EnTracked 원문을 확인한 뒤 공정한 비교를 위해 더했다 | R7 뒤 |
 | `still_suppress` | Zhuang 외(2010): 1분마다 상태를 확인해 측위하되, 직전·이번 확인이 모두 정지면 건너뛴다. 억제 중에도 5분마다 확인 측위를 한다(원문 3.2절, 주기는 원문에 없어 step_budget과 맞춤) | R2(R4에서 원문대로 고침) |
 | `activity_gated` | 상용 방식: 활동 인식이 `STILL`이면 `StopContinuous`, 움직임이면 `StartContinuous(10m)` | R2 |
 | `step_budget` | 제안 (아래) | R4 |

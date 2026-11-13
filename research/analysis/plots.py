@@ -19,8 +19,8 @@ SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#62
 OTHER = "#8a8a85"   # 8개를 넘는 계열은 새 색을 만들지 않고 '기타' 회색으로 묶는다
 INK, MUTED, GRID = "#1f1f1e", "#6b6a64", "#e4e3de"
 # 배터리–오차 곡선의 계열(정책 묶음). 같은 계열의 E·주기 변형을 한 선으로 잇는다.
-FAMILY_ORDER = ["step_budget[adaptive]", "step_budget[os]", "현재 앱", "fixed", "time_speed", "speed_adaptive",
-                "still_suppress[os]", "activity_gated"]
+FAMILY_ORDER = ["step_budget[adaptive]", "step_budget[os]", "현재 앱", "fixed", "time_speed", "time_speed_still[os]",
+                "speed_adaptive", "still_suppress[os]", "activity_gated"]
 METHOD_ORDER = ["local_straight", "straight", "nearest", "osrm_match", "osrm_match_radius", "hmm_steps", "hmm_nosteps"]
 PREFERRED = ["hmm_steps", "osrm_match_radius", "straight", "local_straight"]
 

@@ -8,6 +8,14 @@ import 'collection_policy.dart';
 /// '마지막 측위 오차 + 속도 × 경과 시간'이 오차 예산 E를 넘는 시각에 다시 측위한다.
 /// 속도는 마지막 측위의 속도를 쓰되 걷기 속도 1.4m/s를 하한으로 둔다 — 서 있다가 걷기 시작해도 오차가 예산을
 /// 넘기 전에 다시 재기 위해서다. 제안 정책(R4)은 이 '시간 × 속도' 대신 실제 걸음 수를 쓴다.
+///
+/// [stillGate]를 켜면 EnTracked(4.1절)처럼 멈춤/움직임 두 상태로 GPS를 쉰다(id `time_speed_still`).
+/// - 걸음 감지기가 멈춤이라고 하면 다음 측위를 예약하지 않고, 예약해 둔 시각이 와도 건너뛴다.
+/// - 다시 움직이면(보행·기타 움직임) 바로 한 번 잰다 — EnTracked는 움직임을 감지하면 GPS로 속도를 잰 뒤
+///   오차 모델로 다음 측위 시각을 정한다.
+/// - 걸음 정보가 아직 없으면 움직이는 것으로 본다. 측위에 실패하면 멈춰 있어도 다시 시도한다(머문 곳의 위치를
+///   남기기 위해서다).
+/// 원문의 기기 전력 모델(GPS 끄기 지연 등)과 동적 계획법 스케줄링은 넣지 않았다 — 기본판과 같은 '단순화판'이다.
 class TimeSpeedPolicy implements CollectionPolicy {
   TimeSpeedPolicy({
     this.errorBudgetM = 50,
@@ -15,6 +23,7 @@ class TimeSpeedPolicy implements CollectionPolicy {
     this.minWaitMs = 5000,
     this.maxWaitMs = 600000,
     this.failureRetryMs = 30000,
+    this.stillGate = false,
   });
 
   static const _tag = 'next';
@@ -24,29 +33,81 @@ class TimeSpeedPolicy implements CollectionPolicy {
   final int minWaitMs;
   final int maxWaitMs;
   final int failureRetryMs;
+  final bool stillGate;
+
+  StepState? _state;
+
+  /// 측위를 요청하고 응답을 기다리는 중.
+  bool _awaitingFix = false;
+
+  /// 예약해 둔 깨우기가 있는가.
+  bool _wakePending = false;
+
+  /// 예약 세대. 멈춤에서 다시 움직여 남은 예약을 버릴 때 올린다. 버린 예약은 이전 세대의 태그로 깨어나므로 무시한다.
+  /// 시각 비교로 가리지 않는 이유: 폰 시계가 뒤로 보정되면 정상 예약도 '예정보다 이르게' 깨어난다.
+  int _generation = 0;
+
+  String get _currentTag => _generation == 0 ? _tag : '$_tag.$_generation';
+
+  /// 마지막 측위가 실패해 다시 시도하는 중. 멈춰 있어도 위치 하나는 얻을 때까지 잰다.
+  bool _retrying = false;
 
   @override
-  String get id => 'time_speed';
+  String get id => stillGate ? 'time_speed_still' : 'time_speed';
 
   @override
   Map<String, Object> get params => {'e_m': errorBudgetM};
 
+  bool get _still => stillGate && _state == StepState.still;
+
   @override
-  List<PolicyAction> onStart(PolicyContext ctx) => [const RequestFix()];
+  List<PolicyAction> onStart(PolicyContext ctx) {
+    _state = null;
+    _wakePending = false;
+    _retrying = false;
+    _awaitingFix = true;
+    return [const RequestFix()];
+  }
 
   @override
   List<PolicyAction> onEvent(PolicyEvent event, PolicyContext ctx) {
     switch (event) {
+      case StepUpdate(:final state):
+        final wasStill = _still;
+        _state = state;
+        // 멈춤에서 움직임으로 바뀌면 남은 예약을 버리고 바로 잰다 — 예약은 멈추기 전의 속도로 잡은 것이다.
+        if (wasStill && !_still && !_awaitingFix) {
+          if (_wakePending) {
+            _generation++;
+            _wakePending = false;
+          }
+          _awaitingFix = true;
+          return [const RequestFix()];
+        }
+        return const [];
       case FixResult(:final fix):
-        final waitMs = fix == null
-            ? failureRetryMs
-            : _waitFor(fix.accuracyM, fix.speedMps ?? 0);
-        return [WakeAt(tMs: event.tMs + waitMs, tag: _tag)];
-      case Wakeup(:final tag) when tag == _tag:
+        _awaitingFix = false;
+        _retrying = fix == null;
+        if (fix == null) return [_schedule(event.tMs + failureRetryMs)];
+        if (_still) {
+          _wakePending = false; // 움직일 때까지 기다린다
+          return const [];
+        }
+        return [_schedule(event.tMs + _waitFor(fix.accuracyM, fix.speedMps ?? 0))];
+      case Wakeup(:final tag) when tag == _tag || tag.startsWith('$_tag.'):
+        if (tag != _currentTag || !_wakePending) return const []; // 버린 예약
+        _wakePending = false;
+        if (_still && !_retrying) return const []; // 멈춰 있다 — 다시 움직일 때 잰다
+        _awaitingFix = true;
         return [const RequestFix()];
       default:
         return const [];
     }
+  }
+
+  WakeAt _schedule(int tMs) {
+    _wakePending = true;
+    return WakeAt(tMs: tMs, tag: _currentTag);
   }
 
   int _waitFor(double accuracyM, double speedMps) {

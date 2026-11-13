@@ -11,7 +11,7 @@ import 'time_speed_policy.dart';
 /// 재생기 CLI와 정책 실행 모드가 받는 정책 id(설계 문서 5-3의 표). 마지막 `step_budget`이 제안 정책이다.
 const policyIds = [
   'hourly', 'fixed_30s', 'fixed_1m', 'fixed_5m', 'continuous_10m',
-  'speed_adaptive', 'time_speed', 'still_suppress', 'activity_gated', 'step_budget',
+  'speed_adaptive', 'time_speed', 'time_speed_still', 'still_suppress', 'activity_gated', 'step_budget',
 ];
 
 /// id와 파라미터(문자열 k=v)로 정책을 만든다. 모르는 id·파라미터, 양수가 아닌 숫자는 ArgumentError다.
@@ -39,6 +39,9 @@ CollectionPolicy createPolicy(String id, [Map<String, String> params = const {}]
     case 'time_speed':
       reader.allowOnly(const {'e_m'});
       return TimeSpeedPolicy(errorBudgetM: reader.positive('e_m', 50));
+    case 'time_speed_still':
+      reader.allowOnly(const {'e_m'});
+      return TimeSpeedPolicy(errorBudgetM: reader.positive('e_m', 50), stillGate: true);
     case 'still_suppress':
       reader.allowOnly(const {'interval_s', 'verify_s'});
       return StillSuppressPolicy(
