@@ -69,6 +69,15 @@ void main() {
           [const WakeAt(tMs: 45000, tag: 'next')]);
     });
 
+    test('폰 시계가 뒤로 보정되어 예정보다 이른 시각으로 깨어나도 그 예약으로 잰다', () {
+      final policy = TimeSpeedPolicy();
+      policy.onStart(const PolicyContext(nowMs: 0));
+
+      expect(afterFix(policy, fix(10000, accuracy: 8, speed: 1.2)), [const WakeAt(tMs: 40000, tag: 'next')]);
+      expect(policy.onEvent(const Wakeup(tMs: 35000, tag: 'next'), const PolicyContext(nowMs: 35000)),
+          [const RequestFix()]);
+    });
+
     test('기본판은 걸음 감지기 상태를 보지 않는다(멈춰 있어도 예정대로 잰다)', () {
       final policy = TimeSpeedPolicy();
       policy.onStart(const PolicyContext(nowMs: 0));
@@ -128,15 +137,13 @@ void main() {
       // 측위를 기다리는 동안의 상태 변화로는 다시 요청하지 않는다.
       expect(policy.onEvent(step(11000, StepState.still), const PolicyContext(nowMs: 11000)), isEmpty);
       expect(policy.onEvent(step(11500, StepState.walking), const PolicyContext(nowMs: 11500)), isEmpty);
-      // 새 속도로 다음 예약: (50 - 8) / 8 = 5.25초.
-      expect(afterFix(policy, fix(12000, accuracy: 8, speed: 8)), [const WakeAt(tMs: 17250, tag: 'next')]);
-      expect(policy.onEvent(const Wakeup(tMs: 17250, tag: 'next'), const PolicyContext(nowMs: 17250)),
+      // 새 속도로 다음 예약: (50 - 8) / 8 = 5.25초. 버린 예약과 구분되게 새 세대 태그를 쓴다.
+      expect(afterFix(policy, fix(12000, accuracy: 8, speed: 8)), [const WakeAt(tMs: 17250, tag: 'next.1')]);
+      // 버린 31초 예약('next')은 언제 와도 무시한다.
+      expect(policy.onEvent(const Wakeup(tMs: 15000, tag: 'next'), const PolicyContext(nowMs: 15000)), isEmpty);
+      expect(policy.onEvent(const Wakeup(tMs: 17250, tag: 'next.1'), const PolicyContext(nowMs: 17250)),
           [const RequestFix()]);
-      // 버린 31초 예약이 와도(측위 응답을 기다리는 중) 다시 요청하지 않는다.
       expect(policy.onEvent(const Wakeup(tMs: 31000, tag: 'next'), const PolicyContext(nowMs: 31000)), isEmpty);
-      // 응답 뒤 새 예약(22550)보다 이른 버린 예약도 무시한다.
-      afterFix(policy, fix(17300, accuracy: 8, speed: 8));
-      expect(policy.onEvent(const Wakeup(tMs: 20000, tag: 'next'), const PolicyContext(nowMs: 20000)), isEmpty);
     });
 
     test('움직이는 동안의 상태 변화(걷기 ↔ 기타 움직임)로는 따로 재지 않는다', () {
