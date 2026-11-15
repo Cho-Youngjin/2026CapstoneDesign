@@ -1,20 +1,9 @@
-import 'package:app/core/db/app_database.dart';
-import 'package:app/features/footsteps/data/checkin.dart';
-import 'package:app/features/footsteps/data/country_resolver.dart';
-import 'package:app/features/footsteps/data/footsteps_repository.dart';
+import 'dart:async';
+
 import 'package:app/features/footsteps/map/live_route_tracker.dart';
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-
-class _FixedCountryResolver implements CountryResolver {
-  const _FixedCountryResolver(this.iso);
-  final String iso;
-
-  @override
-  Future<String> resolveIso2(double lat, double lng) async => iso;
-}
 
 Position _positionAt(double lat, double lng) => Position(
       latitude: lat,
@@ -30,16 +19,6 @@ Position _positionAt(double lat, double lng) => Position(
     );
 
 void main() {
-  late AppDatabase db;
-  late FootstepsRepository repo;
-
-  setUp(() {
-    db = AppDatabase.forTesting(NativeDatabase.memory());
-    repo = FootstepsRepository(db: db, countryResolver: const _FixedCountryResolver('JP'));
-  });
-
-  tearDown(() => db.close());
-
   test('위치가 들어올 때마다 지금까지의 전체 경로를 누적해서 낸다', () async {
     final positions = Stream.fromIterable([
       _positionAt(1, 1),
@@ -47,61 +26,13 @@ void main() {
       _positionAt(3, 3),
     ]);
 
-    final snapshots = await trackAndPersistLiveRoute(
-      positions: positions,
-      countryResolver: const _FixedCountryResolver('JP'),
-      repository: repo,
-    ).toList();
+    final snapshots = await trackLiveRoute(positions).toList();
 
     expect(snapshots, [
       [const LatLng(1, 1)],
       [const LatLng(1, 1), const LatLng(2, 2)],
       [const LatLng(1, 1), const LatLng(2, 2), const LatLng(3, 3)],
     ]);
-  });
-
-  test('저장이 중지된 동안(해외 매핑 중)은 화면용 경로만 내고 영구 기록은 남기지 않는다', () async {
-    final positions = Stream.fromIterable([_positionAt(1, 1), _positionAt(2, 2)]);
-
-    final snapshots = await trackAndPersistLiveRoute(
-      positions: positions,
-      countryResolver: const _FixedCountryResolver('JP'),
-      repository: repo,
-      shouldPersist: () => false,
-    ).toList();
-
-    expect(snapshots.last, [const LatLng(1, 1), const LatLng(2, 2)]);
-    expect(await repo.routePointsForCountry('JP'), isEmpty);
-  });
-
-  test('국가가 판정되는 좌표는 영구 기록으로 저장된다', () async {
-    final positions = Stream.fromIterable([_positionAt(1, 1), _positionAt(2, 2)]);
-
-    await trackAndPersistLiveRoute(
-      positions: positions,
-      countryResolver: const _FixedCountryResolver('JP'),
-      repository: repo,
-    ).drain<void>();
-
-    final saved = await repo.routePointsForCountry('JP');
-    expect(saved, hasLength(2));
-    expect(saved[0].lat, 1);
-    expect(saved[1].lat, 2);
-  });
-
-  test('미확인(XX) 좌표는 저장하지 않지만 화면 경로에는 포함한다', () async {
-    final positions = Stream.fromIterable([_positionAt(1, 1)]);
-
-    final snapshots = await trackAndPersistLiveRoute(
-      positions: positions,
-      countryResolver: const _FixedCountryResolver(Checkin.unknownCountry),
-      repository: repo,
-    ).toList();
-
-    expect(snapshots, [
-      [const LatLng(1, 1)],
-    ]);
-    expect(await repo.routePointsForCountry('XX'), isEmpty);
   });
 
   test('maxPoints를 넘으면 오래된 좌표부터 버린다', () async {
@@ -111,23 +42,27 @@ void main() {
       _positionAt(3, 3),
     ]);
 
-    final snapshots = await trackAndPersistLiveRoute(
-      positions: positions,
-      countryResolver: const _FixedCountryResolver('JP'),
-      repository: repo,
-      maxPoints: 2,
-    ).toList();
+    final snapshots = await trackLiveRoute(positions, maxPoints: 2).toList();
 
     expect(snapshots.last, [const LatLng(2, 2), const LatLng(3, 3)]);
   });
 
   test('위치가 없으면 빈 스트림을 낸다', () async {
-    final snapshots = await trackAndPersistLiveRoute(
-      positions: const Stream.empty(),
-      countryResolver: const _FixedCountryResolver('JP'),
-      repository: repo,
-    ).toList();
+    expect(await trackLiveRoute(const Stream.empty()).toList(), isEmpty);
+  });
 
-    expect(snapshots, isEmpty);
+  test('구독을 끊으면 다음 위치를 기다리지 않고 바로 위치 스트림(GPS)을 끊는다', () async {
+    // 실기기(2026-11-15): 앱이 백그라운드로 가도 가만히 있으면(10m 거리 필터라 새 위치가 없다) GPS가 93분 켜져 있었다.
+    // async* + await for는 다음 이벤트가 와야 취소가 원본까지 전달되기 때문이다.
+    var gpsCancelled = false;
+    final positions = StreamController<Position>(onCancel: () => gpsCancelled = true);
+    final subscription = trackLiveRoute(positions.stream).listen((_) {});
+    positions.add(_positionAt(1, 1));
+    await pumpEventQueue();
+
+    await subscription.cancel();
+    await pumpEventQueue();
+
+    expect(gpsCancelled, isTrue);
   });
 }

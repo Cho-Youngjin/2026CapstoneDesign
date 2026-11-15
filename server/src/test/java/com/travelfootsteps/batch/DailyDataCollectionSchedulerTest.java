@@ -56,6 +56,21 @@ class DailyDataCollectionSchedulerTest {
         verify(alertCollector, times(1)).collectOne(jp);
     }
 
+    @Test
+    void 본국_한국은_수집하지_않는다() {
+        Country vn = mockCountry("VN");
+        Country kr = mockCountry("KR");
+        when(kr.isHome()).thenReturn(true);
+        when(countryRepository.findAll()).thenReturn(List.of(kr, vn));
+
+        scheduler.runDaily();
+
+        verify(visaCollector, org.mockito.Mockito.never()).collectOne(kr);
+        verify(alertCollector, org.mockito.Mockito.never()).collectOne(kr);
+        verify(embassyCollector, org.mockito.Mockito.never()).collectOne(kr);
+        verify(visaCollector, times(1)).collectOne(vn);
+    }
+
     private Country mockCountry(String iso2) {
         Country country = org.mockito.Mockito.mock(Country.class);
         // getIsoAlpha2()는 실패 시 로그 메시지(collectSafely의 catch 블록)에서만 쓰인다 —

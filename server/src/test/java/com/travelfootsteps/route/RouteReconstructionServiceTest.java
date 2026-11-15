@@ -180,7 +180,7 @@ class RouteReconstructionServiceTest {
         List<TrackPoint> points = List.of(
                 new TrackPoint(1_000L, a.lat(), a.lng(), 3.0, null, null),
                 new TrackPoint(1_500L, a.lat(), a.lng(), 12.5, null, null),   // 같은 초 → 1초 민다
-                new TrackPoint(61_000L, a.lat(), a.lng(), 80.0, null, null),
+                new TrackPoint(61_000L, a.lat(), a.lng(), 50.0, null, null),   // 50m까지는 남는다(더 나쁜 점은 복원 전에 버린다)
                 new TrackPoint(121_000L, a.lat(), a.lng(), null, null, null));
         GridOsrm osrm = new GridOsrm();
         RouteReconstructionService service = new RouteReconstructionService(osrm);
@@ -230,5 +230,71 @@ class RouteReconstructionServiceTest {
             assertThat(segments.get(i + 1).coords().get(0)).isEqualTo(end.get(end.size() - 1));
         }
         assertThat(segments.get(1).fallback()).isFalse();
+    }
+
+    private static TrackPoint withAccuracy(long seconds, double x, double y, Double accuracy, Integer steps) {
+        GeoPoint g = at(x, y);
+        return new TrackPoint(seconds * 1000, g.lat(), g.lng(), accuracy, steps, "walking");
+    }
+
+    @Test
+    void 정확도가_50m보다_나쁜_점은_빼고_그_걸음_수는_다음_남은_점에_더한다() {
+        List<TrackPoint> points = List.of(
+                withAccuracy(0, 0, 0, 5.0, null),
+                withAccuracy(6, 5000, 5000, 66.0, 7),   // 1.4km 튄 점
+                withAccuracy(12, 9000, 9000, 51.0, 3),  // 이어서 또 나쁜 점
+                withAccuracy(18, 20, 0, 11.0, 4));
+
+        List<Waypoint> waypoints = RouteReconstructionService.waypoints(points, List.of());
+
+        assertThat(waypoints).hasSize(2);
+        assertThat(waypoints.get(1).startT()).isEqualTo(18_000L);
+        assertThat(waypoints.get(1).stepsSincePrev()).isEqualTo(14); // 4 + 7 + 3
+    }
+
+    @Test
+    void 정확도_50m는_남기고_정확도를_모르면_그대로_남긴다() {
+        List<TrackPoint> points = List.of(
+                withAccuracy(0, 0, 0, 50.0, 1),
+                withAccuracy(6, 10, 0, null, 2));
+
+        List<Waypoint> waypoints = RouteReconstructionService.waypoints(points, List.of());
+
+        assertThat(waypoints).hasSize(2);
+        assertThat(waypoints.get(1).stepsSincePrev()).isEqualTo(2);
+    }
+
+    @Test
+    void 남은_점이_없으면_뒤쪽에서_뺀_걸음_수는_버린다() {
+        List<TrackPoint> points = List.of(withAccuracy(0, 0, 0, 5.0, 1), withAccuracy(6, 5000, 0, 80.0, 9));
+
+        List<Waypoint> waypoints = RouteReconstructionService.waypoints(points, List.of());
+
+        assertThat(waypoints).hasSize(1);
+        assertThat(waypoints.get(0).stepsSincePrev()).isEqualTo(1);
+    }
+
+    @Test
+    void 튄_점은_복원_경로에_나오지_않는다() {
+        List<TrackPoint> points = List.of(
+                withAccuracy(0, 0, 0, 10.0, 0),
+                withAccuracy(6, 1400, 0, 66.0, 5),
+                withAccuracy(12, 20, 0, 10.0, 5));
+        RouteReconstructionService service = new RouteReconstructionService(new GridOsrm());
+
+        List<RouteSegment> segments = service.reconstruct(request(ReconstructMethod.STRAIGHT, points, List.of())).segments();
+
+        assertThat(segments).singleElement().satisfies(s -> {
+            assertThat(s.coords()).hasSize(2);
+            assertThat(GeoMath.polylineLength(s.coords())).isCloseTo(20, within(0.5));
+        });
+    }
+
+    @Test
+    void 모든_점이_정확도_나빠_빠지면_점이_없는_요청과_같다() {
+        List<TrackPoint> points = List.of(withAccuracy(0, 0, 0, 60.0, 1), withAccuracy(6, 10, 0, 90.0, 2));
+        RouteReconstructionService service = new RouteReconstructionService(new GridOsrm());
+
+        assertThat(service.reconstruct(request(ReconstructMethod.HMM_STEPS, points, List.of())).segments()).isEmpty();
     }
 }

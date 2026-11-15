@@ -264,7 +264,7 @@ void main() {
 
       expect(result.stays, isEmpty);
       expect(result.summary.toJson()['stay_params'],
-          {'radius_m': 100.0, 'min_stay_s': 600.0, 'use_still': false});
+          {'radius_m': 100.0, 'min_stay_s': 600.0, 'use_still': false, 'still_gap_s': 60.0});
     });
   });
 
@@ -313,7 +313,7 @@ void main() {
     expect(json['fix_successes'], 13);
     expect(json['fix_failures'], 0);
     // 한 시간 내내 같은 자리라 측위 13개가 머문 곳 하나로 묶인다.
-    expect(json['stay_params'], {'radius_m': 100.0, 'min_stay_s': 600.0, 'use_still': true});
+    expect(json['stay_params'], {'radius_m': 100.0, 'min_stay_s': 600.0, 'use_still': true, 'still_gap_s': 60.0});
     expect(json['stays'], 1);
   });
 
