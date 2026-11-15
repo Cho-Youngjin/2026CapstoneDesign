@@ -46,39 +46,70 @@ void main() {
   });
 
   group('StillSuppressPolicy (Zhuang 외 2010: 정지 중 측위 억제)', () {
+    const ctx0 = PolicyContext(nowMs: 0);
+    PolicyContext at(int t) => PolicyContext(nowMs: t);
+    Wakeup tick(int t) => Wakeup(tMs: t, tag: 'tick');
+
     test('보행 중에는 주기마다 측위한다', () {
       final policy = StillSuppressPolicy();
-      expect(policy.onStart(const PolicyContext(nowMs: 0)),
-          [const RequestFix(), const WakeAt(tMs: 60000, tag: 'tick')]);
+      expect(policy.onStart(ctx0), [const RequestFix(), const WakeAt(tMs: 60000, tag: 'tick')]);
 
-      policy.onEvent(step(1000, StepState.walking), const PolicyContext(nowMs: 1000));
-      expect(policy.onEvent(const Wakeup(tMs: 60000, tag: 'tick'), const PolicyContext(nowMs: 60000)),
+      policy.onEvent(step(1000, StepState.walking), at(1000));
+      expect(policy.onEvent(tick(60000), at(60000)),
           [const RequestFix(), const WakeAt(tMs: 120000, tag: 'tick')]);
     });
 
-    test('정지 중에는 측위를 건너뛰고 다음 주기만 예약한다', () {
-      final policy = StillSuppressPolicy()..onStart(const PolicyContext(nowMs: 0));
+    test('정지가 직전·이번 확인에서 연달아 보여야 측위를 건너뛴다', () {
+      final policy = StillSuppressPolicy()..onStart(ctx0);
+      policy.onEvent(step(1000, StepState.still), at(1000));
 
-      policy.onEvent(step(1000, StepState.still), const PolicyContext(nowMs: 1000));
-      expect(policy.onEvent(const Wakeup(tMs: 60000, tag: 'tick'), const PolicyContext(nowMs: 60000)),
-          [const WakeAt(tMs: 120000, tag: 'tick')]);
+      // 첫 정지 확인: 잠깐 멈춘 것일 수 있어 아직 측위한다.
+      expect(policy.onEvent(tick(60000), at(60000)),
+          [const RequestFix(), const WakeAt(tMs: 120000, tag: 'tick')]);
+      // 두 번째 연속 정지: 건너뛰고 다음 확인만 예약한다.
+      expect(policy.onEvent(tick(120000), at(120000)), [const WakeAt(tMs: 180000, tag: 'tick')]);
+    });
+
+    test('억제하는 동안에도 마지막 측위 뒤 5분이 지나면 확인 측위를 한다', () {
+      final policy = StillSuppressPolicy()..onStart(ctx0);
+      policy.onEvent(step(1000, StepState.still), at(1000));
+      policy.onEvent(tick(60000), at(60000)); // 측위(마지막 측위 60초)
+
+      for (final t in [120000, 180000, 240000, 300000]) {
+        expect(policy.onEvent(tick(t), at(t)), [WakeAt(tMs: t + 60000, tag: 'tick')], reason: '$t');
+      }
+      expect(policy.onEvent(tick(360000), at(360000)),
+          [const RequestFix(), const WakeAt(tMs: 420000, tag: 'tick')]);
+      expect(policy.onEvent(tick(420000), at(420000)), [const WakeAt(tMs: 480000, tag: 'tick')]);
+    });
+
+    test('억제 중에 걷기 시작하면 다음 확인에서 바로 측위한다', () {
+      final policy = StillSuppressPolicy()..onStart(ctx0);
+      policy.onEvent(step(1000, StepState.still), at(1000));
+      policy.onEvent(tick(60000), at(60000));
+      policy.onEvent(tick(120000), at(120000)); // 억제
+
+      policy.onEvent(step(130000, StepState.walking), at(130000));
+      expect(policy.onEvent(tick(180000), at(180000)),
+          [const RequestFix(), const WakeAt(tMs: 240000, tag: 'tick')]);
     });
 
     test('걸음 정보가 아직 없으면 측위한다', () {
-      final policy = StillSuppressPolicy(intervalMs: 120000)..onStart(const PolicyContext(nowMs: 0));
+      final policy = StillSuppressPolicy(intervalMs: 120000)..onStart(ctx0);
 
-      expect(policy.onEvent(const Wakeup(tMs: 120000, tag: 'tick'), const PolicyContext(nowMs: 120000)),
+      expect(policy.onEvent(tick(120000), at(120000)),
           [const RequestFix(), const WakeAt(tMs: 240000, tag: 'tick')]);
       expect(policy.id, 'still_suppress');
-      expect(policy.params, {'interval_s': 120});
+      expect(policy.params, {'interval_s': 120, 'verify_s': 300});
     });
 
-    test('onStart는 이전 실행의 걸음 상태를 지운다', () {
-      final policy = StillSuppressPolicy()..onStart(const PolicyContext(nowMs: 0));
-      policy.onEvent(step(1000, StepState.still), const PolicyContext(nowMs: 1000));
+    test('onStart는 이전 실행의 상태를 지운다', () {
+      final policy = StillSuppressPolicy()..onStart(ctx0);
+      policy.onEvent(step(1000, StepState.still), at(1000));
+      policy.onEvent(tick(60000), at(60000));
 
-      policy.onStart(const PolicyContext(nowMs: 0)); // 같은 인스턴스를 다시 쓴다
-      expect(policy.onEvent(const Wakeup(tMs: 60000, tag: 'tick'), const PolicyContext(nowMs: 60000)),
+      policy.onStart(ctx0); // 같은 인스턴스를 다시 쓴다
+      expect(policy.onEvent(tick(60000), at(60000)),
           [const RequestFix(), const WakeAt(tMs: 120000, tag: 'tick')]);
     });
   });

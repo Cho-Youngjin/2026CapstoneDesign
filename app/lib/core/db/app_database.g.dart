@@ -985,8 +985,58 @@ class $RoutePointsTable extends RoutePoints
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _tripIdMeta = const VerificationMeta('tripId');
   @override
-  List<GeneratedColumn> get $columns => [id, lat, lng, countryIso, recordedAt];
+  late final GeneratedColumn<int> tripId = GeneratedColumn<int>(
+    'trip_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _accuracyMMeta = const VerificationMeta(
+    'accuracyM',
+  );
+  @override
+  late final GeneratedColumn<double> accuracyM = GeneratedColumn<double>(
+    'accuracy_m',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _stepsSincePrevMeta = const VerificationMeta(
+    'stepsSincePrev',
+  );
+  @override
+  late final GeneratedColumn<int> stepsSincePrev = GeneratedColumn<int>(
+    'steps_since_prev',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _stateMeta = const VerificationMeta('state');
+  @override
+  late final GeneratedColumn<String> state = GeneratedColumn<String>(
+    'state',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    lat,
+    lng,
+    countryIso,
+    recordedAt,
+    tripId,
+    accuracyM,
+    stepsSincePrev,
+    state,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1034,6 +1084,33 @@ class $RoutePointsTable extends RoutePoints
     } else if (isInserting) {
       context.missing(_recordedAtMeta);
     }
+    if (data.containsKey('trip_id')) {
+      context.handle(
+        _tripIdMeta,
+        tripId.isAcceptableOrUnknown(data['trip_id']!, _tripIdMeta),
+      );
+    }
+    if (data.containsKey('accuracy_m')) {
+      context.handle(
+        _accuracyMMeta,
+        accuracyM.isAcceptableOrUnknown(data['accuracy_m']!, _accuracyMMeta),
+      );
+    }
+    if (data.containsKey('steps_since_prev')) {
+      context.handle(
+        _stepsSincePrevMeta,
+        stepsSincePrev.isAcceptableOrUnknown(
+          data['steps_since_prev']!,
+          _stepsSincePrevMeta,
+        ),
+      );
+    }
+    if (data.containsKey('state')) {
+      context.handle(
+        _stateMeta,
+        state.isAcceptableOrUnknown(data['state']!, _stateMeta),
+      );
+    }
     return context;
   }
 
@@ -1063,6 +1140,22 @@ class $RoutePointsTable extends RoutePoints
         DriftSqlType.dateTime,
         data['${effectivePrefix}recorded_at'],
       )!,
+      tripId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}trip_id'],
+      ),
+      accuracyM: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}accuracy_m'],
+      ),
+      stepsSincePrev: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}steps_since_prev'],
+      ),
+      state: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state'],
+      ),
     );
   }
 
@@ -1078,12 +1171,20 @@ class RoutePointRow extends DataClass implements Insertable<RoutePointRow> {
   final double lng;
   final String countryIso;
   final DateTime recordedAt;
+  final int? tripId;
+  final double? accuracyM;
+  final int? stepsSincePrev;
+  final String? state;
   const RoutePointRow({
     required this.id,
     required this.lat,
     required this.lng,
     required this.countryIso,
     required this.recordedAt,
+    this.tripId,
+    this.accuracyM,
+    this.stepsSincePrev,
+    this.state,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1093,6 +1194,18 @@ class RoutePointRow extends DataClass implements Insertable<RoutePointRow> {
     map['lng'] = Variable<double>(lng);
     map['country_iso'] = Variable<String>(countryIso);
     map['recorded_at'] = Variable<DateTime>(recordedAt);
+    if (!nullToAbsent || tripId != null) {
+      map['trip_id'] = Variable<int>(tripId);
+    }
+    if (!nullToAbsent || accuracyM != null) {
+      map['accuracy_m'] = Variable<double>(accuracyM);
+    }
+    if (!nullToAbsent || stepsSincePrev != null) {
+      map['steps_since_prev'] = Variable<int>(stepsSincePrev);
+    }
+    if (!nullToAbsent || state != null) {
+      map['state'] = Variable<String>(state);
+    }
     return map;
   }
 
@@ -1103,6 +1216,18 @@ class RoutePointRow extends DataClass implements Insertable<RoutePointRow> {
       lng: Value(lng),
       countryIso: Value(countryIso),
       recordedAt: Value(recordedAt),
+      tripId: tripId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(tripId),
+      accuracyM: accuracyM == null && nullToAbsent
+          ? const Value.absent()
+          : Value(accuracyM),
+      stepsSincePrev: stepsSincePrev == null && nullToAbsent
+          ? const Value.absent()
+          : Value(stepsSincePrev),
+      state: state == null && nullToAbsent
+          ? const Value.absent()
+          : Value(state),
     );
   }
 
@@ -1117,6 +1242,10 @@ class RoutePointRow extends DataClass implements Insertable<RoutePointRow> {
       lng: serializer.fromJson<double>(json['lng']),
       countryIso: serializer.fromJson<String>(json['countryIso']),
       recordedAt: serializer.fromJson<DateTime>(json['recordedAt']),
+      tripId: serializer.fromJson<int?>(json['tripId']),
+      accuracyM: serializer.fromJson<double?>(json['accuracyM']),
+      stepsSincePrev: serializer.fromJson<int?>(json['stepsSincePrev']),
+      state: serializer.fromJson<String?>(json['state']),
     );
   }
   @override
@@ -1128,6 +1257,10 @@ class RoutePointRow extends DataClass implements Insertable<RoutePointRow> {
       'lng': serializer.toJson<double>(lng),
       'countryIso': serializer.toJson<String>(countryIso),
       'recordedAt': serializer.toJson<DateTime>(recordedAt),
+      'tripId': serializer.toJson<int?>(tripId),
+      'accuracyM': serializer.toJson<double?>(accuracyM),
+      'stepsSincePrev': serializer.toJson<int?>(stepsSincePrev),
+      'state': serializer.toJson<String?>(state),
     };
   }
 
@@ -1137,12 +1270,22 @@ class RoutePointRow extends DataClass implements Insertable<RoutePointRow> {
     double? lng,
     String? countryIso,
     DateTime? recordedAt,
+    Value<int?> tripId = const Value.absent(),
+    Value<double?> accuracyM = const Value.absent(),
+    Value<int?> stepsSincePrev = const Value.absent(),
+    Value<String?> state = const Value.absent(),
   }) => RoutePointRow(
     id: id ?? this.id,
     lat: lat ?? this.lat,
     lng: lng ?? this.lng,
     countryIso: countryIso ?? this.countryIso,
     recordedAt: recordedAt ?? this.recordedAt,
+    tripId: tripId.present ? tripId.value : this.tripId,
+    accuracyM: accuracyM.present ? accuracyM.value : this.accuracyM,
+    stepsSincePrev: stepsSincePrev.present
+        ? stepsSincePrev.value
+        : this.stepsSincePrev,
+    state: state.present ? state.value : this.state,
   );
   RoutePointRow copyWithCompanion(RoutePointsCompanion data) {
     return RoutePointRow(
@@ -1155,6 +1298,12 @@ class RoutePointRow extends DataClass implements Insertable<RoutePointRow> {
       recordedAt: data.recordedAt.present
           ? data.recordedAt.value
           : this.recordedAt,
+      tripId: data.tripId.present ? data.tripId.value : this.tripId,
+      accuracyM: data.accuracyM.present ? data.accuracyM.value : this.accuracyM,
+      stepsSincePrev: data.stepsSincePrev.present
+          ? data.stepsSincePrev.value
+          : this.stepsSincePrev,
+      state: data.state.present ? data.state.value : this.state,
     );
   }
 
@@ -1165,13 +1314,27 @@ class RoutePointRow extends DataClass implements Insertable<RoutePointRow> {
           ..write('lat: $lat, ')
           ..write('lng: $lng, ')
           ..write('countryIso: $countryIso, ')
-          ..write('recordedAt: $recordedAt')
+          ..write('recordedAt: $recordedAt, ')
+          ..write('tripId: $tripId, ')
+          ..write('accuracyM: $accuracyM, ')
+          ..write('stepsSincePrev: $stepsSincePrev, ')
+          ..write('state: $state')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, lat, lng, countryIso, recordedAt);
+  int get hashCode => Object.hash(
+    id,
+    lat,
+    lng,
+    countryIso,
+    recordedAt,
+    tripId,
+    accuracyM,
+    stepsSincePrev,
+    state,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1180,7 +1343,11 @@ class RoutePointRow extends DataClass implements Insertable<RoutePointRow> {
           other.lat == this.lat &&
           other.lng == this.lng &&
           other.countryIso == this.countryIso &&
-          other.recordedAt == this.recordedAt);
+          other.recordedAt == this.recordedAt &&
+          other.tripId == this.tripId &&
+          other.accuracyM == this.accuracyM &&
+          other.stepsSincePrev == this.stepsSincePrev &&
+          other.state == this.state);
 }
 
 class RoutePointsCompanion extends UpdateCompanion<RoutePointRow> {
@@ -1189,12 +1356,20 @@ class RoutePointsCompanion extends UpdateCompanion<RoutePointRow> {
   final Value<double> lng;
   final Value<String> countryIso;
   final Value<DateTime> recordedAt;
+  final Value<int?> tripId;
+  final Value<double?> accuracyM;
+  final Value<int?> stepsSincePrev;
+  final Value<String?> state;
   const RoutePointsCompanion({
     this.id = const Value.absent(),
     this.lat = const Value.absent(),
     this.lng = const Value.absent(),
     this.countryIso = const Value.absent(),
     this.recordedAt = const Value.absent(),
+    this.tripId = const Value.absent(),
+    this.accuracyM = const Value.absent(),
+    this.stepsSincePrev = const Value.absent(),
+    this.state = const Value.absent(),
   });
   RoutePointsCompanion.insert({
     this.id = const Value.absent(),
@@ -1202,6 +1377,10 @@ class RoutePointsCompanion extends UpdateCompanion<RoutePointRow> {
     required double lng,
     required String countryIso,
     required DateTime recordedAt,
+    this.tripId = const Value.absent(),
+    this.accuracyM = const Value.absent(),
+    this.stepsSincePrev = const Value.absent(),
+    this.state = const Value.absent(),
   }) : lat = Value(lat),
        lng = Value(lng),
        countryIso = Value(countryIso),
@@ -1212,6 +1391,10 @@ class RoutePointsCompanion extends UpdateCompanion<RoutePointRow> {
     Expression<double>? lng,
     Expression<String>? countryIso,
     Expression<DateTime>? recordedAt,
+    Expression<int>? tripId,
+    Expression<double>? accuracyM,
+    Expression<int>? stepsSincePrev,
+    Expression<String>? state,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1219,6 +1402,10 @@ class RoutePointsCompanion extends UpdateCompanion<RoutePointRow> {
       if (lng != null) 'lng': lng,
       if (countryIso != null) 'country_iso': countryIso,
       if (recordedAt != null) 'recorded_at': recordedAt,
+      if (tripId != null) 'trip_id': tripId,
+      if (accuracyM != null) 'accuracy_m': accuracyM,
+      if (stepsSincePrev != null) 'steps_since_prev': stepsSincePrev,
+      if (state != null) 'state': state,
     });
   }
 
@@ -1228,6 +1415,10 @@ class RoutePointsCompanion extends UpdateCompanion<RoutePointRow> {
     Value<double>? lng,
     Value<String>? countryIso,
     Value<DateTime>? recordedAt,
+    Value<int?>? tripId,
+    Value<double?>? accuracyM,
+    Value<int?>? stepsSincePrev,
+    Value<String?>? state,
   }) {
     return RoutePointsCompanion(
       id: id ?? this.id,
@@ -1235,6 +1426,10 @@ class RoutePointsCompanion extends UpdateCompanion<RoutePointRow> {
       lng: lng ?? this.lng,
       countryIso: countryIso ?? this.countryIso,
       recordedAt: recordedAt ?? this.recordedAt,
+      tripId: tripId ?? this.tripId,
+      accuracyM: accuracyM ?? this.accuracyM,
+      stepsSincePrev: stepsSincePrev ?? this.stepsSincePrev,
+      state: state ?? this.state,
     );
   }
 
@@ -1256,6 +1451,18 @@ class RoutePointsCompanion extends UpdateCompanion<RoutePointRow> {
     if (recordedAt.present) {
       map['recorded_at'] = Variable<DateTime>(recordedAt.value);
     }
+    if (tripId.present) {
+      map['trip_id'] = Variable<int>(tripId.value);
+    }
+    if (accuracyM.present) {
+      map['accuracy_m'] = Variable<double>(accuracyM.value);
+    }
+    if (stepsSincePrev.present) {
+      map['steps_since_prev'] = Variable<int>(stepsSincePrev.value);
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(state.value);
+    }
     return map;
   }
 
@@ -1266,7 +1473,308 @@ class RoutePointsCompanion extends UpdateCompanion<RoutePointRow> {
           ..write('lat: $lat, ')
           ..write('lng: $lng, ')
           ..write('countryIso: $countryIso, ')
-          ..write('recordedAt: $recordedAt')
+          ..write('recordedAt: $recordedAt, ')
+          ..write('tripId: $tripId, ')
+          ..write('accuracyM: $accuracyM, ')
+          ..write('stepsSincePrev: $stepsSincePrev, ')
+          ..write('state: $state')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TripStillSpansTable extends TripStillSpans
+    with TableInfo<$TripStillSpansTable, TripStillSpanRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TripStillSpansTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _tripIdMeta = const VerificationMeta('tripId');
+  @override
+  late final GeneratedColumn<int> tripId = GeneratedColumn<int>(
+    'trip_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _startAtMeta = const VerificationMeta(
+    'startAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> startAt = GeneratedColumn<DateTime>(
+    'start_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _endAtMeta = const VerificationMeta('endAt');
+  @override
+  late final GeneratedColumn<DateTime> endAt = GeneratedColumn<DateTime>(
+    'end_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, tripId, startAt, endAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'trip_still_spans';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TripStillSpanRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('trip_id')) {
+      context.handle(
+        _tripIdMeta,
+        tripId.isAcceptableOrUnknown(data['trip_id']!, _tripIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_tripIdMeta);
+    }
+    if (data.containsKey('start_at')) {
+      context.handle(
+        _startAtMeta,
+        startAt.isAcceptableOrUnknown(data['start_at']!, _startAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_startAtMeta);
+    }
+    if (data.containsKey('end_at')) {
+      context.handle(
+        _endAtMeta,
+        endAt.isAcceptableOrUnknown(data['end_at']!, _endAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_endAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  TripStillSpanRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TripStillSpanRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      tripId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}trip_id'],
+      )!,
+      startAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}start_at'],
+      )!,
+      endAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}end_at'],
+      )!,
+    );
+  }
+
+  @override
+  $TripStillSpansTable createAlias(String alias) {
+    return $TripStillSpansTable(attachedDatabase, alias);
+  }
+}
+
+class TripStillSpanRow extends DataClass
+    implements Insertable<TripStillSpanRow> {
+  final int id;
+  final int tripId;
+  final DateTime startAt;
+  final DateTime endAt;
+  const TripStillSpanRow({
+    required this.id,
+    required this.tripId,
+    required this.startAt,
+    required this.endAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['trip_id'] = Variable<int>(tripId);
+    map['start_at'] = Variable<DateTime>(startAt);
+    map['end_at'] = Variable<DateTime>(endAt);
+    return map;
+  }
+
+  TripStillSpansCompanion toCompanion(bool nullToAbsent) {
+    return TripStillSpansCompanion(
+      id: Value(id),
+      tripId: Value(tripId),
+      startAt: Value(startAt),
+      endAt: Value(endAt),
+    );
+  }
+
+  factory TripStillSpanRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TripStillSpanRow(
+      id: serializer.fromJson<int>(json['id']),
+      tripId: serializer.fromJson<int>(json['tripId']),
+      startAt: serializer.fromJson<DateTime>(json['startAt']),
+      endAt: serializer.fromJson<DateTime>(json['endAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'tripId': serializer.toJson<int>(tripId),
+      'startAt': serializer.toJson<DateTime>(startAt),
+      'endAt': serializer.toJson<DateTime>(endAt),
+    };
+  }
+
+  TripStillSpanRow copyWith({
+    int? id,
+    int? tripId,
+    DateTime? startAt,
+    DateTime? endAt,
+  }) => TripStillSpanRow(
+    id: id ?? this.id,
+    tripId: tripId ?? this.tripId,
+    startAt: startAt ?? this.startAt,
+    endAt: endAt ?? this.endAt,
+  );
+  TripStillSpanRow copyWithCompanion(TripStillSpansCompanion data) {
+    return TripStillSpanRow(
+      id: data.id.present ? data.id.value : this.id,
+      tripId: data.tripId.present ? data.tripId.value : this.tripId,
+      startAt: data.startAt.present ? data.startAt.value : this.startAt,
+      endAt: data.endAt.present ? data.endAt.value : this.endAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TripStillSpanRow(')
+          ..write('id: $id, ')
+          ..write('tripId: $tripId, ')
+          ..write('startAt: $startAt, ')
+          ..write('endAt: $endAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, tripId, startAt, endAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TripStillSpanRow &&
+          other.id == this.id &&
+          other.tripId == this.tripId &&
+          other.startAt == this.startAt &&
+          other.endAt == this.endAt);
+}
+
+class TripStillSpansCompanion extends UpdateCompanion<TripStillSpanRow> {
+  final Value<int> id;
+  final Value<int> tripId;
+  final Value<DateTime> startAt;
+  final Value<DateTime> endAt;
+  const TripStillSpansCompanion({
+    this.id = const Value.absent(),
+    this.tripId = const Value.absent(),
+    this.startAt = const Value.absent(),
+    this.endAt = const Value.absent(),
+  });
+  TripStillSpansCompanion.insert({
+    this.id = const Value.absent(),
+    required int tripId,
+    required DateTime startAt,
+    required DateTime endAt,
+  }) : tripId = Value(tripId),
+       startAt = Value(startAt),
+       endAt = Value(endAt);
+  static Insertable<TripStillSpanRow> custom({
+    Expression<int>? id,
+    Expression<int>? tripId,
+    Expression<DateTime>? startAt,
+    Expression<DateTime>? endAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (tripId != null) 'trip_id': tripId,
+      if (startAt != null) 'start_at': startAt,
+      if (endAt != null) 'end_at': endAt,
+    });
+  }
+
+  TripStillSpansCompanion copyWith({
+    Value<int>? id,
+    Value<int>? tripId,
+    Value<DateTime>? startAt,
+    Value<DateTime>? endAt,
+  }) {
+    return TripStillSpansCompanion(
+      id: id ?? this.id,
+      tripId: tripId ?? this.tripId,
+      startAt: startAt ?? this.startAt,
+      endAt: endAt ?? this.endAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (tripId.present) {
+      map['trip_id'] = Variable<int>(tripId.value);
+    }
+    if (startAt.present) {
+      map['start_at'] = Variable<DateTime>(startAt.value);
+    }
+    if (endAt.present) {
+      map['end_at'] = Variable<DateTime>(endAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TripStillSpansCompanion(')
+          ..write('id: $id, ')
+          ..write('tripId: $tripId, ')
+          ..write('startAt: $startAt, ')
+          ..write('endAt: $endAt')
           ..write(')'))
         .toString();
   }
@@ -1278,6 +1786,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $CheckinsTable checkins = $CheckinsTable(this);
   late final $DailyStepsTable dailySteps = $DailyStepsTable(this);
   late final $RoutePointsTable routePoints = $RoutePointsTable(this);
+  late final $TripStillSpansTable tripStillSpans = $TripStillSpansTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -1286,6 +1795,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     checkins,
     dailySteps,
     routePoints,
+    tripStillSpans,
   ];
 }
 
@@ -1778,6 +2288,10 @@ typedef $$RoutePointsTableCreateCompanionBuilder =
       required double lng,
       required String countryIso,
       required DateTime recordedAt,
+      Value<int?> tripId,
+      Value<double?> accuracyM,
+      Value<int?> stepsSincePrev,
+      Value<String?> state,
     });
 typedef $$RoutePointsTableUpdateCompanionBuilder =
     RoutePointsCompanion Function({
@@ -1786,6 +2300,10 @@ typedef $$RoutePointsTableUpdateCompanionBuilder =
       Value<double> lng,
       Value<String> countryIso,
       Value<DateTime> recordedAt,
+      Value<int?> tripId,
+      Value<double?> accuracyM,
+      Value<int?> stepsSincePrev,
+      Value<String?> state,
     });
 
 class $$RoutePointsTableFilterComposer
@@ -1819,6 +2337,26 @@ class $$RoutePointsTableFilterComposer
 
   ColumnFilters<DateTime> get recordedAt => $composableBuilder(
     column: $table.recordedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get tripId => $composableBuilder(
+    column: $table.tripId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get accuracyM => $composableBuilder(
+    column: $table.accuracyM,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get stepsSincePrev => $composableBuilder(
+    column: $table.stepsSincePrev,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get state => $composableBuilder(
+    column: $table.state,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -1856,6 +2394,26 @@ class $$RoutePointsTableOrderingComposer
     column: $table.recordedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get tripId => $composableBuilder(
+    column: $table.tripId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get accuracyM => $composableBuilder(
+    column: $table.accuracyM,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get stepsSincePrev => $composableBuilder(
+    column: $table.stepsSincePrev,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get state => $composableBuilder(
+    column: $table.state,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$RoutePointsTableAnnotationComposer
@@ -1885,6 +2443,20 @@ class $$RoutePointsTableAnnotationComposer
     column: $table.recordedAt,
     builder: (column) => column,
   );
+
+  GeneratedColumn<int> get tripId =>
+      $composableBuilder(column: $table.tripId, builder: (column) => column);
+
+  GeneratedColumn<double> get accuracyM =>
+      $composableBuilder(column: $table.accuracyM, builder: (column) => column);
+
+  GeneratedColumn<int> get stepsSincePrev => $composableBuilder(
+    column: $table.stepsSincePrev,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get state =>
+      $composableBuilder(column: $table.state, builder: (column) => column);
 }
 
 class $$RoutePointsTableTableManager
@@ -1923,12 +2495,20 @@ class $$RoutePointsTableTableManager
                 Value<double> lng = const Value.absent(),
                 Value<String> countryIso = const Value.absent(),
                 Value<DateTime> recordedAt = const Value.absent(),
+                Value<int?> tripId = const Value.absent(),
+                Value<double?> accuracyM = const Value.absent(),
+                Value<int?> stepsSincePrev = const Value.absent(),
+                Value<String?> state = const Value.absent(),
               }) => RoutePointsCompanion(
                 id: id,
                 lat: lat,
                 lng: lng,
                 countryIso: countryIso,
                 recordedAt: recordedAt,
+                tripId: tripId,
+                accuracyM: accuracyM,
+                stepsSincePrev: stepsSincePrev,
+                state: state,
               ),
           createCompanionCallback:
               ({
@@ -1937,12 +2517,20 @@ class $$RoutePointsTableTableManager
                 required double lng,
                 required String countryIso,
                 required DateTime recordedAt,
+                Value<int?> tripId = const Value.absent(),
+                Value<double?> accuracyM = const Value.absent(),
+                Value<int?> stepsSincePrev = const Value.absent(),
+                Value<String?> state = const Value.absent(),
               }) => RoutePointsCompanion.insert(
                 id: id,
                 lat: lat,
                 lng: lng,
                 countryIso: countryIso,
                 recordedAt: recordedAt,
+                tripId: tripId,
+                accuracyM: accuracyM,
+                stepsSincePrev: stepsSincePrev,
+                state: state,
               ),
           withReferenceMapper: (p0) => p0
               .map(
@@ -1978,6 +2566,196 @@ typedef $$RoutePointsTableProcessedTableManager =
       RoutePointRow,
       PrefetchHooks Function()
     >;
+typedef $$TripStillSpansTableCreateCompanionBuilder =
+    TripStillSpansCompanion Function({
+      Value<int> id,
+      required int tripId,
+      required DateTime startAt,
+      required DateTime endAt,
+    });
+typedef $$TripStillSpansTableUpdateCompanionBuilder =
+    TripStillSpansCompanion Function({
+      Value<int> id,
+      Value<int> tripId,
+      Value<DateTime> startAt,
+      Value<DateTime> endAt,
+    });
+
+class $$TripStillSpansTableFilterComposer
+    extends Composer<_$AppDatabase, $TripStillSpansTable> {
+  $$TripStillSpansTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get tripId => $composableBuilder(
+    column: $table.tripId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get startAt => $composableBuilder(
+    column: $table.startAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get endAt => $composableBuilder(
+    column: $table.endAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$TripStillSpansTableOrderingComposer
+    extends Composer<_$AppDatabase, $TripStillSpansTable> {
+  $$TripStillSpansTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get tripId => $composableBuilder(
+    column: $table.tripId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get startAt => $composableBuilder(
+    column: $table.startAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get endAt => $composableBuilder(
+    column: $table.endAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TripStillSpansTableAnnotationComposer
+    extends Composer<_$AppDatabase, $TripStillSpansTable> {
+  $$TripStillSpansTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get tripId =>
+      $composableBuilder(column: $table.tripId, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get startAt =>
+      $composableBuilder(column: $table.startAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get endAt =>
+      $composableBuilder(column: $table.endAt, builder: (column) => column);
+}
+
+class $$TripStillSpansTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $TripStillSpansTable,
+          TripStillSpanRow,
+          $$TripStillSpansTableFilterComposer,
+          $$TripStillSpansTableOrderingComposer,
+          $$TripStillSpansTableAnnotationComposer,
+          $$TripStillSpansTableCreateCompanionBuilder,
+          $$TripStillSpansTableUpdateCompanionBuilder,
+          (
+            TripStillSpanRow,
+            BaseReferences<
+              _$AppDatabase,
+              $TripStillSpansTable,
+              TripStillSpanRow
+            >,
+          ),
+          TripStillSpanRow,
+          PrefetchHooks Function()
+        > {
+  $$TripStillSpansTableTableManager(
+    _$AppDatabase db,
+    $TripStillSpansTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TripStillSpansTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TripStillSpansTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TripStillSpansTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> tripId = const Value.absent(),
+                Value<DateTime> startAt = const Value.absent(),
+                Value<DateTime> endAt = const Value.absent(),
+              }) => TripStillSpansCompanion(
+                id: id,
+                tripId: tripId,
+                startAt: startAt,
+                endAt: endAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int tripId,
+                required DateTime startAt,
+                required DateTime endAt,
+              }) => TripStillSpansCompanion.insert(
+                id: id,
+                tripId: tripId,
+                startAt: startAt,
+                endAt: endAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$TripStillSpansTable, TripStillSpanRow>(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $TripStillSpansTable,
+                    TripStillSpanRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$TripStillSpansTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $TripStillSpansTable,
+      TripStillSpanRow,
+      $$TripStillSpansTableFilterComposer,
+      $$TripStillSpansTableOrderingComposer,
+      $$TripStillSpansTableAnnotationComposer,
+      $$TripStillSpansTableCreateCompanionBuilder,
+      $$TripStillSpansTableUpdateCompanionBuilder,
+      (
+        TripStillSpanRow,
+        BaseReferences<_$AppDatabase, $TripStillSpansTable, TripStillSpanRow>,
+      ),
+      TripStillSpanRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -1988,4 +2766,6 @@ class $AppDatabaseManager {
       $$DailyStepsTableTableManager(_db, _db.dailySteps);
   $$RoutePointsTableTableManager get routePoints =>
       $$RoutePointsTableTableManager(_db, _db.routePoints);
+  $$TripStillSpansTableTableManager get tripStillSpans =>
+      $$TripStillSpansTableTableManager(_db, _db.tripStillSpans);
 }

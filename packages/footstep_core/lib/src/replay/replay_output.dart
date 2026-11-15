@@ -16,6 +16,9 @@ abstract final class ReplaySchema {
   static const actionsFile = 'actions.csv';
   static const actionsHeader = ['t_ms', 'action', 'args'];
 
+  static const staysFile = 'stays.csv';
+  static const staysHeader = ['arrive_ms', 'leave_ms', 'lat', 'lng', 'n_points'];
+
   static const summaryFile = 'summary.json';
 }
 
@@ -41,6 +44,12 @@ Future<void> writeReplayOutput(ReplayResult result, Directory outDir) async {
   await File(p.join(outDir.path, ReplaySchema.actionsFile)).writeAsString(
     csv(ReplaySchema.actionsHeader, [
       for (final r in result.actions) [r.tMs, r.action.logName, r.action.logArgs],
+    ]),
+    flush: true,
+  );
+  await File(p.join(outDir.path, ReplaySchema.staysFile)).writeAsString(
+    csv(ReplaySchema.staysHeader, [
+      for (final s in result.stays) [s.arriveMs, s.leaveMs, s.lat, s.lng, s.nPoints],
     ]),
     flush: true,
   );

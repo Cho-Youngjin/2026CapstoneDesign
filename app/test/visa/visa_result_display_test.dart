@@ -184,5 +184,6 @@ void main() {
     expect(verdictChipOf(VisaVerdict.visaFreeExceeded), (label: '무비자 초과', tone: BadgeTone.warn));
     expect(verdictChipOf(VisaVerdict.visaRequired), (label: '비자 필요', tone: BadgeTone.warn));
     expect(verdictChipOf(VisaVerdict.unverified), (label: '확인 필요', tone: BadgeTone.neutral));
+    expect(verdictChipOf(VisaVerdict.domestic), (label: '국내', tone: BadgeTone.info));
   });
 }

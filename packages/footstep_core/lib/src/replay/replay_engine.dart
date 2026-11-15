@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../detectors/step_detector.dart';
+import '../detectors/step_timeline.dart';
 import '../events/policy_action.dart';
 import '../events/policy_event.dart';
 import '../geo.dart';
@@ -8,12 +9,14 @@ import '../model/fix.dart';
 import '../model/readings.dart';
 import '../policies/collection_policy.dart';
 import '../session/session_reader.dart';
+import '../stays/stay_detector.dart';
+import '../steps/step_run.dart';
 import 'accel_batches.dart';
 import 'replay_result.dart';
 
 /// 재생 설정(설계 5-4).
 class ReplayConfig {
-  const ReplayConfig({this.ttffMs = 0, this.accelBatchMs = 1000});
+  const ReplayConfig({this.ttffMs = 0, this.accelBatchMs = 1000, this.stays = const StayParams()});
 
   /// GPS를 켠 뒤 첫 위치가 나오기까지 걸린다고 가정하는 시간. 기록은 GPS가 계속 켜져 있던 값이라
   /// '켜자마자 위치가 나온다'고 가정하게 되는 약점을 0·5·10초로 바꿔 가며 줄인다.
@@ -21,6 +24,9 @@ class ReplayConfig {
 
   /// 가속도를 걸음 감지기에 넘기는 묶음 길이. 표본 간격은 기기마다 다르다(Galaxy S23은 약 10ms).
   final int accelBatchMs;
+
+  /// 재생이 끝난 뒤 남은 점으로 머문 곳을 묶는 설정(설계 5-6).
+  final StayParams stays;
 }
 
 /// 세션 기록으로 정책을 재생한다. 정책은 요청한 시각 이후의 정보만 받으므로 미래 정보를 쓸 수 없고,
@@ -37,6 +43,7 @@ ReplayResult replaySession(
   if (config.accelBatchMs <= 0) {
     throw ArgumentError('accelBatchMs는 양수여야 합니다: ${config.accelBatchMs}');
   }
+  config.stays.check();
   return _Replay(data, policy, detector, config).run();
 }
 
@@ -109,6 +116,9 @@ class _Replay {
   final _fixes = <FixRecord>[];
   final _actions = <ActionRecord>[];
 
+  /// 걸음 감지기 상태가 바뀐 순간들. 머문 곳 묶기가 정지 구간으로 쓴다(걸음 CLI의 step_states.csv와 같은 규칙).
+  final _stepStates = <StateChange>[];
+
   /// 예약 사건. 시각순으로 유지하고, 같은 시각은 예약한 순서대로 둔다.
   final _scheduled = <_Scheduled>[];
 
@@ -160,9 +170,16 @@ class _Replay {
     final pending = _pendingFix;
     if (pending != null) _gpsOnMs += end - pending.requestMs;
 
+    final fixes = _recountSteps(_fixes);
+    final stays = detectStays(
+      [for (final record in fixes) record.fix],
+      stillSpans: stillSpans(_stepStates, end),
+      params: config.stays,
+    );
     return ReplayResult(
-      fixes: List.unmodifiable(_fixes),
+      fixes: List.unmodifiable(fixes),
       actions: List.unmodifiable(_actions),
+      stays: List.unmodifiable(stays),
       summary: ReplaySummary(
         sessionId: data.sessionId,
         policyId: policy.id,
@@ -177,6 +194,8 @@ class _Replay {
         fixFailures: _fixFailures,
         continuousFixes: _continuousFixes,
         gpsOnMs: _gpsOnMs,
+        stayParams: config.stays.params,
+        stayCount: stays.length,
       ),
     );
   }
@@ -281,8 +300,40 @@ class _Replay {
     return detector.state.name;
   }
 
+  /// fixes.csv의 steps_since_prev를 걸음 시각으로 다시 센다: 직전 측위 시각 이상 ~ 이 측위 시각 미만의 걸음 수.
+  ///
+  /// 정책에 알린 stepsSinceLastFix는 그 순간까지 센 걸음뿐이다. 제안판 감지기는 연속 5걸음을 확인한 뒤 앞선 걸음을
+  /// 소급해 세므로, 걷기 시작하고 몇 초 안에 측위하면 그 앞 걸음은 측위 이전 몫으로 늦게 셈해져 어느 행에도
+  /// 남지 않았다. 정책은 미래를 보면 안 되므로 그대로 두고, 결과 파일만 재생이 끝난 뒤 바로잡는다. 걸음 시각을
+  /// 모르는 감지기는 알린 값을 그대로 쓴다.
+  List<FixRecord> _recountSteps(List<FixRecord> fixes) {
+    if (detector case final StepTimeline timeline) {
+      final times = timeline.takeStepTimes()..sort();
+      final recounted = <FixRecord>[];
+      var next = 0;
+      for (final record in fixes) {
+        final from = next;
+        while (next < times.length && times[next] < record.tMs) {
+          next++;
+        }
+        recounted.add(FixRecord(
+          fix: record.fix,
+          stepsSincePrev: next - from,
+          state: record.state,
+          kind: record.kind,
+        ));
+      }
+      return recounted;
+    }
+    return fixes;
+  }
+
   void _deliverStep(StepUpdate? update) {
-    if (update != null) _deliver(update);
+    if (update == null) return;
+    if (_stepStates.isEmpty || _stepStates.last.state != update.state) {
+      _stepStates.add(StateChange(tMs: update.tMs, state: update.state, cadenceHz: update.cadenceHz));
+    }
+    _deliver(update);
   }
 
   void _deliver(PolicyEvent event) => _apply(policy.onEvent(event, _ctx()));

@@ -1,5 +1,6 @@
 import '../events/policy_action.dart';
 import '../model/fix.dart';
+import '../stays/stay_detector.dart';
 
 /// 정책에 알린 위치 하나(fixes.csv의 행).
 class FixRecord {
@@ -48,6 +49,8 @@ class ReplaySummary {
     required this.fixFailures,
     required this.continuousFixes,
     required this.gpsOnMs,
+    this.stayParams = const {},
+    this.stayCount = 0,
   });
 
   final String sessionId;
@@ -67,6 +70,10 @@ class ReplaySummary {
 
   /// 추정 GPS 켜짐 시간. 단발은 요청~응답, 연속은 켠 때~끈 때.
   final int gpsOnMs;
+
+  /// 머문 곳 묶기 설정(StayParams.params)과 찾은 머문 곳 수.
+  final Map<String, Object> stayParams;
+  final int stayCount;
 
   int get durationMs => endMs - startMs;
 
@@ -91,13 +98,23 @@ class ReplaySummary {
         'total_fixes': totalFixes,
         'gps_on_s': gpsOnMs / 1000,
         'fixes_per_hour': fixesPerHour,
+        'stay_params': stayParams,
+        'stays': stayCount,
       };
 }
 
 class ReplayResult {
-  const ReplayResult({required this.fixes, required this.actions, required this.summary});
+  const ReplayResult({
+    required this.fixes,
+    required this.actions,
+    this.stays = const [],
+    required this.summary,
+  });
 
   final List<FixRecord> fixes;
   final List<ActionRecord> actions;
+
+  /// 남은 점으로 묶은 머문 곳(stays.csv).
+  final List<Stay> stays;
   final ReplaySummary summary;
 }
