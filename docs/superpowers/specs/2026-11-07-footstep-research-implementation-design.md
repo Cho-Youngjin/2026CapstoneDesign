@@ -216,6 +216,7 @@ abstract class StepDetector {
 | `fixed_30s` · `fixed_1m` · `fixed_5m` | 고정 주기 `RequestFix` | R2 |
 | `speed_adaptive` | Galeana-Zapién 외(2014): 마지막 측위 속도 구간에 따라 다음 간격을 정한다 | R2 |
 | `time_speed` | EnTracked·RAPS: `마지막 오차 + 속도 × 경과 시간 > E`가 되는 시각에 측위 | R2 |
+| `time_speed_still` | `time_speed` + EnTracked의 멈춤 감지(걸음 감지기가 정지면 측위를 미루고, 움직이면 바로 측위). EnTracked 원문을 확인한 뒤 공정한 비교를 위해 더했다 | R7 뒤 |
 | `still_suppress` | Zhuang 외(2010): 1분마다 상태를 확인해 측위하되, 직전·이번 확인이 모두 정지면 건너뛴다. 억제 중에도 5분마다 확인 측위를 한다(원문 3.2절, 주기는 원문에 없어 step_budget과 맞춤) | R2(R4에서 원문대로 고침) |
 | `activity_gated` | 상용 방식: 활동 인식이 `STILL`이면 `StopContinuous`, 움직임이면 `StartContinuous(10m)` | R2 |
 | `step_budget` | 제안 (아래) | R4 |
@@ -227,15 +228,16 @@ abstract class StepDetector {
 | 보행 | `마지막 측위 오차 + stepsSinceLastFix × 보폭 > E`이면 `RequestFix`. 단, 마지막 측위 뒤 5초 안에는 다시 재지 않는다(오차만으로 E를 넘는 빌딩 숲·실내에서 연속 측위가 되지 않게, time_speed와 같은 최소 간격). |
 | 정지 | 정지가 30초 이어지면 한 번 측위하고(머문 곳 위치) 이후 측위하지 않는다. 대신 5분마다 확인 측위를 해, 머문 곳에서 벗어났으면(걸음 없이 움직이는 버스) 탈것 상태로 바꾼다. |
 | 기타 움직임 | 30초 이어지면 30초 간격 확인 측위 두 번으로 속도를 본다. 두 위치가 두 오차의 합보다 멀고 시속 12km 이상이면 탈것 상태로 보고 `time_speed` 규칙으로 측위한다(속도 하한 시속 12km). 탈것에서 잠깐 정지(빨간불·정류장)는 탈것 그대로이고, 감지기 정지와 측위상 한 자리(마지막으로 움직인 측위의 두 오차 안)가 둘 다 2분 넘게 이어질 때만 정지로 바꾼다(GPS가 오차보다 크게 흔들려도 E 안에 5분 머물면 정지). 느리면 정지처럼 5분마다 확인한다. 걸음이 다시 나오면 보행으로 돌아간다. |
+| 걸음으로 설명되지 않는 이동 | 탈것이 아니면 측위마다(까닭과 상관없이) 마지막 좋은 측위(오차 ≤ E와 50m 중 작은 값)와 견준다. 그곳에서 벗어났고(E와 두 오차의 합 중 큰 것보다 멀다) 그사이 걸은 거리(걸음 수 × 보폭)보다도 E 넘게 멀면 탈것 상태로 바꾼다. 그보다 오차가 큰 측위(GPS 튐)는 견주지도 기준이 되지도 않지만 걸음은 이어 모은다(50m는 서버 경로 복원·날짜별 보기가 버리는 기준과 같다). 매끄러운 버스에서는 감지기가 정지·보행(0걸음)을 오가며 머문 곳을 거듭 새로 잡아 5분 확인이 돌지 않았다(2026-11-15 실기기). |
 | 측위 실패 반복 | 시도 간격을 30초 → 1분 → 2분 → 최대 5분으로 늘린다 (지하철·실내) |
 | 배터리 20% 미만 | E를 2배로 키운다 |
 
 상태가 30초 이어져야 그 상태로 측위하는 이유: 폰을 만지는 동안 걸음 감지기 상태가 몇 초 단위로 바뀌어, 바뀔 때마다 재면 실제 세션 첫 1분에만 15번을 쟀다(R4 설계 검증).
 
 절제 실험용 스위치:
-- `useSteps=false`: 걸음 수 대신 경과 시간 × 1.4m/s로 계산
+- `useSteps=false`: 걸음 수 대신 경과 시간 × 1.4m/s로 계산(걸음으로 설명되지 않는 이동의 걸은 거리도)
 - `suppressStill=false`: 정지 억제 끄기(정지와, 정지처럼 다루는 기타 움직임 모두)
-- `vehicleProbe=false`: 탈것 확인 측위 끄기
+- `vehicleProbe=false`: 탈것 확인 측위와 걸음으로 설명되지 않는 이동 판정 끄기(정지의 5분 확인은 그대로)
 
 ### 5-4. 재생 실행기 (R2)
 
@@ -249,7 +251,7 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 - `RequestFix`가 시각 t에 오면 `t + ttff` 이후의 첫 `gps.csv` 행을 돌려준다. 제한 시간(15초) 안에 행이 없으면 실패다. 정책은 요청한 시각 이후의 정보만 받으므로 **미래 정보를 쓸 수 없다.**
 - `StartContinuous`는 그 뒤의 `gps.csv` 행을 간격·거리 필터에 맞춰 흘려보낸다.
 - 출력:
-  - `fixes.csv`: `t_ms,lat,lng,accuracy_m,steps_since_prev,state,kind(single|continuous)` — `state`는 측위 시점의 정책 상태(`still`·`walking`·`otherMotion`·`vehicle`)다. `vehicle`은 정책이 판단한 상태라 걸음 감지기 출력에는 없다.
+  - `fixes.csv`: `t_ms,lat,lng,accuracy_m,steps_since_prev,state,kind(single|continuous)` — `state`는 측위 시점의 정책 상태(`still`·`walking`·`otherMotion`·`vehicle`)다. `vehicle`은 정책이 판단한 상태라 걸음 감지기 출력에는 없다. `steps_since_prev`는 재생이 끝난 뒤 걸음 시각으로 다시 센다(직전 측위 시각 이상 ~ 이 측위 시각 미만). 정책이 받은 값은 그 순간까지 센 걸음뿐이라, 제안판 감지기가 연속 5걸음 확인 뒤 소급해 센 걸음이 빠졌다(R5에서 고침).
   - `actions.csv`: `t_ms,action,args`
   - `stays.csv`: 5-6
   - `summary.json`: 측위 횟수, 추정 GPS 켜짐 시간(단발 측위는 ttff + 응답 지연, 연속 측위는 켜진 시간), 정책 id와 파라미터
@@ -270,10 +272,16 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 
 ### 5-6. 머문 곳 묶기 (모듈 C-1, R5에서 구현, 패키지에 위치)
 
-- Li 외(2008): 연속한 점들이 반경 R(기본 100m) 안에 T(기본 10분) 이상 머물면 머문 곳 하나로 묶는다. 결과는 중심, 도착 시각, 출발 시각, 점 수다.
+- Li 외(2008): 연속한 점들이 반경 R(기본 100m) 안에 T(기본 10분) 이상 머물면 머문 곳 하나로 묶는다. 결과는 중심, 도착 시각, 출발 시각, 점 수다. 반경은 무리의 첫 점에서 잰다(원문 정의). 기록 끝까지 머문 무리도 머문 곳이다.
 - 제안: 걸음 감지기가 낸 정지 구간 시작·끝을 도착·출발 시각으로 쓴다. 점이 드물어도 머문 시간을 알 수 있다.
-- 비교·절제: 점만으로 묶는 방식(`useStillIntervals=false`)
-- 출력 `stays.csv`: `arrive_ms,leave_ms,lat,lng,n_points`
+  - 무리 안에서 정지 구간에 든 첫 점의 구간 시작이 도착, 마지막 점의 구간 끝이 출발이다. 걸어 들어오거나 떠나며 반경 안에 찍힌 점은 머문 시간과 중심에서 뺀다.
+  - 정지 구간이 이웃 점보다 먼저 시작하거나 늦게 끝나면 걸음 없이 옮겨 온 것(OS 센서판의 버스)이라 그쪽은 점 시각을 쓴다.
+  - 정지 구간 안의 점이 없으면 Li 외(2008) 그대로다.
+  - 실내에서 조금씩 움직이면 감지기가 정지를 짧게 끊고 GPS도 실패하므로(실기기 2026-11-15: 24분 체류가 13분으로 나왔다), 출발은 마지막 점의 정지 구간 뒤로 `still_gap_s`(기본 60초) 이내 간격으로 이어진 정지 구간들의 끝까지 늦추고 도착도 같은 방식으로 앞당긴다. 무리 밖 이웃 점(출발은 뒤, 도착은 앞)의 시각을 넘거나 가로지르는 구간은 잇지 않고, 무리 안이지만 정지 구간 밖인 점은 이어 붙이기를 끊지 않는다.
+  - 재생기는 정책을 돌린 같은 감지기의 상태 변화(`step_states.csv`와 같은 규칙)로 정지 구간을 만든다.
+- 비교·절제: 점만으로 묶는 방식(`useStillIntervals=false`, CLI `--stay-param use_still=false`)(이어 붙이기도 꺼진다)
+- 출력 `stays.csv`: `arrive_ms,leave_ms,lat,lng,n_points`. `summary.json`에 `stay_params`와 `stays`(개수)를 더한다.
+- R5 설계 검증: 실제 세션 `fixed_5m` 재생에서 점만으로는 걷던 점 하나와 실내 점 두 개가 딱 10분으로 묶였다(정지 구간으로 재면 6분이라 머문 곳이 아니다). 처음에는 무리의 첫·끝 점이 정지 구간에 있을 때만 늘렸는데, 이 경우를 걸러 내지 못해 위 규칙으로 바꿨다.
 
 ### 5-7. 테스트
 
@@ -301,8 +309,9 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 }
 ```
 
-- `state`: `still` · `walking` · `otherMotion` · `vehicle`. `stepsSincePrev`는 모를 때 null.
-- 한 요청의 점은 최대 2000개(하루치 드문 점 기준)다. 대상 국가는 KR 고정이다.
+- `state`: `still` · `walking` · `otherMotion` · `vehicle` · `unknown`(step_budget 시작 직후). `stepsSincePrev`·`accuracy`·`state`는 모를 때 null.
+- 한 요청의 점은 최대 2000개(하루치 드문 점 기준), 머문 곳은 최대 500개다. 대상 국가는 KR 고정이다.
+- `method`를 빼면 앱 기본값 `osrm_match_radius`다. `hmm`(선택)은 `hmm_steps` 조정값 `{betaM, sigmaMinM, strideM, useSteps}`이고, 빠진 값은 기본값(10, 5, 0.75, true)이다.
 
 응답:
 
@@ -315,14 +324,15 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 }
 ```
 
-- `kind`: `walk` · `vehicle` · `estimated`. `estimated`는 GPS가 없던 구간(지하철 등)을 최단경로로 이은 것이다.
-- OSRM이 꺼져 있거나 매칭에 실패하면 해당 구간을 `straight`로 대신 채운다. 응답 구간에는 `fallback: true`를 붙인다.
+- `kind`: `walk` · `vehicle` · `estimated`. `estimated`는 GPS가 없던 구간(지하철 등)을 최단경로로 이은 것이다. 점 사이의 종류는 도착하는 점의 `state`로 정한다(`vehicle`이면 탈것, 그 밖은 도보).
+- OSRM이 꺼져 있거나 매칭에 실패하면 해당 구간을 `straight`로 대신 채운다. 응답 구간에는 `fallback: true`를 붙인다. `fallback`은 모든 구간에 늘 있다(성공이면 false).
+- 점이 하나뿐이면 좌표 하나짜리 `walk` 구간 하나, 없으면 빈 목록이다.
 
 ### 6-2. 처리 순서
 
-1. 머문 곳 시간 범위 안의 점을 그 머문 곳 중심 하나로 바꾼다.
-2. 측위 실패나 걸음 없는 10분 이상의 공백에서 구간을 자른다. 공백 양 끝은 `/route`로 잇고 `estimated`로 표시한다.
-3. 남은 구간마다 `method`로 잇는다.
+1. 머문 곳 시간 범위 안의 점을 그 머문 곳 중심 하나로 바꾼다. 중심은 [도착, 출발]을 차지하고, 그 안에 처음 든 점의 `stepsSincePrev`·`state`를 이어받는다. 안에 든 점이 없어도 중심을 넣는다.
+2. 측위 실패나 걸음 없는 10분 이상의 공백에서 구간을 자른다. 공백은 앞 점(머문 곳이면 출발 시각)에서 다음 점까지로 잰다 — 머문 시간 자체는 공백이 아니다. 공백 양 끝은 `/route`로 잇고 `estimated`로 표시한다.
+3. 남은 구간을 도보·탈것으로 나눠 `method`로 잇는다.
 
 | method | 내용 |
 |---|---|
@@ -334,20 +344,23 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 
 ### 6-3. `hmm_steps` (Newson & Krumm 틀 + 걸음 거리 전이)
 
-- 후보: 점마다 `/nearest?number=5`로 반경 안의 도로 위 점 최대 5개
+- 후보: 점마다 `/nearest?number=5`로 반경 200m(Newson & Krumm 3.1절) 안의 도로 위 점 최대 5개. 1m 안의 같은 위치(양방향 도로)는 하나로 본다.
 - 방사 확률: 점과 후보 사이 거리의 가우시안. σ는 그 점의 정확도(최소 5m)
 - 전이 확률: `exp(-|도로 경로거리 − 걸은 거리| / β)`
   - 걸은 거리 = `stepsSincePrev × 0.75m`
-  - 걸음 정보가 없으면(탈것 등) 두 점의 직선거리로 대신한다 (Newson & Krumm 원래 식)
+  - 걸음 정보가 없으면(탈것 등) 두 점의 직선거리로 대신한다 (Newson & Krumm 원래 식). `state`가 `vehicle`이어도 직선거리다.
   - 도로 경로거리는 연속한 두 점의 후보 쌍에 대해 `/table`로 한 번에 구한다
+  - 차이가 2000m 이상이면 불가능한 전이다(원문 4.2절, OSRM `MAX_DISTANCE_DELTA`)
 - 비터비로 가장 그럴듯한 후보 순서를 고르고, 고른 후보 사이를 `/route`로 이어 좌표를 만든다.
-- β와 σ 하한은 예비용 세션으로 정한다.
+- 후보가 없는 점이나 모든 전이가 불가능한 곳에서 사슬이 끊긴다. 원문은 끊긴 곳 양옆 점을 지워 가며 다시 잇지만, 여기서는 끊긴 곳만 직선(`fallback: true`)으로 잇고 양쪽을 따로 매칭한다.
+- β와 σ 하한은 예비용 세션으로 정한다. 조정 전 기본값은 β 10m(OSRM 자체 맵 매칭의 `MATCHING_BETA`와 같아 `osrm_match_radius`와 같은 β로 견준다), σ 하한 5m다. 요청의 `hmm`으로 바꿀 수 있어 서버를 다시 빌드하지 않고 격자 탐색한다(R6: β ∈ {2, 5, 10, 20, 50}, σ 하한 ∈ {3, 5, 10}, 경로 오차 P95 최소). Newson & Krumm은 정답 경로에서 β = median|직선거리 − 도로 경로거리| / ln 2로 추정했고(식 6), 성능을 최대로 하는 값 찾기는 후속 과제로 남겼다.
 - 비교·절제: `hmm_steps`에서 걸은 거리 대신 직선거리를 쓰면 기본 HMM이 된다(`useSteps=false`).
 
 ### 6-4. 구현 위치와 테스트
 
-- `server/.../route/`에 `ReconstructController`, `RouteReconstructionService`, 방법별 `Reconstructor` 구현을 둔다.
-- 기존 `OsrmClient`에 `nearest`(후보 여러 개), `table`, `match`(반경·시각 옵션)를 추가한다.
+- `server/.../route/`에 `ReconstructController`, `RouteReconstructionService`, 방법별 `Reconstructor` 구현을 둔다. `Reconstructor`는 서비스만 쓰는 보통 객체라 빈으로 만들지 않고 서비스 생성자에서 만든다.
+- 기존 `OsrmClient`에 `nearestCandidates`(후보 여러 개), `table`, `match`(반경·시각 옵션)를 default 메서드로 추가한다(기본 구현은 빈 결과 = 지원 안 함). 기존 `nearest`·`route`·`match`와 `/snap`·해외 매핑의 동작은 그대로다.
+- 인증은 다른 `/api/**`와 같다(Firebase 토큰). R6 분석은 서버를 `local` 프로필로 띄워 더미 토큰 `dev-fake-token`으로 부른다(`docs/research/route-guide.md`).
 - 서버 프로덕션 코드는 CLAUDE.md의 Spring 학습용 주석 규칙을 따른다.
 - 테스트:
   - 가짜 `OsrmClient`와 격자 도로 합성 예제로 HMM이 정답 후보를 고르는지 확인한다.
@@ -364,6 +377,10 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
   1. 재생 CLI
   2. 로컬 서버 복원 호출(`local` 프로필, 로컬 OSRM)
   3. 지표 계산과 `research/results/` 저장
+- 실행은 `research/`에서 `.venv/Scripts/python -m analysis.run --config experiments.yaml`(가상환경·옵션은 `docs/research/analysis-guide.md`). 재생 결과와 서버 응답은 `research/results/`에 캐시한다.
+- 서버에 연결하지 못하면 복원을 건너뛰고, 서버는 떴는데 OSRM이 없어 모든 구간이 직선 대체면 그 방법의 지표를 내지 않는다(`skipped.csv`). 서버 없이도 남은 점을 직선으로 이은 `local_straight` 지표는 늘 나온다.
+- `sessions.yaml`의 용도는 `pilot`·`eval`·`battery`(배터리 실험 회차, 방식은 meta.json의 policy) 셋이다.
+- β·σ 하한 격자(6-3)는 `python -m analysis.tune`이 pilot 세션만으로 고른다(세션 평균 P95 최소, 같으면 작은 값).
 
 ### 7-2. 지표
 
@@ -374,6 +391,13 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 | 걸음 감지 | 걸음 수 오차(%), 탈것 구간의 가짜 걸음 수, 보행 판정 정밀도·재현율, 첫 걸음까지 지연 | `count_start`~`count_end`의 센 걸음 수, 탑승 구간 = 0걸음, 머문 곳·탈것 밖 = 보행 |
 | 배터리 | 시간당 mAh = 전하량 변화 ÷ 시간. 방식마다 3회 이상, 평균 ± 표준편차. GPS 사용 시간 | `battery.csv`, `dumpsys batterystats` 출력 파싱 |
 | (선택) 위치공유 | 메시지 수와 받는 쪽 위치 오차: 현재 5초 고정 ↔ "상태 변화, 20m 이상 이동, 60초 경과 중 하나면 전송" | 1초 GPS |
+
+R6에서 정한 세부 규칙:
+- 경로 오차는 정답 점마다 복원 경로 전체까지 가장 가까운 거리다(시간 순서는 보지 않는다). 정답 이동거리는 마지막으로 센 점에서 10m 이상 벗어난 점만 이어 잰다(서 있는 동안의 흔들림 제외).
+- 머문 곳의 "50% 이상 겹침"은 두 머문 곳 **각각**의 50%다(하루를 덮는 머문 곳 하나가 정답 여럿과 맞는 것을 막는다). 정답은 arrive~depart 중 10분 이상, 일대일로 짝짓는다.
+- 첫 걸음까지 지연은 걸음 세기 구간의 count_start에서 첫 감지 걸음까지다.
+- 배터리는 가장 길게 이어진 충전기 분리 구간에서 전하량 계단이 처음·마지막으로 바뀐 행 사이로 잰다(계단 3.7mAh 양자화 오차를 줄인다). 전류 평균(기종별 단위)과 batterystats `Sensor GPS` 시간(최선 노력)을 함께 낸다.
+- (선택) 위치공유 전송량은 R6 범위에서 뺐다. 필요하면 같은 1초 GPS로 함수 하나를 더한다.
 
 ### 7-3. 그래프
 
@@ -420,7 +444,7 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 - **서버:**
   - `countryIso2 = "KR"`이면 비자 판정을 건너뛴다. `verdict = "DOMESTIC"`으로 저장하고, 일정·준비물은 만들지 않는다.
   - refresh는 아무것도 하지 않고 현재 값을 돌려준다.
-  - `passportExpiry`는 null을 허용한다(`V15` 마이그레이션, `CreateTripRequest`의 `@NotNull` 해제). KR이 아닌 여행은 여전히 필수로 검증한다.
+  - `passportExpiry`는 null을 허용한다(`V17` 마이그레이션, `CreateTripRequest`의 `@NotNull` 해제). KR이 아닌 여행은 여전히 필수로 검증한다.
   - 국가 목록 API(`/api/countries`)는 바꾸지 않는다.
 
 ### 9-2. 여행 기간 기록
@@ -463,6 +487,31 @@ dart run footstep_core:replay --session <dir> --policy <id> [--param k=v ...]
 - 서버: KR 여행 생성 시 `DOMESTIC`과 일정·준비물 0개, KR이 아닌 여행의 여권 만료일 필수 검증, KR refresh가 아무것도 하지 않는지
 - 앱 단위: `shouldRecord`의 날짜 경계(출발일 0시, 귀국일 23:59, 다음 날 0시), 일시정지, 겹치는 여행
 - 앱 위젯: 국내 여행 상세의 섹션 숨김, 날짜별 묶음, 복원 실패 시 직선 표시
+
+### 9-6. R7에서 정한 세부 규칙
+
+구현 계획 `docs/superpowers/plans/2026-11-12-research-r7-trip.md`에서 정한 것이다. 안내는 `docs/research/trip-recording-guide.md`다.
+- 국내 여행
+  - V17가 country 표에 본국(KR) 행을 넣는다(여행의 외래 키). 목적지 목록 API와 일일 수집은 그 행을 건너뛴다.
+  - 국내 여행은 여권 만료일을 보내도 저장하지 않는다. `DOMESTIC`은 서버·앱 `VisaVerdict` 둘 다에 있다.
+  - 준비물 탭은 국내 여행을 고르지 않는다(체크리스트·지갑이 없다).
+- `shouldRecord`는 기록할 여행 하나를 돌려준다. 겹치면 가장 늦게 출발한 여행, 같으면 id가 큰 여행이다.
+- 기록 서비스
+  - 실험 모드와 같은 포그라운드 서비스·알림 채널에 TaskHandler만 다르게 붙인다. 실험 세션이 돌고 있으면 여행 기록은 켜지도 끄지도 않는다.
+  - 정책은 `step_budget` E = 50m에 `adaptive` 감지기다(`tripPolicyChoice` 하나로 바꾼다). 점의 국가는 세계지도 폴리곤으로 가리고, 모르면 여행의 나라다.
+  - 5초마다 날짜를, 1분마다 저장소(지워졌는지·일시정지인지)를 다시 본다.
+- 걸음 감지기의 정지 구간을 `trip_still_spans`(스키마 3)에 남긴다. 날짜별 보기의 머문 곳도 5-6의 제안 방식으로 묶는다.
+- 권한
+  - 기록 서비스는 위치(앱 사용 중) 권한만 있으면 켠다.
+  - 배너는 백그라운드 위치·활동 인식·알림 중 하나라도 없으면 뜬다.
+- 출발일 알림은 서울 시각 08:00이다. 일시정지한 여행에는 만들지 않는다. WorkManager 체크인도 일시정지한 여행에서는 하지 않는다.
+- 정리(PR #32의 알람 주인과 같은 방식)
+  - 로그아웃은 기록을 끄고 일정·알림만 비운다(좌표는 남긴다).
+  - 다른 계정이 로그인하면 이전 여행 좌표를 모두 지운다.
+- 날짜별 보기
+  - 그날 걸음 = 그날 점의 `steps_since_prev` 합, 이동 거리 = 그린 경로 길이다.
+  - 점이 2000개를 넘으면 점 하나를 겹쳐 나눠 복원한다. 밤을 넘긴 숙소는 두 날 모두 실제 도착·출발 시각으로 보인다.
+- 한계: 재부팅 뒤에는 앱을 열어야 다시 켜진다. 시스템이 서비스를 다시 띄우면 정책이 처음부터 돈다. 해외 여행은 한국 OSRM만 있어 직선으로 그린다.
 
 ## 10. 위험과 대응
 

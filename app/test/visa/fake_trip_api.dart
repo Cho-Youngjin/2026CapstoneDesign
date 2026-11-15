@@ -84,7 +84,7 @@ class FakeTripApi implements TripApi {
   final int? getChecklistStatusCode;
   final int? checkItemStatusCode;
 
-  final List<Map<String, Object>> createTripCalls = [];
+  final List<Map<String, Object?>> createTripCalls = [];
   final List<int> getTripCalls = [];
   final List<int> refreshTripCalls = [];
   final List<({int tripId, int taskId})> markTaskDoneCalls = [];
@@ -99,7 +99,7 @@ class FakeTripApi implements TripApi {
     required String countryIso2,
     required DateTime departDate,
     required DateTime returnDate,
-    required DateTime passportExpiry,
+    DateTime? passportExpiry,
   }) async {
     createTripCalls.add({
       'countryIso2': countryIso2,

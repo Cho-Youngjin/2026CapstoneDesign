@@ -24,6 +24,17 @@ class ParamReader {
     return value;
   }
 
+  /// 0도 받는 수(0이면 끄는 뜻인 설정). 음수·NaN·무한대는 ArgumentError다.
+  double nonNegative(String key, double fallback) {
+    final raw = params[key];
+    if (raw == null) return fallback;
+    final value = double.tryParse(raw);
+    if (value == null || !value.isFinite || value < 0) {
+      throw ArgumentError('$key는 0 이상이어야 합니다: $raw');
+    }
+    return value;
+  }
+
   int positiveInt(String key, int fallback) {
     final raw = params[key];
     if (raw == null) return fallback;

@@ -31,5 +31,6 @@ export 'src/runner/runner_ports.dart';
 export 'src/session/csv.dart';
 export 'src/session/session_reader.dart';
 export 'src/session/session_schema.dart';
+export 'src/stays/stay_detector.dart';
 export 'src/steps/step_run.dart';
 export 'src/steps/steps_output.dart';

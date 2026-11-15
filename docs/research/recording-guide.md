@@ -49,4 +49,4 @@
 ## 5. 주의
 
 - 세션 데이터에는 실제 이동 경로가 들어 있다. **git에 올리지 않는다**(`research/data/`는 .gitignore 대상). 팀 드라이브로만 공유한다.
-- `research/sessions.yaml`에 세션 id, 코스, 휴대 위치, 용도(pilot/eval)를 적는다(R6에서 만든다).
+- `research/sessions.yaml`에 세션 id, 코스, 휴대 위치, 용도(pilot/eval/battery)를 적는다. 분석 실행은 `docs/research/analysis-guide.md`.

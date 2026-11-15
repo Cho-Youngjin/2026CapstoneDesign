@@ -46,5 +46,8 @@ Future<SessionRecorder> openSessionRecorder(
         scheduler: TimerWakeScheduler(clock: clock),
         needs: PolicySensorNeeds.of(choice),
       );
+    case RecordingMode.trip:
+      // 여행 기록은 세션 파일 없이 앱 DB에 쓴다 — TripRecordingTaskHandler가 TripRecorder를 직접 연다.
+      throw StateError('여행 기록 모드는 실험 세션 기록기로 열지 않습니다.');
   }
 }

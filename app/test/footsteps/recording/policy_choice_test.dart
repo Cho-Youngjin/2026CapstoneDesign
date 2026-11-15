@@ -41,6 +41,10 @@ void main() {
     expect((adaptive.accel, adaptive.osSteps, adaptive.activity), (true, false, false));
     final os = needs('still_suppress', 'os');
     expect((os.accel, os.osSteps, os.activity), (false, true, false));
+    final gatedTimeSpeed = needs('time_speed_still', 'adaptive'); // EnTracked처럼 멈춤을 걸음 감지기로 본다
+    expect((gatedTimeSpeed.accel, gatedTimeSpeed.osSteps, gatedTimeSpeed.activity), (true, false, false));
+    final plainTimeSpeed = needs('time_speed', 'adaptive');
+    expect((plainTimeSpeed.accel, plainTimeSpeed.osSteps, plainTimeSpeed.activity), (false, false, false));
     final fixed = needs('fixed_1m', 'adaptive');
     expect((fixed.accel, fixed.osSteps, fixed.activity), (false, false, false));
     final gated = needs('activity_gated', 'os');

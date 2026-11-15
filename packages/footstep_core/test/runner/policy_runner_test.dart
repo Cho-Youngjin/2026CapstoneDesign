@@ -259,6 +259,33 @@ void main() {
     expect(updates.single.state, StepState.still);
   });
 
+  test('걸음 감지기의 StepUpdate를 정책보다 먼저 onStepUpdate로 알리고, 그 오류로 수집을 멈추지 않는다', () {
+    final policy = _Scripted();
+    final seen = <String>[];
+    final r = PolicyRunner(
+      policy: policy,
+      detector: OsStepDetector(),
+      location: location,
+      scheduler: scheduler,
+      clock: () => now,
+      sink: sink,
+      onError: (error, _) => errors.add(error),
+      onStepUpdate: (update) {
+        seen.add('${update.tMs}:${update.state.name}:${policy.events.length}');
+        throw StateError('기록 실패');
+      },
+    )..start();
+
+    r.addOsStep(const OsStepReading(tMs: 100, kind: OsStepReading.count, value: '100'));
+    r.addOsStep(const OsStepReading(tMs: 1000, kind: OsStepReading.count, value: '112'));
+
+    // 첫 읽기는 기준값이라 정지로 처음 분류하고, 늘어난 둘째 읽기에서 보행이 된다. 둘 다 정책이 받기 전(받은 사건 수
+    // 0, 1)에 알렸고, 오류가 나도 정책은 두 사건을 다 받았다.
+    expect(seen, ['100:still:0', '1000:walking:1']);
+    expect(policy.events.whereType<StepUpdate>(), hasLength(2));
+    expect(errors, hasLength(2));
+  });
+
   test('가속도 없이 도는 OS 센서판 감지기는 시계를 넘겨 받아야 멈춘 뒤 정지로 바뀐다', () {
     final policy = _Scripted();
     final r = runner(policy)..start();
