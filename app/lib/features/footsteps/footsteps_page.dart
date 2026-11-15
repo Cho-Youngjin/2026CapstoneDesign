@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+
+import '../../router.dart';
 
 import 'background/background_location_permission.dart';
 import 'background/battery_optimization.dart';
@@ -114,6 +117,7 @@ class _FootstepsPageState extends ConsumerState<FootstepsPage> {
     return Scaffold(
       body: WorldMapPage(
         onCountryTap: (iso) => setState(() => _selectedCountryIso = iso),
+        onLabRequested: () => context.push(AppRoutes.footstepsLab),
       ),
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,

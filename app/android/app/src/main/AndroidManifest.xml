@@ -10,6 +10,14 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Android 13+ 알림 표시 권한(환율 알림, 비자 준비 알람). 환율 알림을 켜거나 여행을 만들 때 요청한다. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- R1 기록 서비스: OS 걸음 센서(pedometer)와 구글 활동 인식. Android 10+는 앞의 것, 9 이하는 뒤의 것을 쓴다. -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
+    <!-- R1 기록 서비스: 화면이 꺼져도 기록을 이어 가는 위치 타입 포그라운드 서비스(Android 14+는 타입별 권한 필요).
+         WAKE_LOCK은 모든 방식을 같은 조건(부분 wake lock)에서 재기 위해 쓴다(설계 4-1, 10장 위험 3). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <application
         android:label="travel_footsteps"
         android:name="${applicationName}"
@@ -61,6 +69,11 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
             </intent-filter>
         </receiver>
+        <!-- R1 기록 서비스(flutter_foreground_task). 기록 로직은 lib/features/footsteps/recording/recording_task_handler.dart. -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

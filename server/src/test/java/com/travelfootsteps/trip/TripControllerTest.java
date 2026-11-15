@@ -31,6 +31,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -67,6 +68,7 @@ class TripControllerTest {
             stub.register("token-a", "uid-a");
             stub.register("token-b", "uid-b");
             stub.register("token-c", "uid-c");
+            stub.register("token-d", "uid-d");
             return stub;
         }
     }
@@ -488,6 +490,95 @@ class TripControllerTest {
                 .andExpect(jsonPath("$[0].returnDate").value("2027-02-05"))
                 .andExpect(jsonPath("$[0].verdict").value("VISA_FREE_OK"))
                 .andExpect(jsonPath("$[1].id").value(older.intValue()));
+    }
+
+    // ─── 국내 여행(설계 2026-11-07 9-1) ─────────────────────────────────────────────
+
+    @Test
+    void 국내_여행은_비자_판정_없이_DOMESTIC으로_만들고_일정과_준비물을_만들지_않는다() throws Exception {
+        String body = mockMvc.perform(post("/api/trips")
+                        .header("Authorization", "Bearer token-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"countryIso2": "KR", "departDate": "2026-11-20", "returnDate": "2026-11-22"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.countryIso2").value("KR"))
+                .andExpect(jsonPath("$.countryNameKo").value("대한민국"))
+                .andExpect(jsonPath("$.passportExpiry").value(nullValue()))
+                .andExpect(jsonPath("$.visaResult.verdict").value("DOMESTIC"))
+                .andExpect(jsonPath("$.visaResult.stayDays").value(2))
+                .andExpect(jsonPath("$.visaResult.passportOk").value(true))
+                .andExpect(jsonPath("$.tasks.length()").value(0))
+                .andExpect(jsonPath("$.judgementStale").value(false))
+                .andReturn().getResponse().getContentAsString();
+        Long tripId = objectMapper.readTree(body).get("id").asLong();
+
+        mockMvc.perform(get("/api/trips/" + tripId + "/checklist").header("Authorization", "Bearer token-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+        Integer tasks = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM trip_task WHERE trip_id = ?", Integer.class, tripId);
+        assertThat(tasks).isZero();
+    }
+
+    @Test
+    void 국내_여행은_여권_만료일을_보내도_저장하지_않는다() throws Exception {
+        Long tripId = createTrip("token-a", "kr",
+                LocalDate.of(2026, 11, 20), LocalDate.of(2026, 11, 22), LocalDate.of(2030, 1, 1));
+
+        mockMvc.perform(get("/api/trips/" + tripId).header("Authorization", "Bearer token-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.countryIso2").value("KR"))
+                .andExpect(jsonPath("$.passportExpiry").value(nullValue()))
+                .andExpect(jsonPath("$.visaResult.verdict").value("DOMESTIC"));
+    }
+
+    @Test
+    void 해외_여행은_여권_만료일이_없으면_400() throws Exception {
+        givenVietnamVisaFree45Days();
+
+        mockMvc.perform(post("/api/trips")
+                        .header("Authorization", "Bearer token-a")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"countryIso2": "VN", "departDate": "2026-12-20", "returnDate": "2027-01-09"}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 국내_여행_새로고침은_아무것도_바꾸지_않고_지금_값을_돌려준다() throws Exception {
+        Long tripId = createTrip("token-a", "KR",
+                LocalDate.of(2026, 11, 20), LocalDate.of(2026, 11, 22), null);
+
+        mockMvc.perform(post("/api/trips/" + tripId + "/refresh").header("Authorization", "Bearer token-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(tripId.intValue()))
+                .andExpect(jsonPath("$.visaResult.verdict").value("DOMESTIC"))
+                .andExpect(jsonPath("$.visaResult.stayDays").value(2))
+                .andExpect(jsonPath("$.tasks.length()").value(0))
+                .andExpect(jsonPath("$.judgementStale").value(false));
+
+        Integer tasks = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM trip_task WHERE trip_id = ?", Integer.class, tripId);
+        String verdict = jdbcTemplate.queryForObject(
+                "SELECT verdict FROM trip WHERE id = ?", String.class, tripId);
+        assertThat(tasks).isZero();
+        assertThat(verdict).isEqualTo("DOMESTIC");
+    }
+
+    @Test
+    void 국내_여행도_목록에_대한민국_DOMESTIC으로_나온다() throws Exception {
+        Long tripId = createTrip("token-d", "KR",
+                LocalDate.of(2026, 11, 20), LocalDate.of(2026, 11, 22), null);
+
+        mockMvc.perform(get("/api/trips").header("Authorization", "Bearer token-d"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(tripId.intValue()))
+                .andExpect(jsonPath("$[0].countryNameKo").value("대한민국"))
+                .andExpect(jsonPath("$[0].verdict").value("DOMESTIC"));
     }
 
     @Test

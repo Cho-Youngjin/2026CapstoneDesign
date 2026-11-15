@@ -8,7 +8,8 @@ on:
 jobs:
   app:
     name: Flutter
-    runs-on: ubuntu-latest
+    # ubuntu-latest가 26.04로 바뀐 뒤 Testcontainers가 Docker를 찾지 못한다. 검증된 이미지로 고정한다.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: app
@@ -17,6 +18,8 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # 개발 환경과 같은 버전으로 고정한다. 3.50부터 material.dart가 deprecated라 analyze가 info만으로 실패한다.
+          flutter-version: 3.47.2
           cache: true
       - run: flutter pub get
       - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
@@ -25,7 +28,8 @@ jobs:
 
   server:
     name: Spring Boot
-    runs-on: ubuntu-latest
+    # ubuntu-latest가 26.04로 바뀐 뒤 Testcontainers가 Docker를 찾지 못한다. 검증된 이미지로 고정한다.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: server

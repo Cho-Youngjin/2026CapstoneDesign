@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -9,6 +10,7 @@ import 'core/auth/auth_providers.dart';
 import 'core/prefs/shared_preferences_provider.dart';
 import 'core/maps/configure_google_maps.dart';
 import 'features/footsteps/background/footstep_workmanager.dart';
+import 'features/footsteps/trip/trip_recording_providers.dart';
 import 'features/rate_alert/background/rate_alert_scheduler.dart';
 import 'features/rate_alert/data/rate_alert_store.dart';
 import 'features/visa/notifications/alarm_scheduler.dart';
@@ -17,6 +19,8 @@ import 'router.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  // 기록 서비스(isolate)가 보내는 상태를 받으려면 runApp 전에 포트를 열어야 한다(flutter_foreground_task 요구).
+  FlutterForegroundTask.initCommunicationPort();
   configureGoogleMapsRendering();
   await initializeBackgroundWork();
   registerFootstepBackgroundTask();
@@ -38,6 +42,8 @@ class _Root extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // 로그아웃·계정 전환 때 이전 계정의 비자 준비 알람을 지운다(앱이 떠 있는 동안 계속 지켜본다).
     ref.watch(visaAlarmAccountGuardProvider);
+    // 같은 때에 이전 계정의 여행 기록을 끄고, 다른 계정이면 그 좌표까지 지운다(설계 9-3).
+    ref.watch(tripRecordingAccountGuardProvider);
     final authState = ref.watch(authStateProvider);
 
     return authState.when(

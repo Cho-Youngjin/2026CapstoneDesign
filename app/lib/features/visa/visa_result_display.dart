@@ -73,6 +73,14 @@ ResultBadge visaBadgeOf(VisaResult result) {
 
     case VisaVerdict.unverified:
       return _consulateCheck(result.stayDays);
+
+    // 국내 여행 상세는 배지를 보여 주지 않지만(설계 9-1) 모든 판정 값을 다룬다.
+    case VisaVerdict.domestic:
+      return ResultBadge(
+        title: '국내 여행',
+        caption: '체류 ${result.stayDays}일 · 비자 필요 없음',
+        tone: BadgeTone.info,
+      );
   }
 }
 
@@ -132,4 +140,5 @@ String taskDateLabel(TripTask task, {required DateTime departDate}) {
       VisaVerdict.visaFreeExceeded => (label: '무비자 초과', tone: BadgeTone.warn),
       VisaVerdict.visaRequired => (label: '비자 필요', tone: BadgeTone.warn),
       VisaVerdict.unverified => (label: '확인 필요', tone: BadgeTone.neutral),
+      VisaVerdict.domestic => (label: '국내', tone: BadgeTone.info),
     };

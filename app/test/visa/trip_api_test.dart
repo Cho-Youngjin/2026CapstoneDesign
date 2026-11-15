@@ -64,6 +64,22 @@ void main() {
     });
   });
 
+  test('국내 여행은 여권 만료일을 보내지 않는다', () async {
+    final adapter = StubHttpClientAdapter(path: '/api/trips', statusCode: 200, body: _tripJson);
+
+    await _apiReturning(adapter).createTrip(
+      countryIso2: 'KR',
+      departDate: DateTime(2026, 11, 20),
+      returnDate: DateTime(2026, 11, 22),
+    );
+
+    expect(adapter.lastRequest!.data, {
+      'countryIso2': 'KR',
+      'departDate': '2026-11-20',
+      'returnDate': '2026-11-22',
+    });
+  });
+
   test('getTrip이 /api/trips/{id}로 GET 요청을 보낸다', () async {
     final adapter = StubHttpClientAdapter(
       path: '/api/trips/7',

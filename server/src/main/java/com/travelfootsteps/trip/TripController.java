@@ -77,6 +77,9 @@ public class TripController {
     @PostMapping
     public TripResponse create(@Valid @RequestBody CreateTripRequest request, Authentication authentication) {
         Country country = findCountryOrThrow(request.countryIso2());
+        if (country.isHome()) {
+            return createDomestic(request, country, authentication.getName());
+        }
         VisaRequirement requirement = findRequirement(country);
         VisaJudgement judgement = visaJudgementService.judge(requirement, request.departDate(),
                 request.returnDate(), request.passportExpiry());
@@ -101,6 +104,16 @@ public class TripController {
         // isJudgementStale()을 그대로 호출한다(하드코딩된 false를 두지 않는다).
         boolean stale = isJudgementStale(trip, country);
         return TripResponse.of(trip, country, tasks, stale);
+    }
+
+    // 국내 여행(설계 2026-11-07 9-1): 비자 판정을 건너뛰고 verdict=DOMESTIC 스냅샷만 저장한다. 준비 일정(trip_task)과
+    // 준비물 체크리스트(trip_checklist)는 만들지 않는다 — 출국 준비가 없는 여행이고, 앱은 발걸음 기록만 보여 준다.
+    // 여권 만료일은 쓰지 않으므로 요청에 들어 있어도 저장하지 않는다. create()와 같은 트랜잭션 안에서 불린다.
+    private TripResponse createDomestic(CreateTripRequest request, Country country, String uid) {
+        Trip trip = Trip.create(uid, country.getId(), request.departDate(), request.returnDate(), null);
+        trip.applyJudgementSnapshot(VisaJudgement.domestic(request.departDate(), request.returnDate()), null);
+        trip = tripRepository.save(trip);
+        return TripResponse.of(trip, country, List.of(), false);
     }
 
     // GET은 저장된 스냅샷만 읽는다 — VisaJudgementService.judge()를 호출하지 않는다. 이유는
@@ -128,6 +141,11 @@ public class TripController {
     public TripResponse refresh(@PathVariable Long id, Authentication authentication) {
         Trip trip = findOwnedTripOrThrow(id, authentication.getName());
         Country country = findCountryByIdOrThrow(trip.getCountryId());
+        if (country.isHome()) {
+            // 국내 여행은 다시 판정할 것이 없다(설계 9-1). 아무것도 바꾸지 않고 지금 값을 GET과 똑같이 돌려준다.
+            List<TripTask> tasks = tripTaskRepository.findByTripIdOrderByDueDateAsc(trip.getId());
+            return TripResponse.of(trip, country, tasks, false);
+        }
         VisaRequirement requirement = findRequirement(country);
         VisaJudgement judgement = visaJudgementService.judge(requirement, trip.getDepartDate(),
                 trip.getReturnDate(), trip.getPassportExpiry());
@@ -240,7 +258,9 @@ public class TripController {
     // 다르면(둘 중 하나만 null인 경우 포함 — 예: 생성 당시엔 미수집이었는데 이후 처음 수집됐다)
     // 원본 데이터가 스냅샷 이후 바뀐 것이므로 true를 반환한다. Objects.equals를 쓰는 이유는
     // 두 값 다 null일 수 있어서(둘 다 아직 미수집이면 안 바뀐 것 = false여야 한다)다.
+    // 국내 여행은 판정 기준 데이터가 없으므로 언제나 false다 — 일일 수집이 본국을 건너뛰지만, 그것과 상관없이 여기서 막는다.
     private boolean isJudgementStale(Trip trip, Country country) {
+        if (country.isHome()) return false;
         OffsetDateTime currentRequirementUpdatedAt = requirementUpdatedAt(findRequirement(country));
         return !Objects.equals(currentRequirementUpdatedAt, trip.getRequirementUpdatedAt());
     }
