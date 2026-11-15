@@ -56,7 +56,13 @@ List<RoutePoint> dropInaccuratePoints(List<RoutePoint> points) {
 
 /// 고른 날 하루의 여행 기록(설계 9-4). 점은 기기 현지 날짜로 묶는다(국가 지도·걸음 귀속과 같은 [dayKeyOf]).
 class TripDay {
-  const TripDay({required this.date, required this.points, required this.stays, required this.steps});
+  const TripDay({
+    required this.date,
+    required this.points,
+    required this.stays,
+    required this.steps,
+    this.inaccuratePoints = 0,
+  });
 
   final DateTime date;
 
@@ -69,6 +75,10 @@ class TripDay {
   /// 그날의 걸음 수 = 그날 모든 점(정확도가 나빠 [points]에서 뺀 점 포함)의 '직전 점 이후 걸음 수' 합. 하루의 마지막 측위 뒤
   /// 걸음은 다음 측위(다음 날일 수 있다)에 든다.
   final int steps;
+
+  /// 정확도가 [maxFixAccuracyM]보다 나빠 [points]에서 뺀 점 수. [points]가 비었는데 이 값이 있으면 기록은 있지만 그릴
+  /// 위치가 없는 날이다(화면은 '기록 없음' 대신 걸음 수와 함께 알린다).
+  final int inaccuratePoints;
 
   /// 복원 결과 캐시 키의 일부(설계 9-4: 여행, 날짜, 마지막 점 시각). 점이 없으면 0이다.
   int get lastPointMs => points.isEmpty ? 0 : points.last.recordedAt.millisecondsSinceEpoch;
@@ -96,7 +106,13 @@ TripDay buildTripDay(DateTime date, List<RoutePoint> tripPoints, List<TimeSpan> 
     for (final s in stillSpans)
       if (s.endMs >= dayStart && s.startMs < dayEnd) s,
   ];
-  return TripDay(date: day, points: points, stays: _staysOf(fixes, spans), steps: steps);
+  return TripDay(
+    date: day,
+    points: points,
+    stays: _staysOf(fixes, spans),
+    steps: steps,
+    inaccuratePoints: dayPoints.length - points.length,
+  );
 }
 
 /// 정지 구간이 겹치거나 뒤집힌 잘못된 기록이 DB에 있으면 detectStays가 ArgumentError를 던진다. 이 함수는 화면의 build에서

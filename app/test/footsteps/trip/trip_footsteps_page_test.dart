@@ -268,6 +268,28 @@ void main() {
     expect(find.text('1곳'), findsOneWidget);
   });
 
+  testWidgets('그날 위치가 모두 정확도가 나빠 빠지면 "기록 없음" 대신 걸음 수와 함께 그 사실을 알린다', (tester) async {
+    Future<void> add(int minute, double accuracy, int steps) => db.insertTripPoint(
+        tripId: 7,
+        lat: 37.5,
+        lng: 127.0,
+        countryIso: 'KR',
+        recordedAt: DateTime(2026, 11, 21, 9, minute),
+        accuracyM: accuracy,
+        stepsSincePrev: steps,
+        state: 'walking');
+    await add(0, 66, 120);
+    await add(5, 80, 30);
+
+    await pumpPage(tester);
+
+    expect(find.byKey(const Key('dayNoAccurateLocation')), findsOneWidget);
+    expect(find.text('이 날의 발걸음 기록이 없어요'), findsNothing);
+    expect(find.text('150'), findsOneWidget); // 걸음은 그대로 센다
+    expect(find.byType(BaseGoogleMap), findsNothing);
+    expect(api.calls, isEmpty);
+  });
+
   testWidgets('기록이 없는 날은 지도 대신 안내를 보여 준다', (tester) async {
     await seedTwoDays();
     await pumpPage(tester);
