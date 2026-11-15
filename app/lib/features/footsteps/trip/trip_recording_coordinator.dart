@@ -74,15 +74,22 @@ class TripRecordingCoordinator {
   /// 목록이 일정을 비운 뒤 두 번째 빈 목록이 오거나, 로그아웃으로 일정이 비워진 뒤 빈 목록이 오는 경우에도 같다. 일정은 비우고
   /// 기록 서비스도 끈다. 이때 남은 기록은 다음에 비어 있지 않은 목록이 올 때 그 목록에 없는 여행으로 정리된다.
   Future<void> updateTrips(List<TripSummary> trips) => _serialNotifying(() async {
-        final periods = [for (final t in trips) TripPeriod.fromSummary(t)];
+        // 삭제한 여행은 서버에 다시 생기지 않는다. 그 id가 든 목록은 삭제 전에 보낸 요청의 낡은 응답이라(실기기 2026-11-15:
+        // 인터넷 없이 토큰 갱신이 늦어 삭제 뒤에 도착) 그 여행은 빼고 받는다 — 일정에 다시 넣거나 기록을 켜지 않는다.
+        final deleted = _store.readDeleted();
+        final periods = [
+          for (final t in trips)
+            if (!deleted.contains(t.id)) TripPeriod.fromSummary(t),
+        ];
         await _store.replaceTrips(periods);
-        // 지운 여행의 기록을 먼저 지운다 — 예전 세션이 늦게 쓴 점까지(계정 전환이 지웠어야 할 기록). 그 다음 서버가 다시 준
-        // 여행(계정이 A→B→A로 돌아온 경우)의 지운 표시를 풀어야, 아래에서 다시 켜진 기록이 쓰는 점을 지우지 않는다.
-        await _db.deleteTripRecords(_store.readPurged());
+        // 지운 여행의 기록을 먼저 지운다 — 예전 세션이 늦게 쓴 점까지(삭제·계정 전환이 지웠어야 할 기록). 그 다음 서버가 다시
+        // 준 여행(계정이 A→B→A로 돌아온 경우)의 계정 전환 표시를 풀어야, 아래에서 다시 켜진 기록이 쓰는 점을 지우지 않는다.
+        // 삭제 표시는 풀지 않는다.
+        await _db.deleteTripRecords({..._store.readPurged(), ...deleted});
         await _store.removePurged({for (final p in periods) p.tripId});
         await _syncNotices();
         await _sync();
-        await _db.deleteTripRecords(_store.readPurged());
+        await _db.deleteTripRecords({..._store.readPurged(), ...deleted});
         if (periods.isEmpty) {
           debugPrint('빈 여행 목록을 받아 지운 여행 말고는 여행 기록(좌표)을 지우지 않았습니다.');
           return;
@@ -104,8 +111,17 @@ class TripRecordingCoordinator {
   /// 여행이 없어졌을 때(삭제, 다른 기기에서 지워져 404): 그 여행을 기록 중이면 끄고, 좌표·정지 구간·일시정지·출발일
   /// 알림을 지운다. 서비스가 끝나며 마저 쓴 점이 남으면 다음 [updateTrips]가 지운다 — 지운 여행 id를 기기에 적어 두므로
   /// 그때 목록이 비어 있어도 지운다.
-  Future<void> forgetTrip(int tripId) => _serialNotifying(() async {
-        await _store.addPurged({tripId});
+  ///
+  /// [deletedOnServer]는 이 기기에서 지워 서버 삭제가 확인된 경우(여행 삭제)다. 그 id는 다시 받지 않게 영구히 적는다
+  /// ([TripRecordingStore.addDeleted]) — 삭제 전에 보낸 목록 요청의 낡은 응답에 들어 있어도 무시한다. 404로 정리할 때는
+  /// 다른 기기에서 지웠을 수도 있지만 다른 계정으로 그 여행 화면을 열었을 수도 있어(서버는 주인이 아니면 404), 계정 전환과
+  /// 같은 되돌릴 수 있는 표시로 적는다 — 서버 목록에 그 여행이 다시 오면 [updateTrips]가 표시를 풀고 기록을 되살린다.
+  Future<void> forgetTrip(int tripId, {bool deletedOnServer = false}) => _serialNotifying(() async {
+        if (deletedOnServer) {
+          await _store.addDeleted({tripId});
+        } else {
+          await _store.addPurged({tripId});
+        }
         if (await _service.recordingTripId() == tripId) await _stopQuietly();
         await _db.deleteTripRecords([tripId]);
         await _store.forget({tripId});

@@ -112,6 +112,22 @@ void main() {
     expect(reopened.readPurged(), {7, 8});
   });
 
+  test('삭제한 여행 id는 계정 전환 표시와 따로 남고, 목록 정리로 풀리지 않는다', () async {
+    final (store, _) = await _store();
+    await store.addDeleted({7});
+    await store.addPurged({8});
+
+    await store.removePurged({7, 8}); // 서버 목록에 다시 와도 풀리는 것은 계정 전환 표시뿐이다
+    await store.replaceTrips([a]);
+    await store.clearTrips();
+    await store.clearPaused();
+
+    expect(store.readDeleted(), {7});
+    expect(store.readPurged(), isEmpty);
+    final (reopened, _) = await _store({TripRecordingStore.deletedKey: jsonEncode([7])});
+    expect(reopened.readDeleted(), {7});
+  });
+
   test('다른 isolate가 쓴 값은 reload한 뒤에 보인다', () async {
     final (store, _) = await _store();
     expect(store.readTrips(), isEmpty);

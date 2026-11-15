@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:app/features/footsteps/data/route_point.dart';
 import 'package:app/features/footsteps/trip/route_reconstruct_api.dart';
+import 'package:app/features/footsteps/trip/trip_day.dart' show buildTripDay;
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -103,6 +104,38 @@ void main() {
       {'arrive': 1792400030000, 'leave': 1792400040000, 'lat': 37.6, 'lng': 127.1},
     ]);
     expect(segments.map((s) => (s.kind, s.coords.length, s.fallback)), [('walk', 2, false), ('estimated', 2, true)]);
+  });
+
+  test('정확도가 50m보다 나쁜 점은 요청에서 빼고 그 걸음 수는 다음에 보내는 점에 더한다', () async {
+    final dio = Dio(BaseOptions(baseUrl: 'http://test'));
+    final adapter = StubHttpClientAdapter(
+      path: '/api/route/reconstruct',
+      statusCode: 200,
+      body: jsonEncode(walkBody([[37.5, 127.0], [37.5002, 127.0]])),
+    );
+    dio.httpClientAdapter = adapter;
+    RoutePoint at(int second, double lat, double accuracy, int steps) => RoutePoint(
+          lat: lat,
+          lng: 127.0,
+          countryIso: 'KR',
+          recordedAt: DateTime.fromMillisecondsSinceEpoch(1792400000000 + second * 1000),
+          tripId: 7,
+          accuracyM: accuracy,
+          stepsSincePrev: steps,
+          state: 'walking',
+        );
+    final day = buildTripDay(DateTime.fromMillisecondsSinceEpoch(1792400000000), [
+      at(0, 37.5, 11, 10),
+      at(6, 37.5133, 66, 7), // 1.5km 튄 점
+      at(13, 37.5002, 11, 4),
+    ], const []);
+
+    await RouteReconstructApi(dio).reconstruct(day.points, day.stays);
+
+    final sent = (adapter.lastRequest!.data as Map<String, dynamic>)['points'] as List;
+    expect(sent.map((p) => (p as Map)['t']), [1792400000000, 1792400013000]);
+    expect(sent.map((p) => (p as Map)['stepsSincePrev']), [10, 11]);
+    expect(sent.map((p) => (p as Map)['accuracy']), [11.0, 11.0]);
   });
 
   test('복원 요청만 받기 제한 시간을 60초로 늘린다(OSRM 매칭·경로가 긴 날은 10초를 넘길 수 있다)', () async {

@@ -63,6 +63,8 @@ Future<FakeTripRecordingCoordinator> pumpApp(
         tripListProvider.overrideWith((ref) async => trips),
         tripRecordingCoordinatorProvider.overrideWithValue(coordinator),
         notificationPermissionProvider.overrideWithValue(notificationPermission ?? _CountingPermission()),
+        // 실시간 경로가 실제 위치 플러그인을 부르지 않게 한다(테스트에는 플러그인이 없다).
+        livePositionsProvider.overrideWithValue(() => const Stream.empty()),
       ],
       child: TravelFootstepsApp(router: createRouter(isLoggedIn: isLoggedIn)),
     ),
@@ -239,6 +241,7 @@ void main() {
             tripRecordingCoordinatorProvider.overrideWithValue(FakeTripRecordingCoordinator()),
             recordingControllerProvider.overrideWithValue(FakeRecordingController()),
             sessionLibraryProvider.overrideWithValue(_EmptyLibrary()),
+            livePositionsProvider.overrideWithValue(() => const Stream.empty()),
           ],
           child: TravelFootstepsApp(router: router),
         ),

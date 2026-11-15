@@ -24,6 +24,33 @@ def test_read_fixes_and_to_points_null_fields(tmp_path):
                    {"t": 2, "lat": 37.1, "lng": 127.1, "accuracy": 4.5, "stepsSincePrev": 64, "state": "walking"}]
 
 
+def test_build_requests_drops_low_accuracy_before_choosing_chunk_overlap():
+    # 서버도 정확도 50m 초과 점을 버린다(RouteReconstructionService.MAX_ACCURACY_M). 조각을 나눈 뒤 서버가 겹치는 점을
+    # 버리면 두 조각이 이어 붙일 점을 잃으므로, 나누기 전에 같은 규칙으로 버리고 걸음은 다음 남은 점에 더한다.
+    df = pd.DataFrame({"t_ms": [0, 1000, 2000, 3000, 4000], "lat": [37.5] * 5, "lng": [127.0] * 5,
+                       "accuracy_m": [5.0, 80.0, 80.0, 5.0, None], "steps_since_prev": [0, 30, 40, 20, 10],
+                       "state": ["walking"] * 5, "kind": ["single"] * 5})
+    reqs = build_requests(df, [], "hmm_steps", max_points=2)
+    chunks = [[(p["t"], p["stepsSincePrev"]) for p in r["points"]] for r in reqs]
+    assert chunks == [[(0, 0), (3000, 90)], [(3000, 90), (4000, 10)]]
+    assert all(p["accuracy"] is None or p["accuracy"] <= rc.MAX_ACCURACY_M for r in reqs for p in r["points"])
+
+
+def test_build_requests_keeps_endpoint_stays_whose_fixes_were_all_dropped():
+    # 처음 20분 머문 곳의 측위가 모두 오차 60m라 버려져도, 그 머문 곳은 요청에 남아야 한다 — 서버는 받은 머문 곳의
+    # 중심을 경로에 넣는다. 버린 점의 시각까지 조각의 시간 범위로 쳐서 머문 곳을 고른다.
+    df = pd.DataFrame({"t_ms": [0, 600_000, 1_200_000, 1_300_000], "lat": [37.5] * 4, "lng": [127.0] * 4,
+                       "accuracy_m": [60.0, 60.0, 60.0, 5.0], "steps_since_prev": [0, 0, 0, 40],
+                       "state": ["still", "still", "still", "walking"], "kind": ["single"] * 4})
+    stay = {"arrive_ms": 0, "leave_ms": 1_200_000, "lat": 37.5, "lng": 127.0}
+    reqs = build_requests(df, [stay], "straight")
+    assert [(s["arrive"], s["leave"]) for s in reqs[0]["stays"]] == [(0, 1_200_000)]
+    assert [p["t"] for p in reqs[0]["points"]] == [1_300_000]
+    # 점이 모두 버려져도 머문 곳은 남는다.
+    reqs = build_requests(df.iloc[:3], [stay], "straight")
+    assert reqs[0]["points"] == [] and len(reqs[0]["stays"]) == 1
+
+
 def test_build_requests_splits_over_limit_with_overlap():
     stays = [{"arrive_ms": 0, "leave_ms": 1, "lat": 1, "lng": 2}, {"arrive_ms": 8, "leave_ms": 9, "lat": 1, "lng": 2}]
     reqs = build_requests(_fixes(9), stays, "hmm_steps", hmm={"betaM": 5}, max_points=4)

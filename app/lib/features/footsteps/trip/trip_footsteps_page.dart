@@ -247,6 +247,21 @@ class _DayView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (day.points.isEmpty && day.inaccuratePoints > 0) {
+      // 기록은 있지만 위치가 모두 정확도가 나빠 뺐다(실내·유심 없는 폰의 네트워크 위치 등). 걸음은 그대로 센다.
+      return ListView(
+        padding: const EdgeInsets.all(18),
+        children: [
+          Text(
+            '이 날은 위치가 정확하지 않아 경로를 그리지 못했어요',
+            key: const Key('dayNoAccurateLocation'),
+            style: AppTextStyles.caption.copyWith(color: AppColors.warn),
+          ),
+          const SizedBox(height: 8),
+          WireframeCard(child: _Stat(label: '걸음', value: _steps.format(day.steps))),
+        ],
+      );
+    }
     if (day.points.isEmpty) {
       return Center(child: Text('이 날의 발걸음 기록이 없어요', style: AppTextStyles.caption));
     }

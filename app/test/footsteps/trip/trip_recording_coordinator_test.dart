@@ -253,6 +253,39 @@ void main() {
       expect(await db.routePointsForTrip(7), isEmpty);
     });
 
+    test('삭제 전에 보낸 목록 요청이 삭제 뒤에 와도(낡은 목록) 지운 여행을 다시 일정에 넣거나 기록하지 않는다', () async {
+      // 실기기(2026-11-15): 재부팅 뒤 인터넷 없이 토큰 갱신이 늦어, 삭제 전에 받은 목록이 삭제 뒤에 처리된 것으로 보인다.
+      // 그 목록이 지운 여행 표시를 풀어, 기기에 표시가 남지 않았다.
+      await coordinator.updateTrips([domestic, later]);
+      expect(await service.recordingTripId(), 7);
+      await coordinator.forgetTrip(7, deletedOnServer: true);
+      await addPoint(7); // 끄기가 먼저 돌아온 서비스가 지운 뒤에 마저 쓴 점
+
+      await coordinator.updateTrips([domestic, later]); // 삭제 전 목록(낡음)
+
+      expect([for (final t in store.readTrips()) t.tripId], [9]);
+      expect(await service.recordingTripId(), isNot(7));
+      expect(await db.routePointsForTrip(7), isEmpty);
+      expect(store.readDeleted(), contains(7));
+
+      await coordinator.updateTrips([later]); // 새 목록
+      expect(store.readDeleted(), contains(7));
+    });
+
+    test('404로 정리한 여행은 서버 목록에 다시 오면 되살린다(다른 계정 화면에서 연 경우 등)', () async {
+      await coordinator.updateTrips([domestic, later]);
+      await coordinator.forgetTrip(7); // 상세가 404(여행 주인이 아닌 계정으로 열었을 수도 있다)
+      expect([for (final t in store.readTrips()) t.tripId], [9]);
+
+      await coordinator.updateTrips([domestic, later]); // 주인 계정의 새 목록
+      expect([for (final t in store.readTrips()) t.tripId], [7, 9]);
+      expect(await service.recordingTripId(), 7);
+      expect(store.readDeleted(), isNot(contains(7)));
+      await addPoint(7);
+      await coordinator.updateTrips([domestic, later]);
+      expect(await db.routePointsForTrip(7), hasLength(1));
+    });
+
     test('계정이 A→B→A로 바뀌어 A의 여행이 목록에 다시 오면 지운 여행 표시를 풀고 새로 쓴 점을 지우지 않는다', () async {
       await coordinator.claimFor('uid-a');
       await coordinator.updateTrips([domestic]);
