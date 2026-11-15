@@ -19,7 +19,7 @@ import 'fake_trip_api.dart';
 /// 정리하다 실패하는 여행 기록 대역.
 class _FailingRecording extends FakeTripRecordingCoordinator {
   @override
-  Future<void> forgetTrip(int tripId) async => throw StateError('기록 정리 실패');
+  Future<void> forgetTrip(int tripId, {bool deletedOnServer = false}) async => throw StateError('기록 정리 실패');
 }
 
 Future<
@@ -79,6 +79,7 @@ void main() {
     expect(s.container.read(selectedTripIdProvider), isNull);
     expect(s.alarms.scheduled.keys, [notificationIdFor(80)]);
     expect(s.recording.forgotten, [7]); // 발걸음 기록(좌표·정지 구간)도 지운다
+    expect(s.recording.forgottenAsDeleted, [7]); // 서버에서 지운 것이 확인돼 다시 받지 않는다
   });
 
   test('발걸음 기록 정리가 실패해도 삭제는 성공으로 끝나고 지갑까지 정리한다', () async {

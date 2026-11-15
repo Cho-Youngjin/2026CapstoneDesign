@@ -171,10 +171,16 @@ class FakeTripRecordingCoordinator implements TripRecordingCoordinator {
   bool hasUpcomingNotice() => upcomingNotice;
 
   final forgotten = <int>[];
+
+  /// [forgetTrip]을 '서버에서 지운 것이 확인됨'으로 부른 여행 id(여행 삭제). 404로 정리한 여행은 [forgotten]에만 든다.
+  final forgottenAsDeleted = <int>[];
   final claims = <String?>[];
 
   @override
-  Future<void> forgetTrip(int tripId) async => forgotten.add(tripId);
+  Future<void> forgetTrip(int tripId, {bool deletedOnServer = false}) async {
+    forgotten.add(tripId);
+    if (deletedOnServer) forgottenAsDeleted.add(tripId);
+  }
 
   @override
   Future<void> claimFor(String? uid) async => claims.add(uid);

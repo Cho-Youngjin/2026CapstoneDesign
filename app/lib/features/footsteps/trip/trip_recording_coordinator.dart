@@ -111,8 +111,17 @@ class TripRecordingCoordinator {
   /// 여행이 없어졌을 때(삭제, 다른 기기에서 지워져 404): 그 여행을 기록 중이면 끄고, 좌표·정지 구간·일시정지·출발일
   /// 알림을 지운다. 서비스가 끝나며 마저 쓴 점이 남으면 다음 [updateTrips]가 지운다 — 지운 여행 id를 기기에 적어 두므로
   /// 그때 목록이 비어 있어도 지운다.
-  Future<void> forgetTrip(int tripId) => _serialNotifying(() async {
-        await _store.addDeleted({tripId});
+  ///
+  /// [deletedOnServer]는 이 기기에서 지워 서버 삭제가 확인된 경우(여행 삭제)다. 그 id는 다시 받지 않게 영구히 적는다
+  /// ([TripRecordingStore.addDeleted]) — 삭제 전에 보낸 목록 요청의 낡은 응답에 들어 있어도 무시한다. 404로 정리할 때는
+  /// 다른 기기에서 지웠을 수도 있지만 다른 계정으로 그 여행 화면을 열었을 수도 있어(서버는 주인이 아니면 404), 계정 전환과
+  /// 같은 되돌릴 수 있는 표시로 적는다 — 서버 목록에 그 여행이 다시 오면 [updateTrips]가 표시를 풀고 기록을 되살린다.
+  Future<void> forgetTrip(int tripId, {bool deletedOnServer = false}) => _serialNotifying(() async {
+        if (deletedOnServer) {
+          await _store.addDeleted({tripId});
+        } else {
+          await _store.addPurged({tripId});
+        }
         if (await _service.recordingTripId() == tripId) await _stopQuietly();
         await _db.deleteTripRecords([tripId]);
         await _store.forget({tripId});

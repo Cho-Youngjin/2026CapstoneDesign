@@ -96,8 +96,9 @@ class TripRecordingStore {
     await _writeIds(purgedKey, purged..removeAll(tripIds));
   }
 
-  /// 삭제한(또는 서버에서 지워져 404가 난) 여행 id. 서버 여행 id는 다시 쓰이지 않으므로 이 표시는 풀지 않는다 — 이 id가
-  /// 든 목록은 삭제 전에 받은 낡은 목록이다.
+  /// 이 기기에서 삭제해 서버 삭제가 확인된 여행 id. 서버 여행 id는 다시 쓰이지 않으므로 이 표시는 풀지 않는다 — 이 id가
+  /// 든 목록은 삭제 전에 보낸 요청의 낡은 응답이다. (404로 정리한 여행은 다른 계정으로 열었을 수도 있어 [addPurged]로
+  /// 되돌릴 수 있게 적는다.)
   Set<int> readDeleted() => _readIds(deletedKey);
 
   Future<void> addDeleted(Set<int> tripIds) => _writeIds(deletedKey, readDeleted()..addAll(tripIds));
