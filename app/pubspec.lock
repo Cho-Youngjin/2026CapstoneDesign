@@ -564,6 +564,13 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  footstep_core:
+    dependency: "direct main"
+    description:
+      path: "../packages/footstep_core"
+      relative: true
+    source: path
+    version: "0.1.0"
   geoclue:
     dependency: transitive
     description:

@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:footstep_core/footstep_core.dart' show formatCsvField;
+export 'package:footstep_core/footstep_core.dart' show formatCsvField;
 
 /// 기록 세션의 CSV 파일 하나. 행을 메모리에 모았다가 [flush] 때 한 번에 쓴다 —
 /// 50Hz 가속도를 행마다 디스크에 쓰면 쓰기 자체가 배터리를 써서 측정을 오염시킨다.
@@ -85,16 +87,4 @@ class CsvWriter {
       await _sink.close();
     }
   }
-}
-
-/// CSV 필드 하나의 문자열. 값이 없거나 유한한 숫자가 아니면(NaN 등) 빈칸으로 둔다 —
-/// 분석 쪽(pandas)이 빈칸을 결측치로 읽는다.
-String formatCsvField(Object? value) {
-  if (value == null) return '';
-  if (value is double && !value.isFinite) return '';
-  if (value is bool) return value ? '1' : '0';
-  final text = value.toString();
-  final needsQuote =
-      text.contains(',') || text.contains('"') || text.contains('\n') || text.contains('\r');
-  return needsQuote ? '"${text.replaceAll('"', '""')}"' : text;
 }

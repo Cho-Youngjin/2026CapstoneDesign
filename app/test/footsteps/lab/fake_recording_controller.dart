@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:app/features/footsteps/recording/mark.dart';
+import 'package:app/features/footsteps/recording/policy_choice.dart';
 import 'package:app/features/footsteps/recording/recorder_status.dart';
+import 'package:app/features/footsteps/recording/recording_config.dart';
 import 'package:app/features/footsteps/recording/recording_controller.dart';
 import 'package:app/features/footsteps/recording/recording_mode.dart';
 
@@ -10,7 +12,7 @@ class FakeRecordingController implements RecordingController {
   final statusController = StreamController<RecorderStatus>.broadcast();
   bool running = false;
   Object? startError;
-  final starts = <({RecordingMode mode, String carry})>[];
+  final starts = <({RecordingMode mode, String carry, PolicyChoice? policy})>[];
   int stops = 0;
   final marks = <Mark>[];
 
@@ -22,10 +24,11 @@ class FakeRecordingController implements RecordingController {
     required RecordingMode mode,
     required String carryInitial,
     String? note,
+    PolicyChoice? policy,
   }) async {
     final error = startError;
     if (error != null) throw error;
-    starts.add((mode: mode, carry: carryInitial));
+    starts.add((mode: mode, carry: carryInitial, policy: policy));
     running = true;
   }
 
@@ -40,4 +43,10 @@ class FakeRecordingController implements RecordingController {
 
   @override
   Stream<RecorderStatus> statusStream() => statusController.stream;
+
+  /// 이미 도는 기록의 설정. 화면이 다시 열렸을 때 보여 주는지 확인할 때 넣는다.
+  RecordingConfig? config;
+
+  @override
+  Future<RecordingConfig?> activeConfig() async => running ? config : null;
 }

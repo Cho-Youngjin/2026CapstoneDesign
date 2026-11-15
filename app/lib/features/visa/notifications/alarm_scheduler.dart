@@ -70,18 +70,21 @@ abstract interface class AlarmBackend {
 
 /// flutter_local_notifications로 기기에 예약한다. 재부팅 후 다시 예약하는 일은 플러그인의
 /// ScheduledNotificationBootReceiver(AndroidManifest.xml)가 한다.
+///
+/// [_details]로 알림 채널을 고른다. 기본은 비자 준비 알람이고, 여행 출발일 알림(R7)은 자기 채널을 넘긴다.
 class LocalAlarmBackend implements AlarmBackend {
-  LocalAlarmBackend([FlutterLocalNotificationsPlugin? plugin])
+  LocalAlarmBackend([FlutterLocalNotificationsPlugin? plugin, this._details = _visaDetails])
       : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
   final FlutterLocalNotificationsPlugin _plugin;
+  final NotificationDetails _details;
   bool _initialized = false;
 
   /// Plan B 전역 제약에서 정한 채널 id. Android는 채널 id를 영구 식별자로 다뤄 나중에 바꾸면
   /// 사용자가 설정한 이전 채널이 기기에 남는다.
   static const channelId = 'com.travelfootsteps.visa_alarms';
 
-  static const _details = NotificationDetails(
+  static const _visaDetails = NotificationDetails(
     android: AndroidNotificationDetails(
       channelId,
       '비자 준비 알람',

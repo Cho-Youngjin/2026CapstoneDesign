@@ -6,11 +6,13 @@
 library;
 
 /// 서버 `visa/VisaVerdict.java`의 wireValue와 문자 그대로 일치해야 한다.
+/// [domestic]은 판정 결과가 아니라 국내 여행(대한민국)이다 — 서버가 비자 판정을 건너뛰고 이 값으로 저장한다(설계 9-1).
 enum VisaVerdict {
   visaFreeOk('VISA_FREE_OK'),
   visaFreeExceeded('VISA_FREE_EXCEEDED'),
   visaRequired('VISA_REQUIRED'),
-  unverified('UNVERIFIED');
+  unverified('UNVERIFIED'),
+  domestic('DOMESTIC');
 
   const VisaVerdict(this.wireValue);
 
@@ -114,7 +116,9 @@ class Trip {
   final String countryNameKo;
   final DateTime departDate;
   final DateTime returnDate;
-  final DateTime passportExpiry;
+
+  /// 국내 여행은 여권 만료일이 없어 null이다(설계 9-1).
+  final DateTime? passportExpiry;
   final VisaResult visaResult;
   final List<TripTask> tasks;
 
@@ -122,13 +126,16 @@ class Trip {
   /// true면 화면에서 새로고침 여부를 묻고, 동의 시 `POST /api/trips/{id}/refresh`를 호출한다.
   final bool judgementStale;
 
+  /// 국내 여행이면 여행 상세가 비자 결과·준비 일정·체크리스트·지갑을 숨기고 발걸음 기록만 보여 준다(설계 9-1).
+  bool get isDomestic => visaResult.verdict == VisaVerdict.domestic;
+
   factory Trip.fromJson(Map<String, dynamic> json) => Trip(
         id: json['id'] as int,
         countryIso2: json['countryIso2'] as String,
         countryNameKo: json['countryNameKo'] as String,
         departDate: DateTime.parse(json['departDate'] as String),
         returnDate: DateTime.parse(json['returnDate'] as String),
-        passportExpiry: DateTime.parse(json['passportExpiry'] as String),
+        passportExpiry: json['passportExpiry'] == null ? null : DateTime.parse(json['passportExpiry'] as String),
         visaResult:
             VisaResult.fromJson(json['visaResult'] as Map<String, dynamic>),
         tasks: (json['tasks'] as List)

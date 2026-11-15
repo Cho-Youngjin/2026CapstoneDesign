@@ -18,12 +18,13 @@ class TripApi {
 
   final Dio _dio;
 
-  /// 여행계획을 저장하고 비자 판정 + 역산 일정이 담긴 결과를 받는다.
+  /// 여행계획을 저장하고 비자 판정 + 역산 일정이 담긴 결과를 받는다. 국내 여행(KR)은 [passportExpiry]를 보내지 않는다 —
+  /// 서버가 판정을 건너뛰고 DOMESTIC으로 저장한다(설계 9-1).
   Future<Trip> createTrip({
     required String countryIso2,
     required DateTime departDate,
     required DateTime returnDate,
-    required DateTime passportExpiry,
+    DateTime? passportExpiry,
   }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/trips',
@@ -31,7 +32,7 @@ class TripApi {
         'countryIso2': countryIso2,
         'departDate': _wireDate.format(departDate),
         'returnDate': _wireDate.format(returnDate),
-        'passportExpiry': _wireDate.format(passportExpiry),
+        if (passportExpiry != null) 'passportExpiry': _wireDate.format(passportExpiry),
       },
     );
     return Trip.fromJson(response.data!);

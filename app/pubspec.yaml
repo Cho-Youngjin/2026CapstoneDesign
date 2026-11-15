@@ -73,6 +73,8 @@ dependencies:
   archive: ^4.0.7
   device_probe:
     path: ../packages/device_probe
+  footstep_core:
+    path: ../packages/footstep_core
 
 dev_dependencies:
   flutter_test:

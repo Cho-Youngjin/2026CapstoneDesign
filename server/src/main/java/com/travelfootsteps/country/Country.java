@@ -22,6 +22,17 @@ import java.time.OffsetDateTime;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Country {
 
+    // 본국(한국). V17 마이그레이션이 국내 여행을 위해 넣은 행이다(설계 9-1). 여행 목적지가 아니므로
+    // 목적지 목록(CountryController.list)과 일일 공공데이터 수집(DailyDataCollectionScheduler)은 이 행을 건너뛰고,
+    // 이 나라로 만든 여행은 비자 판정 대신 국내 여행(DOMESTIC)이 된다(TripController).
+    // static final 상수는 엔티티의 필드가 아니라 클래스에 붙은 값이라 JPA가 컬럼으로 보지 않는다.
+    public static final String HOME_ISO2 = "KR";
+
+    /** 요청으로 받은 국가 코드가 본국인가(대소문자·앞뒤 공백 무시). */
+    public static boolean isHomeIso2(String iso2) {
+        return iso2 != null && HOME_ISO2.equalsIgnoreCase(iso2.trim());
+    }
+
     // @Id + @GeneratedValue(IDENTITY): 이 필드가 기본키(PK)이고, 값은 DB가 auto-increment로
     // 알아서 채워준다는 뜻이다 (V1__init.sql의 BIGSERIAL과 짝을 이룬다).
     @Id
@@ -79,4 +90,9 @@ public class Country {
 
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
+
+    /** 이 행이 본국(한국)인가. 엔티티 메서드라 Lombok @Getter가 만드는 getter와 별개로 직접 둔다. */
+    public boolean isHome() {
+        return isHomeIso2(isoAlpha2);
+    }
 }
