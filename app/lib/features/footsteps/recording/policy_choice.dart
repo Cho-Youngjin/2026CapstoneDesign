@@ -54,7 +54,7 @@ class PolicySensorNeeds {
   const PolicySensorNeeds({required this.accel, required this.osSteps, required this.activity});
 
   /// 걸음 정보(StepUpdate)를 쓰는 정책. 나머지 정책은 걸음 감지기를 돌려도 결과가 같아 센서를 켜지 않는다.
-  static const stepPolicyIds = {'still_suppress', 'step_budget'};
+  static const stepPolicyIds = {'time_speed_still', 'still_suppress', 'step_budget'};
 
   final bool accel;
   final bool osSteps;

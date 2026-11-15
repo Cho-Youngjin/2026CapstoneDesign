@@ -69,7 +69,7 @@ void main() {
         ['arrive_ms,leave_ms,lat,lng,n_points', '0,120000,37.5,127.0,3']);
     final summary =
         jsonDecode(File(p.join(outDir, 'summary.json')).readAsStringSync()) as Map<String, Object?>;
-    expect(summary['stay_params'], {'radius_m': 100.0, 'min_stay_s': 60.0, 'use_still': false});
+    expect(summary['stay_params'], {'radius_m': 100.0, 'min_stay_s': 60.0, 'use_still': false, 'still_gap_s': 60.0});
     expect(summary['stays'], 1);
   });
 

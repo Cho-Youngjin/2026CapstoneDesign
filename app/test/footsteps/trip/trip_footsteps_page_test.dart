@@ -172,6 +172,29 @@ void main() {
     expect(find.byKey(const Key('roadMatchFailed')), findsNothing);
   });
 
+  testWidgets('정확도가 50m보다 나쁜 점은 서버 요청·직선 경로·이동 거리에서 빼고 걸음은 센다', (tester) async {
+    Future<void> add(int minute, double lat, double accuracy, int steps) => db.insertTripPoint(
+        tripId: 7,
+        lat: lat,
+        lng: 127.0,
+        countryIso: 'KR',
+        recordedAt: DateTime(2026, 11, 21, 9, minute),
+        accuracyM: accuracy,
+        stepsSincePrev: steps,
+        state: 'walking');
+    await add(0, 37.5, 10, 100);
+    await add(1, 37.52, 66, 50); // 약 2.2km 튄 점
+    await add(2, 37.501, 10, 30);
+    api.fails = true;
+
+    await pumpPage(tester);
+
+    expect(api.calls, [2]);
+    expect(polylines(tester).single.points, [const LatLng(37.5, 127.0), const LatLng(37.501, 127.0)]);
+    expect(find.text('180'), findsOneWidget); // 걸음: 뺀 점의 50걸음도 센다
+    expect(find.text('111m'), findsOneWidget); // 이동 거리: 0.001도
+  });
+
   testWidgets('오늘 새 점이 쌓이면 마지막 점 시각이 바뀌어 다시 복원하고, 점이 그대로면 다시 부르지 않는다', (tester) async {
     await seedTwoDays();
     await pumpPage(tester);
@@ -243,6 +266,28 @@ void main() {
     expect(marker.infoWindow.snippet, '32분 머묾');
     expect(find.text('10:00 도착 · 32분 머묾'), findsOneWidget);
     expect(find.text('1곳'), findsOneWidget);
+  });
+
+  testWidgets('그날 위치가 모두 정확도가 나빠 빠지면 "기록 없음" 대신 걸음 수와 함께 그 사실을 알린다', (tester) async {
+    Future<void> add(int minute, double accuracy, int steps) => db.insertTripPoint(
+        tripId: 7,
+        lat: 37.5,
+        lng: 127.0,
+        countryIso: 'KR',
+        recordedAt: DateTime(2026, 11, 21, 9, minute),
+        accuracyM: accuracy,
+        stepsSincePrev: steps,
+        state: 'walking');
+    await add(0, 66, 120);
+    await add(5, 80, 30);
+
+    await pumpPage(tester);
+
+    expect(find.byKey(const Key('dayNoAccurateLocation')), findsOneWidget);
+    expect(find.text('이 날의 발걸음 기록이 없어요'), findsNothing);
+    expect(find.text('150'), findsOneWidget); // 걸음은 그대로 센다
+    expect(find.byType(BaseGoogleMap), findsNothing);
+    expect(api.calls, isEmpty);
   });
 
   testWidgets('기록이 없는 날은 지도 대신 안내를 보여 준다', (tester) async {

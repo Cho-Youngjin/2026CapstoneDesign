@@ -18,6 +18,7 @@ import java.util.Map;
  *
  * <p>처리 순서(설계 6-2):
  * <ol>
+ *   <li>정확도가 {@link #MAX_ACCURACY_M}보다 나쁜 측위 점은 버리고, 그 점의 걸음 수는 다음 남은 점에 더한다.</li>
  *   <li>머문 곳 시간 범위 안의 점을 그 머문 곳 중심 하나로 바꾼다.</li>
  *   <li>10분 이상의 공백(측위 실패·걸음 없는 이동)에서 자르고, 공백 양 끝은 /route로 이어 estimated로 표시한다.</li>
  *   <li>남은 구간을 도보·탈것으로 나눠 요청한 방법으로 잇는다. 실패한 조각은 직선 + fallback이다.</li>
@@ -34,6 +35,12 @@ public class RouteReconstructionService {
     // 반경(5m)으로 보내 OSRM이 그 점을 버리고, 경로가 머문 곳에서 시작·끝나지 않는다. 그래서 반경 상한(50m)을 준다
     // (hmm_steps에서는 방사 확률이 넓어져 가장 가까운 도로에 덜 끌린다).
     static final double STAY_CENTER_ACCURACY_M = 50.0;
+
+    // 측위 정확도(m)가 이 값보다 나쁜 점은 복원 전에 버린다(앱의 오차 예산 E와 같은 50m). 폰이 SIM·인터넷 없이 네트워크
+    // 위치로 잰 점은 정확도가 49~68m로 보고되는데 실제로는 1.2~1.5km 어긋나, 경로를 튀게 하고 매칭 입력을 망친다.
+    // 이 요청을 받는 서버에서 한 번 거르면 앱과 연구 분석이 같은 규칙을 쓴다. 정확도를 모르는(null) 점은 버리지 않는다.
+    // static final 상수는 스프링과 무관한 자바 문법이다. 이름을 붙여 두면 테스트와 문서가 같은 숫자를 가리킬 수 있다.
+    static final double MAX_ACCURACY_M = 50.0;
 
     // 앞 구간의 끝과 다음 구간의 시작이 이 거리(m) 안이면 같은 점으로 본다(좌표 반올림 오차는 잇지 않는다).
     static final double CONNECT_TOLERANCE_M = 0.5;
@@ -96,14 +103,38 @@ public class RouteReconstructionService {
         return out;
     }
 
+    /**
+     * 0단계: 정확도가 {@link #MAX_ACCURACY_M}보다 나쁜 점을 버리고 시각순으로 돌려준다.
+     * 버린 점의 '직전 이후 걸음 수'는 다음에 남는 점의 걸음 수에 더해, hmm_steps가 걸은 거리를 제대로 보게 한다.
+     * 뒤따르는 남은 점이 없으면 그 걸음은 그냥 사라진다. 걸음 수를 모르는(null) 점끼리만 이어지면 null로 둔다.
+     */
+    static List<TrackPoint> dropLowAccuracy(List<TrackPoint> points) {
+        List<TrackPoint> kept = new ArrayList<>(points.size());
+        int carried = 0;
+        for (TrackPoint p : points.stream().sorted(Comparator.comparing(TrackPoint::t)).toList()) {
+            if (p.accuracy() != null && p.accuracy() > MAX_ACCURACY_M) {
+                if (p.stepsSincePrev() != null) carried += p.stepsSincePrev();
+                continue;
+            }
+            if (carried > 0) {
+                int steps = (p.stepsSincePrev() != null ? p.stepsSincePrev() : 0) + carried;
+                p = new TrackPoint(p.t(), p.lat(), p.lng(), p.accuracy(), steps, p.state());
+                carried = 0;
+            }
+            kept.add(p);
+        }
+        return kept;
+    }
+
     /** 1단계: 점을 시각순으로 놓고, 머문 곳 범위 안의 점은 빼고 머문 곳마다 중심 하나를 넣는다. */
-    static List<Waypoint> waypoints(List<TrackPoint> points, List<StayInput> stays) {
+    static List<Waypoint> waypoints(List<TrackPoint> allPoints, List<StayInput> stays) {
+        List<TrackPoint> points = dropLowAccuracy(allPoints);
         List<StayInput> sortedStays = stays.stream().sorted(Comparator.comparing(StayInput::arrive)).toList();
         // 머문 곳에 처음 든 점. 머문 곳 중심이 그 점의 '직전 이후 걸음 수'와 상태를 이어받는다(걸어 들어온 몫).
         TrackPoint[] firstInside = new TrackPoint[sortedStays.size()];
 
         List<Waypoint> out = new ArrayList<>();
-        for (TrackPoint p : points.stream().sorted(Comparator.comparing(TrackPoint::t)).toList()) {
+        for (TrackPoint p : points) {
             int stay = stayContaining(sortedStays, p.t());
             if (stay < 0) {
                 out.add(new Waypoint(p.t(), p.t(), new GeoPoint(p.lat(), p.lng()),

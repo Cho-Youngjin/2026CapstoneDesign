@@ -51,6 +51,10 @@ class VisaResultPage extends ConsumerWidget {
       ref.read(alarmSchedulerProvider).cancelForTrip(tripId).catchError((Object e) {
         debugPrint('지워진 여행의 비자 준비 알람 정리 실패: $e');
       });
+      // 404 전에 보낸 목록 요청이 아직 오고 있을 수 있다. 목록을 먼저 다시 부르면(invalidate) 그 낡은 응답은 버려진다 —
+      // 그 뒤에 발걸음 기록을 정리해야, 지운 여행이 든 낡은 목록이 되돌릴 수 있는 정리 표시를 바로 풀고 기록을 다시 켜지
+      // 못한다. 이 뒤에 오는 목록은 404 뒤에 보낸 요청의 응답이다(오프라인 캐시 목록은 여행 기록에 쓰지 않는다).
+      ref.invalidate(tripListProvider);
       // 그 여행의 발걸음 기록(좌표·정지 구간·일시정지)도 지운다(설계 9-3).
       ref.read(tripRecordingCoordinatorProvider).forgetTrip(tripId).catchError((Object e) {
         debugPrint('지워진 여행의 발걸음 기록 정리 실패: $e');

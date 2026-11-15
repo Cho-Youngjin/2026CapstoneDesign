@@ -23,7 +23,7 @@ class TripDeleter {
     } catch (_) {}
     // 여행 기록(설계 9-3)도 같은 이유로 실패해도 삭제를 막지 않는다. 남은 좌표는 다음에 목록을 받을 때 지운다.
     try {
-      await ref.read(tripRecordingCoordinatorProvider).forgetTrip(tripId);
+      await ref.read(tripRecordingCoordinatorProvider).forgetTrip(tripId, deletedOnServer: true);
     } catch (_) {}
     await ref.read(walletDatabaseProvider).clearWallet(tripId);
     await ref.read(powerBankCheckStoreProvider).remove(tripId);

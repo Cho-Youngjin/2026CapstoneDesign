@@ -189,6 +189,8 @@ void main() {
     final r = await pumpResultPage(tester, getTripStatusCode: 404);
 
     expect(r.recording.forgotten, [7]);
+    // 404는 다른 계정으로 연 경우일 수도 있어, 영구 삭제 표시가 아니라 되돌릴 수 있는 정리다.
+    expect(r.recording.forgottenAsDeleted, isEmpty);
   });
 
   testWidgets('404면 여행 목록을 다시 불러온다', (tester) async {
