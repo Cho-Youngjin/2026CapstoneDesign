@@ -19,6 +19,11 @@ enum _Purpose { start, budget, stay, check, probe1, probe2, vehicle }
 ///   곳에서 벗어났으면 걸음 없이 움직이는 것(버스·지하철)으로 보고 탈것 상태로 바꾼다.
 /// - 기타 움직임: 30초 이어지면 30초 간격 확인 측위 두 번으로 속도를 보고, 두 위치가 오차보다 멀고 시속 12km
 ///   이상이면 탈것이다. 아니면 정지처럼 다룬다.
+/// - 걸음으로 설명되지 않는 이동: 탈것이 아니면 측위마다(까닭과 상관없이) 마지막 좋은 측위(오차가 E 이하)와 견준다.
+///   그곳에서 벗어났고(E와 두 오차의 합 중 큰 것보다 멀다) 그사이 걸은 거리(걸음 수 × 보폭)보다도 E 넘게 멀면 걸음
+///   없이 자리를 옮긴 것(버스·지하철)으로 보고 탈것 상태로 바꾼다. 매끄러운 버스에서는 감지기가 정지·보행(0걸음)을
+///   오가며 머문 곳을 거듭 새로 잡아 5분 확인이 돌지 않았다(2026-11-15 실기기). 오차가 E보다 큰 측위(GPS 튐)는
+///   견주지도 기준이 되지도 않지만, 걸음은 그 너머로 이어 모은다.
 /// - 탈것: time_speed 규칙('오차 + 속도 × 경과 시간 > E'가 되는 시각에 잰다)으로 잰다. 걸음이 다시 나오면 보행이다.
 ///   감지기 정지와 측위상 한 자리가 둘 다 2분 넘게 이어질 때만 정지로 본다(빨간불·정류장 정차는 탈것 그대로).
 ///   GPS가 크게 흔들려 한 자리로 보이지 않아도, E 안에 5분 넘게 머물면 정지로 본다(잘못 본 탈것이 오래 남지 않게).
@@ -39,14 +44,16 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   /// 보폭(m). 걸음 수를 움직인 거리로 바꾼다.
   final double strideM;
 
-  /// 절제 실험 스위치. false면 걸음 수 대신 '경과 시간 × 1.4m/s'로 움직인 거리를 짐작한다.
+  /// 절제 실험 스위치. false면 걸음 수 대신 '경과 시간 × 1.4m/s'로 움직인 거리를 짐작한다(보행 측위와 걸음으로
+  /// 설명되지 않는 이동 모두).
   final bool useSteps;
 
   /// 절제 실험 스위치. false면 정지해도, 정지처럼 다루는 기타 움직임에서도 측위를 줄이지 않는다(걷기 속도로
   /// 움직인다고 보고 계속 잰다).
   final bool suppressStill;
 
-  /// 절제 실험 스위치. false면 기타 움직임에서 탈것 확인 측위를 하지 않고 정지처럼 다룬다.
+  /// 절제 실험 스위치. false면 기타 움직임에서 탈것 확인 측위를 하지 않고 정지처럼 다루고, 걸음으로 설명되지 않는
+  /// 이동으로 탈것을 찾지도 않는다. 정지의 5분 확인으로 탈것을 찾는 것은 그대로다.
   final bool vehicleProbe;
 
   /// 걸음 수를 쓰지 않을 때 가정하는 걷기 속도(m/s, time_speed와 같은 값).
@@ -102,6 +109,13 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   StepState? _detectorState;
   int? _stillSinceMs;
 
+  /// 걸음으로 설명되지 않는 이동을 견주는 기준: 마지막 좋은 측위(오차가 E 이하)와 그 뒤 걸음 수.
+  Fix? _refFix;
+  int _stepsSinceRef = 0;
+
+  /// 걸음 감지기가 마지막으로 알린 '마지막 측위 이후 걸음 수'. 측위마다 [_stepsSinceRef]에 더하고 0으로 되돌린다.
+  int _stepsSinceFix = 0;
+
   /// 지금 유효한 깨우기 예약. 상태가 바뀌면 지워서 앞 상태의 예약이 와도 무시한다(WakeAt은 취소할 수 없다).
   String? _armedTag;
   _Purpose _armedPurpose = _Purpose.budget;
@@ -140,6 +154,9 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     _longStopFix = null;
     _detectorState = null;
     _stillSinceMs = null;
+    _refFix = null;
+    _stepsSinceRef = 0;
+    _stepsSinceFix = 0;
     _armedTag = null;
     return _request(_Purpose.start, ctx.nowMs);
   }
@@ -162,6 +179,7 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   }
 
   List<PolicyAction> _onStep(StepState state, int stepsSinceLastFix, int nowMs, PolicyContext ctx) {
+    _stepsSinceFix = stepsSinceLastFix;
     if (state != _detectorState) {
       _detectorState = state;
       _stillSinceMs = state == StepState.still ? nowMs : null;
@@ -230,6 +248,22 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     _failures = 0;
     _retryUntilMs = null;
     _retryTag = null;
+    // 걸음 감지기는 위치를 알릴 때마다(실패는 빼고) 걸음 수를 0부터 다시 센다 — 실행기와 재생기 모두 FixResult를
+    // 넘기기 직전에 onFix를 부른다. 그래서 기준 측위 뒤 걸음 수는 측위마다 여기서 이어 모은다.
+    _stepsSinceRef += _stepsSinceFix;
+    _stepsSinceFix = 0;
+    // 오차가 E보다 큰 측위(GPS 튐)는 견주지도 기준이 되지도 않는다. 보행 중에도 1km 넘게 튀었다 돌아온다(실기기).
+    if (fix.accuracyM <= _budget) {
+      final ref = _refFix;
+      final steps = _stepsSinceRef;
+      _refFix = fix;
+      _stepsSinceRef = 0;
+      if (ref != null && vehicleProbe && _mode != _Mode.vehicle && _movedWithoutSteps(ref, fix, steps)) {
+        // 걸음 없이 자리를 옮겼다 — 걸음이 나오지 않는 탈것(버스·지하철)이다. 감지기가 정지·보행(0걸음)을 오가 머문
+        // 곳을 거듭 새로 잡아도 놓치지 않게, 5분 확인을 기다리지 않고 측위마다 본다.
+        return _becomeVehicle(_speedBetween(ref, fix), fix);
+      }
+    }
     switch (_purpose) {
       case _Purpose.start:
       case _Purpose.budget:
@@ -369,6 +403,14 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   /// 머문 곳에서 벗어났다: 예산(E)과 두 오차의 합 중 큰 것보다 멀다.
   bool _moved(Fix from, Fix to) =>
       haversineMeters(from.lat, from.lng, to.lat, to.lng) > math.max(_budget, from.accuracyM + to.accuracyM);
+
+  /// 걸음으로 설명되지 않게 자리를 옮겼다: 머문 곳에서 벗어난 것처럼([_moved]) 멀고, 그사이 걸은 거리([steps] ×
+  /// 보폭)보다도 E 넘게 멀다. 걸음 수를 쓰지 않는 절제 실험에서는 걸은 거리를 경과 시간 × 걷기 속도로 짐작한다.
+  bool _movedWithoutSteps(Fix from, Fix to, int steps) {
+    if (!_moved(from, to)) return false;
+    final walkedM = useSteps ? steps * strideM : math.max(0, to.tMs - from.tMs) / 1000 * walkingSpeedMps;
+    return haversineMeters(from.lat, from.lng, to.lat, to.lng) - walkedM > _budget;
+  }
 
   double _speedBetween(Fix from, Fix to) {
     final seconds = (to.tMs - from.tMs) / 1000;

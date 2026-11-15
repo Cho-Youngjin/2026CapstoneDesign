@@ -64,6 +64,23 @@ Wakeup wake(int tMs, String tag) => Wakeup(tMs: tMs, tag: tag);
   return (times, actions);
 }
 
+/// 매끄러운 버스(2026-11-15 실기기 귀가 버스): 정지로 머문 곳 A(33초, 오차 [accuracyA]m)를 잰 뒤 감지기가 걸음
+/// 없이 보행·기타 움직임·정지를 오가고, 다시 정지가 30초 이어진 118초(A에서 85초 뒤)에 [dLat]만큼 떨어진 B(오차
+/// [accuracyB]m)를 잰다. B를 받고 낸 할 일을 돌려준다.
+List<PolicyAction> flickerRide(StepBudgetPolicy p, {required double dLat, double accuracyA = 9, double accuracyB = 10}) {
+  final (_, f0) = started(p);
+  p.onEvent(step(2000, StepState.still), at(2000, f0));
+  p.onEvent(wake(32000, 'stay#1'), at(32000, f0));
+  final a = fixAt(33000, accuracyM: accuracyA);
+  p.onEvent(ok(a), at(33000, a));
+  p.onEvent(step(40000, StepState.walking), at(40000, a)); // 걸음 0인 '보행'
+  p.onEvent(step(60000, StepState.otherMotion), at(60000, a));
+  final settle = p.onEvent(step(87000, StepState.still), at(87000, a)).single as WakeAt;
+  expect(p.onEvent(wake(settle.tMs, settle.tag), at(settle.tMs, a)), [const RequestFix()]);
+  final b = fixAt(118000, dLat: dLat, accuracyM: accuracyB);
+  return p.onEvent(ok(b), at(118000, b));
+}
+
 void main() {
   test('시작하면 바로 한 번 측위하고, 걸음 정보 전에는 상태를 모른다', () {
     final policy = StepBudgetPolicy();
@@ -423,6 +440,164 @@ void main() {
       expect(times, hasLength(25));
       expect(last.single, isA<WakeAt>().having((w) => w.tag, 'tag', 'vehicle#28'));
       expect(p.stateLabel, 'vehicle');
+    });
+  });
+
+  group('걸음으로 설명되지 않는 이동', () {
+    test('감지기가 걸음 없이 정지·보행을 오가 머문 곳을 거듭 새로 잡아도, 마지막 좋은 측위에서 걸음 없이 E 넘게 옮겼으면 탈것이다', () {
+      final p = StepBudgetPolicy();
+      // 약 328m / 85초 ≈ 3.859m/s: time_speed 규칙으로 (50 − 10) / 3.859 = 10.365초 뒤 다시 잰다.
+      expect(flickerRide(p, dLat: 0.00295), [const WakeAt(tMs: 128365, tag: 'vehicle#5')]);
+      expect(p.stateLabel, 'vehicle');
+    });
+
+    test('기준 측위 뒤 걸은 거리(걸음 수 × 보폭)로 설명되면 탈것이 아니다 — 걸음은 측위마다 0부터 다시 세도 이어 모은다', () {
+      final (p, f0) = started();
+      p.onEvent(step(2000, StepState.still), at(2000, f0));
+      p.onEvent(wake(32000, 'stay#1'), at(32000, f0));
+      final a = fixAt(33000, accuracyM: 10);
+      p.onEvent(ok(a), at(33000, a));
+      p.onEvent(step(40000, StepState.walking), at(40000, a));
+      // 걸음 감지기는 측위마다 걸음 수를 0부터 다시 센다: 200걸음 → 측위 → 220걸음 → 측위. 두 측위는 오차가 E보다 크다.
+      expect(p.onEvent(step(100000, StepState.walking, 200), at(100000, a)), [const RequestFix()]);
+      final bad1 = fixAt(101000, dLat: 0.0013, accuracyM: 80);
+      expect(p.onEvent(ok(bad1), at(101000, bad1)), isEmpty);
+      expect(p.onEvent(step(150000, StepState.walking, 220), at(150000, bad1)), [const RequestFix()]);
+      final bad2 = fixAt(151000, dLat: 0.0024, accuracyM: 90);
+      expect(p.onEvent(ok(bad2), at(151000, bad2)), isEmpty);
+      expect(p.onEvent(step(152000, StepState.still), at(152000, bad2)), [const WakeAt(tMs: 182000, tag: 'stay#3')]);
+      p.onEvent(wake(182000, 'stay#3'), at(182000, bad2));
+
+      // A에서 약 300m지만 420걸음(315m)을 걸었다.
+      final b = fixAt(183000, dLat: 0.0027, accuracyM: 10);
+      expect(p.onEvent(ok(b), at(183000, b)), [const WakeAt(tMs: 483000, tag: 'check#4')]);
+      expect(p.stateLabel, 'still');
+    });
+
+    test('보행 중 오차가 E보다 큰 측위(GPS 튐)는 견주지도 기준이 되지도 않는다', () {
+      final (p, f0) = started();
+      p.onEvent(step(2000, StepState.walking), at(2000, f0));
+      expect(p.onEvent(step(40000, StepState.walking, 61), at(40000, f0)), [const RequestFix()]);
+      final f1 = fixAt(41000, dLat: 0.0004, accuracyM: 10); // 약 44m를 61걸음(45.75m)으로
+      expect(p.onEvent(ok(f1), at(41000, f1)), isEmpty);
+
+      // 실기기 13:57:46~59: 오차 52m, 66m 측위가 약 1.5km 튀었다가 오차 11m 측위로 제자리에 돌아왔다.
+      expect(p.onEvent(step(80000, StepState.walking, 55), at(80000, f1)), [const RequestFix()]);
+      final jump1 = fixAt(81000, dLat: 0.0008, accuracyM: 52);
+      expect(p.onEvent(ok(jump1), at(81000, jump1)), isEmpty);
+      expect(p.onEvent(step(87000, StepState.walking, 8), at(87000, jump1)), [const RequestFix()]);
+      final jump2 = fixAt(88000, dLat: 0.0141, accuracyM: 66); // f1에서 약 1523m
+      expect(p.onEvent(ok(jump2), at(88000, jump2)), isEmpty);
+      expect(p.stateLabel, 'walking');
+      expect(p.onEvent(step(94000, StepState.walking, 9), at(94000, jump2)), [const RequestFix()]);
+      final back = fixAt(95000, dLat: 0.0009, accuracyM: 11); // 튄 곳에서 약 1468m, f1에서 약 56m(72걸음, 54m)
+      expect(p.onEvent(ok(back), at(95000, back)), isEmpty);
+      expect(p.stateLabel, 'walking');
+    });
+
+    test('오차가 E보다 큰 측위를 건너서도 마지막 좋은 측위와 견준다(실기기 가는 버스)', () {
+      final (p, f0) = started();
+      p.onEvent(step(2000, StepState.still), at(2000, f0));
+      p.onEvent(wake(32000, 'stay#1'), at(32000, f0));
+      final a = fixAt(33000, accuracyM: 23); // 13:12:56 정류장
+      p.onEvent(ok(a), at(33000, a));
+      // 버스에서 감지기가 정지·보행을 오가며 23걸음을 셌고, 그사이 두 측위는 오차가 E보다 크다.
+      p.onEvent(step(100000, StepState.walking, 23), at(100000, a));
+      expect(p.onEvent(step(110000, StepState.still, 23), at(110000, a)), [const WakeAt(tMs: 140000, tag: 'stay#3')]);
+      p.onEvent(wake(140000, 'stay#3'), at(140000, a));
+      final bad1 = fixAt(141000, dLat: -0.0030845, accuracyM: 82); // A에서 약 343m
+      expect(p.onEvent(ok(bad1), at(141000, bad1)), [const WakeAt(tMs: 441000, tag: 'check#4')]);
+      expect(p.onEvent(step(200000, StepState.walking), at(200000, bad1)), [const RequestFix()]);
+      final bad2 = fixAt(201000, dLat: -0.0030845, accuracyM: 68);
+      expect(p.onEvent(ok(bad2), at(201000, bad2)), isEmpty);
+      p.onEvent(step(205000, StepState.still), at(205000, bad2));
+      expect(p.onEvent(step(212000, StepState.walking), at(212000, bad2)), [const RequestFix()]);
+
+      // A에서 약 780m를 23걸음(17.25m)으로 옮겼다: 780m / 180초 ≈ 4.334m/s, (50 − 15) / 4.334 = 8.077초 뒤.
+      final b = fixAt(213000, dLat: 0.007015, accuracyM: 15);
+      expect(p.onEvent(ok(b), at(213000, b)), [const WakeAt(tMs: 221077, tag: 'vehicle#6')]);
+      expect(p.stateLabel, 'vehicle');
+    });
+
+    test('측위 사이에 걸음 알림이 없으면 앞서 모은 걸음을 다시 더하지 않는다(기타 움직임 확인 측위 두 번)', () {
+      final (p, f0) = started();
+      p.onEvent(step(2000, StepState.walking), at(2000, f0));
+      p.onEvent(step(20000, StepState.walking, 40), at(20000, f0)); // 5 + 30 = 35: 아직 재지 않는다
+      expect(p.onEvent(step(21000, StepState.otherMotion, 40), at(21000, f0)), [const WakeAt(tMs: 51000, tag: 'probe1#1')]);
+      p.onEvent(wake(51000, 'probe1#1'), at(51000, f0));
+      final probe1 = fixAt(52000, dLat: 0.0003); // 약 33m를 40걸음(30m)으로
+      expect(p.onEvent(ok(probe1), at(52000, probe1)), [const WakeAt(tMs: 82000, tag: 'probe2#2')]);
+      p.onEvent(wake(82000, 'probe2#2'), at(82000, probe1));
+
+      // 그 뒤로는 걸음 알림이 없다: 약 70m를 0걸음으로 옮겼다. 시속 12km(확인 측위의 속도 기준)보다 느려도 걸음으로
+      // 설명되지 않아 탈것이다 — 속도 하한으로 (50 − 5) / 3.333 = 13.5초 뒤.
+      final probe2 = fixAt(83000, dLat: 0.00093);
+      expect(p.onEvent(ok(probe2), at(83000, probe2)), [const WakeAt(tMs: 96500, tag: 'vehicle#3')]);
+      expect(p.stateLabel, 'vehicle');
+    });
+
+    test('탈것 안에서는 다시 견주지 않는다: 앞 측위와 E 넘게 흔들려도, 탈것으로 본 곳에서 E 안에 5분 머물면 정지로 바꾼다', () {
+      final (p, v) = inVehicle(); // 64초 측위(0.003°)를 탈것으로 봤다
+      p.onEvent(step(66000, StepState.still), at(66000, v));
+
+      // 0.003° 둘레에서 ±0.00025°(약 ±28m)로 번갈아 흔들린다: 앞 측위와 약 56m라 E(50m)보다 멀다. 다시 견주면 멈춤을
+      // 재는 기준이 측위마다 새로 잡혀 탈것에서 벗어나지 못한다.
+      var n = 0;
+      final (times, last) = ride(
+        p,
+        v,
+        const WakeAt(tMs: 69000, tag: 'vehicle#3'),
+        place: (_) => 0.003 + ((n++).isEven ? 0.00025 : -0.00025),
+        maxFixes: 80,
+      );
+      // 정지 66초부터 5분이 지난 뒤 첫 측위에서 정지로 바꾼다.
+      expect(times[times.length - 2], lessThan(366000));
+      expect(times.last, greaterThanOrEqualTo(366000));
+      expect(last.single, isA<WakeAt>().having((w) => w.tag, 'tag', startsWith('check#')));
+      expect(p.stateLabel, 'still');
+    });
+
+    test('좋은 측위 둘이 E 안이면(실내 흔들림) 걸음이 없어도 탈것이 아니다', () {
+      final p = StepBudgetPolicy();
+      // 약 45m: 두 오차의 합(20m)보다 멀지만 E(50m) 안이다.
+      expect(flickerRide(p, dLat: 0.000405, accuracyA: 10), [const WakeAt(tMs: 418000, tag: 'check#5')]);
+      expect(p.stateLabel, 'still');
+    });
+
+    test('좋은 측위 둘이 서로의 오차 합 안이면 E보다 멀어도 탈것이 아니다', () {
+      final p = StepBudgetPolicy();
+      // 약 70m: E(50m)보다 멀지만 두 오차의 합(80m) 안이다.
+      expect(
+        flickerRide(p, dLat: 0.00063, accuracyA: 40, accuracyB: 40),
+        [const WakeAt(tMs: 418000, tag: 'check#5')],
+      );
+      expect(p.stateLabel, 'still');
+    });
+
+    test('탈것 확인을 끄면(절제) 걸음 없는 이동으로도 탈것을 찾지 않는다', () {
+      final p = StepBudgetPolicy(vehicleProbe: false);
+      expect(flickerRide(p, dLat: 0.00295), [const WakeAt(tMs: 418000, tag: 'check#5')]);
+      expect(p.stateLabel, 'still');
+    });
+
+    test('걸음 수를 쓰지 않으면(절제) 걸은 거리를 경과 시간 × 1.4m/s로 짐작한다', () {
+      // 85초에 약 100m: 걸음 수로는 0m를 걸었으니 탈것이다. 시속 12km보다 느려 속도 하한으로 (50 − 10) / 3.333 = 12초 뒤.
+      expect(flickerRide(StepBudgetPolicy(), dLat: 0.0009), [const WakeAt(tMs: 130000, tag: 'vehicle#5')]);
+      // 경과 시간으로는 85초 × 1.4m/s = 119m를 걸었을 수 있어 탈것이 아니다.
+      final p = StepBudgetPolicy(useSteps: false);
+      expect(flickerRide(p, dLat: 0.0009), [const WakeAt(tMs: 418000, tag: 'check#6')]);
+      expect(p.stateLabel, 'still');
+      // 약 328m는 119m로도 설명되지 않는다.
+      expect(flickerRide(StepBudgetPolicy(useSteps: false), dLat: 0.00295), [const WakeAt(tMs: 128365, tag: 'vehicle#6')]);
+    });
+
+    test('onStart는 앞 실행에서 견주던 기준 측위를 지운다', () {
+      final (p, _) = started();
+      expect(p.onStart(at(0)), [const RequestFix()]);
+      // 새 실행의 첫 측위는 앞 실행의 위치에서 약 1.1km 떨어졌어도 견줄 기준이 없다.
+      final far = fixAt(1000, dLat: 0.01);
+      expect(p.onEvent(ok(far), at(1000, far)), isEmpty);
+      expect(p.stateLabel, 'unknown');
     });
   });
 
