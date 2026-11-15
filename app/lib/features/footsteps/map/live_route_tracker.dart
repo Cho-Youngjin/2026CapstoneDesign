@@ -9,13 +9,17 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 ///
 /// 촘촘한 distanceFilter로 구독해야 걷는 경로가 자연스럽게 이어진다. 국가 판정(체크인)은 이 스트림과 무관하게
 /// WorkManager 1시간 주기(여행 기간에만)와 수동 "여기 저장"만 담당한다.
-Stream<List<LatLng>> trackLiveRoute(Stream<Position> positions, {int maxPoints = 2000}) async* {
+///
+/// `async*` + `await for`로 짜지 않는다. 그 방식은 구독을 끊어도 다음 위치가 올 때까지 원본(GPS) 구독이
+/// 남아, 가만히 있으면(10m 거리 필터라 새 위치가 오지 않는다) 앱이 백그라운드로 간 뒤에도 GPS가 계속 켜져 있었다
+/// (실기기 2026-11-15, 93분). [Stream.map]은 구독을 끊는 즉시 원본도 끊는다.
+Stream<List<LatLng>> trackLiveRoute(Stream<Position> positions, {int maxPoints = 2000}) {
   final points = <LatLng>[];
-  await for (final position in positions) {
+  return positions.map((position) {
     points.add(LatLng(position.latitude, position.longitude));
     while (points.length > maxPoints) {
       points.removeAt(0);
     }
-    yield List.unmodifiable(points);
-  }
+    return List<LatLng>.unmodifiable(points);
+  });
 }
