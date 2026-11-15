@@ -66,4 +66,30 @@ void main() {
     expect(data.startMs, isNull);
     expect(data.endMs, isNull);
   });
+
+  test('관찰 표시(marks.csv)를 시각순으로 읽고, 따옴표 안 쉼표와 빈 값을 지킨다', () async {
+    write('marks.csv', [
+      't_ms,kind,value',
+      '61000,count_end,100',
+      '1000,count_start,',
+      '70000,note,"버스, 앞자리"',
+      'broken',
+    ]);
+    write('gps.csv', [
+      't_ms,fix_t_ms,lat,lng,accuracy_m,speed_mps,bearing_deg,altitude_m',
+      '5000,4990,37.5,127.0,5.0,0,0,30',
+    ]);
+
+    final data = await readSession(session);
+
+    expect(data.marks.map((m) => (m.tMs, m.kind, m.value)), [
+      (1000, MarkReading.countStart, ''),
+      (61000, MarkReading.countEnd, '100'),
+      (70000, 'note', '버스, 앞자리'),
+    ]);
+    expect(data.skippedRows, 1);
+    // 관찰 표시는 사람이 누른 시각이라 세션 시작·끝(센서 기록 범위)을 바꾸지 않는다.
+    expect(data.startMs, 5000);
+    expect(data.endMs, 5000);
+  });
 }

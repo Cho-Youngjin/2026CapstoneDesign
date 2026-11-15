@@ -51,8 +51,35 @@ void main() {
 
     expect(code, 0, reason: err.toString());
     expect(out.toString(), contains('fixed_1m fixes=3'));
+    expect(out.toString(), contains('stays=0')); // 같은 자리 2분은 10분에 못 미친다
     expect(File(p.join(outDir, 'fixes.csv')).readAsLinesSync(), hasLength(4)); // 헤더 + 0·60·120초
     expect(File(p.join(outDir, 'actions.csv')).existsSync(), isTrue);
+    expect(File(p.join(outDir, 'stays.csv')).readAsLinesSync(), ['arrive_ms,leave_ms,lat,lng,n_points']);
+  });
+
+  test('--stay-param이 머문 곳 묶기와 summary.json에 들어간다', () async {
+    final outDir = p.join(root.path, 'out4');
+    final code = await runReplayCli([
+      '--session', session.path, '--policy', 'fixed_1m',
+      '--stay-param', 'min_stay_s=60', '--stay-param', 'use_still=false', '--out', outDir,
+    ], out: out, err: err);
+
+    expect(code, 0, reason: err.toString());
+    expect(File(p.join(outDir, 'stays.csv')).readAsLinesSync(),
+        ['arrive_ms,leave_ms,lat,lng,n_points', '0,120000,37.5,127.0,3']);
+    final summary =
+        jsonDecode(File(p.join(outDir, 'summary.json')).readAsStringSync()) as Map<String, Object?>;
+    expect(summary['stay_params'], {'radius_m': 100.0, 'min_stay_s': 60.0, 'use_still': false, 'still_gap_s': 60.0});
+    expect(summary['stays'], 1);
+  });
+
+  test('--stay-param 형식이 틀리거나 모르는 키·잘못된 값이면 64를 돌려준다', () async {
+    for (final bad in ['radius_m', 'radius=50', 'min_stay_s=0', 'use_still=maybe']) {
+      final code = await runReplayCli([
+        '--session', session.path, '--policy', 'fixed_1m', '--stay-param', bad, '--out', p.join(root.path, 'o'),
+      ], out: StringBuffer(), err: err);
+      expect(code, 64, reason: '--stay-param $bad');
+    }
   });
 
   test('--param과 --ttff가 정책·재생 설정에 들어간다', () async {
@@ -84,5 +111,29 @@ void main() {
       '--session', session.path, '--policy', 'time_speed', '--param', 'e_m', '--out', p.join(root.path, 'o'),
     ], out: out, err: err);
     expect(code, 64);
+  });
+
+  test('--detector와 --detector-param이 재생과 summary.json에 들어간다', () async {
+    final outDir = p.join(root.path, 'out3');
+    final code = await runReplayCli([
+      '--session', session.path, '--policy', 'still_suppress', '--detector', 'adaptive',
+      '--detector-param', 'n_confirm=6', '--out', outDir,
+    ], out: out, err: err);
+
+    expect(code, 0, reason: err.toString());
+    final summary =
+        jsonDecode(File(p.join(outDir, 'summary.json')).readAsStringSync()) as Map<String, Object?>;
+    expect(summary['detector_id'], 'adaptive');
+    expect((summary['detector_params'] as Map)['n_confirm'], 6);
+  });
+
+  test('--detector-param 형식이 틀리거나 모르는 파라미터면 64를 돌려준다', () async {
+    for (final bad in ['n_confirm', 'nope=1']) {
+      final code = await runReplayCli([
+        '--session', session.path, '--policy', 'fixed_1m', '--detector', 'adaptive',
+        '--detector-param', bad, '--out', p.join(root.path, 'o'),
+      ], out: StringBuffer(), err: err);
+      expect(code, 64, reason: '--detector-param $bad');
+    }
   });
 }

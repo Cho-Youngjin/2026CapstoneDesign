@@ -1,5 +1,6 @@
 import '../events/policy_action.dart';
 import '../model/fix.dart';
+import '../stays/stay_detector.dart';
 
 /// 정책에 알린 위치 하나(fixes.csv의 행).
 class FixRecord {
@@ -39,6 +40,7 @@ class ReplaySummary {
     required this.policyId,
     required this.policyParams,
     required this.detectorId,
+    this.detectorParams = const {},
     required this.ttffMs,
     required this.startMs,
     required this.endMs,
@@ -47,12 +49,17 @@ class ReplaySummary {
     required this.fixFailures,
     required this.continuousFixes,
     required this.gpsOnMs,
+    this.stayParams = const {},
+    this.stayCount = 0,
   });
 
   final String sessionId;
   final String policyId;
   final Map<String, Object> policyParams;
   final String detectorId;
+
+  /// 걸음 감지기 파라미터. 감지기 파라미터를 바꿔 가며 재생한 결과를 구분하려고 남긴다.
+  final Map<String, Object> detectorParams;
   final int ttffMs;
   final int startMs;
   final int endMs;
@@ -63,6 +70,10 @@ class ReplaySummary {
 
   /// 추정 GPS 켜짐 시간. 단발은 요청~응답, 연속은 켠 때~끈 때.
   final int gpsOnMs;
+
+  /// 머문 곳 묶기 설정(StayParams.params)과 찾은 머문 곳 수.
+  final Map<String, Object> stayParams;
+  final int stayCount;
 
   int get durationMs => endMs - startMs;
 
@@ -75,6 +86,7 @@ class ReplaySummary {
         'policy_id': policyId,
         'policy_params': policyParams,
         'detector_id': detectorId,
+        'detector_params': detectorParams,
         'ttff_ms': ttffMs,
         'start_ms': startMs,
         'end_ms': endMs,
@@ -86,13 +98,23 @@ class ReplaySummary {
         'total_fixes': totalFixes,
         'gps_on_s': gpsOnMs / 1000,
         'fixes_per_hour': fixesPerHour,
+        'stay_params': stayParams,
+        'stays': stayCount,
       };
 }
 
 class ReplayResult {
-  const ReplayResult({required this.fixes, required this.actions, required this.summary});
+  const ReplayResult({
+    required this.fixes,
+    required this.actions,
+    this.stays = const [],
+    required this.summary,
+  });
 
   final List<FixRecord> fixes;
   final List<ActionRecord> actions;
+
+  /// 남은 점으로 묶은 머문 곳(stays.csv).
+  final List<Stay> stays;
   final ReplaySummary summary;
 }

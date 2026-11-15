@@ -1,6 +1,6 @@
 # 정답 기록 안내 (팀원용)
 
-연구 정확도 실험(설계 문서 8-1)에 쓸 '정답 기록'을 남기는 방법이다. 배터리 실험은 이 모드로 하지 않는다(R4 정책 실행 모드).
+연구 정확도 실험(설계 문서 8-1)에 쓸 '정답 기록'을 남기는 방법이다. 배터리 실험은 이 모드로 하지 않는다 — 실험 화면의 '정책 실행' 모드로 한다(docs/research/battery-experiment-guide.md).
 
 ## 1. 준비 (처음 한 번)
 
@@ -49,4 +49,4 @@
 ## 5. 주의
 
 - 세션 데이터에는 실제 이동 경로가 들어 있다. **git에 올리지 않는다**(`research/data/`는 .gitignore 대상). 팀 드라이브로만 공유한다.
-- `research/sessions.yaml`에 세션 id, 코스, 휴대 위치, 용도(pilot/eval)를 적는다(R6에서 만든다).
+- `research/sessions.yaml`에 세션 id, 코스, 휴대 위치, 용도(pilot/eval/battery)를 적는다. 분석 실행은 `docs/research/analysis-guide.md`.
