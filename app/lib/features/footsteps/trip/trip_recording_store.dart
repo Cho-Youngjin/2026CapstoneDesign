@@ -27,6 +27,7 @@ class TripRecordingStore {
   static const ownerKey = 'trip_recording.owner.v1';
   static const noticesKey = 'trip_recording.notices.v1';
   static const purgedKey = 'trip_recording.purged.v1';
+  static const deletedKey = 'trip_recording.deleted.v1';
 
   /// 다른 isolate가 쓴 값을 다시 읽어 온다.
   Future<void> reload() => _prefs.reload();
@@ -82,7 +83,8 @@ class TripRecordingStore {
 
   Future<void> writeOwner(String uid) => _prefs.setString(ownerKey, uid);
 
-  /// 사용자가 일부러 지운 여행 id. 일정·일시정지를 비워도 남는다.
+  /// 계정을 바꿀 때 이전 계정의 여행으로 적어 둔 id. 일정·일시정지를 비워도 남는다. 같은 계정이 돌아와 서버 목록이
+  /// 그 여행을 다시 주면 [removePurged]로 푼다.
   Set<int> readPurged() => _readIds(purgedKey);
 
   Future<void> addPurged(Set<int> tripIds) => _writeIds(purgedKey, readPurged()..addAll(tripIds));
@@ -93,6 +95,12 @@ class TripRecordingStore {
     if (!purged.any(tripIds.contains)) return;
     await _writeIds(purgedKey, purged..removeAll(tripIds));
   }
+
+  /// 삭제한(또는 서버에서 지워져 404가 난) 여행 id. 서버 여행 id는 다시 쓰이지 않으므로 이 표시는 풀지 않는다 — 이 id가
+  /// 든 목록은 삭제 전에 받은 낡은 목록이다.
+  Set<int> readDeleted() => _readIds(deletedKey);
+
+  Future<void> addDeleted(Set<int> tripIds) => _writeIds(deletedKey, readDeleted()..addAll(tripIds));
 
   Set<int> readNoticeTripIds() => _readIds(noticesKey);
 
