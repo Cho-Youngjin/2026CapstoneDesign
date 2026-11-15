@@ -14,6 +14,7 @@ from .geo import distance_m
 MAX_POINTS = 2000
 MAX_STAYS = 500
 CONNECT_TOLERANCE_M = 0.5    # 서버 RouteReconstructionService.CONNECT_TOLERANCE_M과 같은 값
+MAX_ACCURACY_M = 50.0        # 서버 RouteReconstructionService.MAX_ACCURACY_M과 같은 값(이보다 나쁜 점은 버린다)
 
 
 def _num(v):
@@ -41,6 +42,21 @@ def to_points(fixes: pd.DataFrame) -> list[dict]:
     return out
 
 
+def drop_low_accuracy(points: list[dict]) -> list[dict]:
+    """정확도가 MAX_ACCURACY_M보다 나쁜 점을 버리고 그 걸음 수를 다음 남은 점에 더한다(서버 dropLowAccuracy와 같은
+    규칙, 정확도 모름은 남긴다). 서버도 같은 일을 하지만 조각을 나누기 전에 해야 겹치는 점이 버려지지 않는다."""
+    kept, carried = [], 0
+    for p in points:
+        if p["accuracy"] is not None and p["accuracy"] > MAX_ACCURACY_M:
+            carried += p["stepsSincePrev"] or 0
+            continue
+        if carried:
+            p = {**p, "stepsSincePrev": (p["stepsSincePrev"] or 0) + carried}
+            carried = 0
+        kept.append(p)
+    return kept
+
+
 def to_stays(stays: list[dict]) -> list[dict]:
     return [{"arrive": s["arrive_ms"], "leave": s["leave_ms"], "lat": s["lat"], "lng": s["lng"]} for s in stays]
 
@@ -52,7 +68,7 @@ def build_requests(fixes: pd.DataFrame, stays: list[dict], method: str, hmm: dic
     if max_points < 2:
         # 조각마다 마지막 점을 겹쳐 max_points-1칸씩 전진하므로 2 미만이면 k가 늘지 않아 무한 루프에 빠진다.
         raise ValueError(f"max_points는 2 이상이어야 합니다: {max_points}")
-    points = to_points(fixes)
+    points = drop_low_accuracy(to_points(fixes))
     all_stays = to_stays(stays)
     chunks, k = [], 0
     while True:
