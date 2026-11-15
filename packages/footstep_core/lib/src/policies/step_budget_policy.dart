@@ -76,6 +76,11 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   /// 기타 움직임에서 확인 측위 두 번 사이 간격.
   static const probeGapMs = 30000;
 
+  /// 걸음으로 설명되지 않는 이동(탈것) 판정에 쓰는 측위 오차 상한. E와 이 값 중 작은 쪽 이하만 견주고 기준이 된다.
+  /// 서버 경로 복원·날짜별 보기가 버리는 측위(오차 50m 초과)와 같다 — 유심 없는 폰에서 오차 49~68m 측위가 1km 넘게
+  /// 튀었다(실기기 2026-11-15). E=100(배터리 절약)에서도 그런 측위로 탈것을 잘못 잡지 않게 한다.
+  static const vehicleRefMaxAccuracyM = 50.0;
+
   /// 측위와 측위 사이 최소·최대 간격(time_speed와 같은 값).
   static const minWaitMs = 5000;
   static const maxWaitMs = 600000;
@@ -252,8 +257,8 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     // 넘기기 직전에 onFix를 부른다. 그래서 기준 측위 뒤 걸음 수는 측위마다 여기서 이어 모은다.
     _stepsSinceRef += _stepsSinceFix;
     _stepsSinceFix = 0;
-    // 오차가 E보다 큰 측위(GPS 튐)는 견주지도 기준이 되지도 않는다. 보행 중에도 1km 넘게 튀었다 돌아온다(실기기).
-    if (fix.accuracyM <= _budget) {
+    // 오차가 E(최대 50m)보다 큰 측위(GPS 튐)는 견주지도 기준이 되지도 않는다. 보행 중에도 1km 넘게 튀었다 돌아온다(실기기).
+    if (fix.accuracyM <= math.min(_budget, vehicleRefMaxAccuracyM)) {
       final ref = _refFix;
       final steps = _stepsSinceRef;
       _refFix = fix;

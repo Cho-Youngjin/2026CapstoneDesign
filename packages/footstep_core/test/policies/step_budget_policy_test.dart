@@ -495,6 +495,20 @@ void main() {
       expect(p.stateLabel, 'walking');
     });
 
+    test('E가 50m보다 커도(e_m=100) 오차가 50m보다 큰 측위는 탈것 판정에 쓰지 않는다', () {
+      final (p, f0) = started(StepBudgetPolicy(errorBudgetM: 100));
+      p.onEvent(step(2000, StepState.walking), at(2000, f0));
+      // 예산 100m: 5 + 130걸음 × 0.75 = 102.5m > 100m
+      expect(p.onEvent(step(80000, StepState.walking, 130), at(80000, f0)), [const RequestFix()]);
+      final f1 = fixAt(81000, dLat: 0.0009, accuracyM: 10); // 약 100m를 130걸음(97.5m)으로
+      expect(p.onEvent(ok(f1), at(81000, f1)), isEmpty);
+      expect(p.onEvent(step(160000, StepState.walking, 130), at(160000, f1)), [const RequestFix()]);
+      // 실기기의 오차 66m 튐(약 1.5km). E=100이면 오차가 E 안이지만, 다른 곳(서버·날짜별 보기)처럼 50m로 거른다.
+      final jump = fixAt(161000, dLat: 0.0009 + 0.0141, accuracyM: 66);
+      expect(p.onEvent(ok(jump), at(161000, jump)), isEmpty);
+      expect(p.stateLabel, 'walking');
+    });
+
     test('오차가 E보다 큰 측위를 건너서도 마지막 좋은 측위와 견준다(실기기 가는 버스)', () {
       final (p, f0) = started();
       p.onEvent(step(2000, StepState.still), at(2000, f0));
