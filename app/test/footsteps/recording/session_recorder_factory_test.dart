@@ -31,6 +31,19 @@ void main() {
     expect(dir.listSync(), isEmpty);
   });
 
+  test('여행 기록 모드는 실험 세션 기록기로 열지 않고 파일도 만들지 않는다', () async {
+    await expectLater(
+      openSessionRecorder(
+        const RecordingConfig(mode: RecordingMode.trip),
+        dir,
+        clock: DateTime.now,
+        onError: (SessionError _) {},
+      ),
+      throwsStateError,
+    );
+    expect(dir.listSync(), isEmpty);
+  });
+
   test('모르는 정책·감지기나 잘못된 파라미터면 파일을 만들기 전에 멈춘다', () async {
     await expectLater(open(const PolicyChoice(policyId: 'nope', detectorId: 'os')), throwsArgumentError);
     await expectLater(open(const PolicyChoice(policyId: 'step_budget', detectorId: 'nope')), throwsArgumentError);

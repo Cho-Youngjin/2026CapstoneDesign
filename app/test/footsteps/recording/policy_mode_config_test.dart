@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:app/features/footsteps/recording/policy_choice.dart';
 import 'package:app/features/footsteps/recording/recording_config.dart';
 import 'package:app/features/footsteps/recording/recording_mode.dart';
 import 'package:app/features/footsteps/recording/session_meta.dart';
+import 'package:app/features/footsteps/trip/trip_period.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _choice = PolicyChoice(
@@ -46,5 +49,30 @@ void main() {
     const truth = RecordingConfig(mode: RecordingMode.groundTruth, sessionDir: '/s', carryInitial: 'hand');
     expect(RecordingConfig.fromJson(truth.toJson()).policy, isNull);
     expect(sessionDirName(DateTime(2026, 11, 11, 9), RecordingMode.policy), '20261111-090000-policy');
+  });
+
+  test('여행 기록 모드의 기록 설정은 여행과 정책을 JSON 문자열을 거쳐도 그대로 오가고, 실험 모드에서는 trip이 null이다', () {
+    final trip = TripPeriod(
+      tripId: 7,
+      countryIso2: 'JP',
+      countryNameKo: '일본',
+      departDate: DateTime(2026, 11, 20),
+      returnDate: DateTime(2026, 11, 25),
+    );
+    final config = RecordingConfig(mode: RecordingMode.trip, policy: _choice, trip: trip);
+
+    // 서비스 isolate는 saveData에 넣은 문자열을 읽는다 — 문자열을 거친 값으로 확인한다.
+    final back = RecordingConfig.fromJson((jsonDecode(jsonEncode(config.toJson())) as Map).cast<String, Object?>());
+    expect(back.mode, RecordingMode.trip);
+    expect(back.policy, _choice);
+    expect(back.trip?.tripId, 7);
+    expect(back.trip?.countryIso2, 'JP');
+    expect(back.trip?.countryNameKo, '일본');
+    expect(back.trip?.departDate, DateTime(2026, 11, 20));
+    expect(back.trip?.returnDate, DateTime(2026, 11, 25));
+    expect(back.sessionDir, isNull);
+
+    const lab = RecordingConfig(mode: RecordingMode.groundTruth, sessionDir: '/s', carryInitial: 'hand');
+    expect(RecordingConfig.fromJson(lab.toJson()).trip, isNull);
   });
 }

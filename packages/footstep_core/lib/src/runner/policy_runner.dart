@@ -33,6 +33,7 @@ class PolicyRunner {
     required this.clock,
     required this.sink,
     this.onError,
+    this.onStepUpdate,
     int accelBatchMs = 1000,
   }) : _batcher = AccelBatcher(accelBatchMs);
 
@@ -50,6 +51,10 @@ class PolicyRunner {
 
   /// 기록·정책·걸음 감지기·GPS에서 난 오류를 받는다(폰에서는 meta.json의 errors로 간다). 없으면 버린다.
   final void Function(Object error, StackTrace stack)? onError;
+
+  /// 걸음 감지기가 낸 StepUpdate를 정책에 넘기기 직전에 받는다. R7 여행 기록이 재생기와 같은 규칙(첫 분류 포함,
+  /// 상태가 바뀐 순간)으로 정지 구간을 남기는 데 쓴다. 여기서 난 오류는 [onError]로 알리고 정책에는 그대로 넘긴다.
+  final void Function(StepUpdate update)? onStepUpdate;
   final AccelBatcher _batcher;
 
   bool _started = false;
@@ -183,7 +188,10 @@ class PolicyRunner {
   PolicyContext _ctx() => PolicyContext(nowMs: clock(), lastFix: _lastFix);
 
   void _deliverStep(StepUpdate? update) {
-    if (update != null) _deliver(update);
+    if (update == null) return;
+    final observer = onStepUpdate;
+    if (observer != null) _safely(() => observer(update));
+    _deliver(update);
   }
 
   void _deliver(PolicyEvent event) => _apply(_guard(() => policy.onEvent(event, _ctx()), const <PolicyAction>[]));

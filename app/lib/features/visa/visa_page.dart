@@ -64,6 +64,9 @@ class _VisaPageState extends ConsumerState<VisaPage> {
   bool _submitting = false;
   String? _error;
 
+  /// 대한민국을 고르면 국내 여행이다 — 여권 만료일을 받지 않고 비자 판정도 하지 않는다(설계 9-1).
+  bool get _isDomestic => _country?.isoAlpha2 == homeCountryIso2;
+
   bool get _datesInOrder =>
       _departDate == null ||
       _returnDate == null ||
@@ -73,7 +76,7 @@ class _VisaPageState extends ConsumerState<VisaPage> {
       _country != null &&
       _departDate != null &&
       _returnDate != null &&
-      _passportExpiry != null &&
+      (_isDomestic || _passportExpiry != null) &&
       _datesInOrder &&
       !_submitting;
 
@@ -144,7 +147,7 @@ class _VisaPageState extends ConsumerState<VisaPage> {
             countryIso2: _country!.isoAlpha2,
             departDate: _departDate!,
             returnDate: _returnDate!,
-            passportExpiry: _passportExpiry!,
+            passportExpiry: _isDomestic ? null : _passportExpiry,
           );
       ref.invalidate(tripListProvider);
       if (mounted) context.pushReplacement(AppRoutes.tripOf(trip.id));
@@ -222,15 +225,17 @@ class _VisaPageState extends ConsumerState<VisaPage> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 18),
-                _FieldGroup(
-                  label: '여권 만료일',
-                  child: _DateBox(
-                    key: const Key('passportExpiryField'),
-                    value: _passportExpiry,
-                    onTap: _submitting ? null : _pickPassportExpiry,
+                if (!_isDomestic) ...[
+                  const SizedBox(height: 18),
+                  _FieldGroup(
+                    label: '여권 만료일',
+                    child: _DateBox(
+                      key: const Key('passportExpiryField'),
+                      value: _passportExpiry,
+                      onTap: _submitting ? null : _pickPassportExpiry,
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 18),
                 _StaySummary(
                   departDate: _departDate,
@@ -262,7 +267,9 @@ class _VisaPageState extends ConsumerState<VisaPage> {
                   ),
                 PillButton(
                   key: const Key('submitTripButton'),
-                  label: _submitting ? '판정 중…' : '비자 판정하기',
+                  label: _isDomestic
+                      ? (_submitting ? '저장 중…' : '여행 만들기')
+                      : (_submitting ? '판정 중…' : '비자 판정하기'),
                   height: 50,
                   onPressed: _canSubmit ? _submit : null,
                 ),
@@ -315,14 +322,15 @@ class _StaySummary extends StatelessWidget {
   }
 }
 
-/// 서버의 국가 목록(`/api/countries`)을 바텀시트로 보여주고, 고른 국가를 pop으로 돌려준다.
-/// 시트를 열 때 처음 불러오므로 화면 진입만으로는 서버를 호출하지 않는다.
+/// 서버의 국가 목록(`/api/countries`)을 바텀시트로 보여주고, 고른 국가를 pop으로 돌려준다. 맨 위에는 앱이 붙인
+/// '대한민국(국내 여행)'이 온다(설계 9-1, [countriesWithHomeProvider]). 시트를 열 때 처음 불러오므로 화면 진입만으로는
+/// 서버를 호출하지 않는다.
 class _CountryPickerSheet extends ConsumerWidget {
   const _CountryPickerSheet();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final countries = ref.watch(countryListProvider);
+    final countries = ref.watch(countriesWithHomeProvider);
     return SafeArea(
       child: SizedBox(
         height: 360,
@@ -347,12 +355,19 @@ class _CountryPickerSheet extends ConsumerWidget {
           data: (list) => ListView.separated(
             itemCount: list.length,
             separatorBuilder: (_, _) => const Divider(height: 1),
-            itemBuilder: (context, i) => ListTile(
-              title: Text(list[i].nameKo),
-              subtitle: Text(list[i].nameEn ?? '-'),
-              trailing: Text('Tier ${list[i].tier}'),
-              onTap: () => Navigator.of(context).pop(list[i]),
-            ),
+            itemBuilder: (context, i) => list[i].isoAlpha2 == homeCountryIso2
+                ? ListTile(
+                    key: const Key('domesticTripOption'),
+                    title: Text('${list[i].nameKo}(국내 여행)'),
+                    subtitle: const Text('여권·비자 없이 발걸음을 기록해요'),
+                    onTap: () => Navigator.of(context).pop(list[i]),
+                  )
+                : ListTile(
+                    title: Text(list[i].nameKo),
+                    subtitle: Text(list[i].nameEn ?? '-'),
+                    trailing: Text('Tier ${list[i].tier}'),
+                    onTap: () => Navigator.of(context).pop(list[i]),
+                  ),
           ),
         ),
       ),
@@ -435,7 +450,9 @@ class _CountryBox extends StatelessWidget {
             Text(selected.nameKo, style: AppTextStyles.body),
             const SizedBox(width: 10),
             Text(
-              '${selected.isoAlpha2} · Tier ${selected.tier}',
+              selected.isoAlpha2 == homeCountryIso2
+                  ? '국내 여행'
+                  : '${selected.isoAlpha2} · Tier ${selected.tier}',
               style: AppTextStyles.caption,
             ),
           ],

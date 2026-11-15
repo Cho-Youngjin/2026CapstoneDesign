@@ -121,6 +121,104 @@ void main() {
     });
   });
 
+  group('끊긴 정지 구간 이어 붙이기 (실기기 2026-11-15)', () {
+    /// 13:00 기준 [mm]분 [ss]초의 시각(ms).
+    int t(int mm, int ss) => (mm * 60 + ss) * 1000;
+    Fix fix(int mm, int ss, double northM) =>
+        Fix(tMs: t(mm, ss), lat: 37.5 + northM * _degPerMeter, lng: 127.0, accuracyM: 5);
+    TimeSpan span(int m1, int s1, int m2, int s2) => TimeSpan(t(m1, s1), t(m2, s2));
+
+    // 실제 실내 체류 13:29~13:53. 실내에서 조금씩 움직여 감지기가 정지를 5개로 끊었고, GPS는 10분 동안 실패했다.
+    final deviceSpans = [
+      span(30, 12, 34, 24),
+      span(34, 38, 43, 32),
+      span(43, 33, 44, 52),
+      span(45, 6, 50, 10),
+      span(50, 19, 52, 50),
+    ];
+
+    test('실기기 사례: 끊긴 정지 구간을 이어 붙여 출발을 13:52:50으로 잡는다', () {
+      final points = [
+        fix(30, 45, 0),
+        fix(35, 13, 10),
+        fix(40, 24, 25),
+        fix(44, 57, 20), // 반경 안이지만 정지 구간 밖
+        fix(55, 8, 119), // 반경 밖, 이후 걷기
+      ];
+
+      final stay = detectStays(points, stillSpans: deviceSpans).single;
+
+      expect(stay.arriveMs, t(30, 12));
+      expect(stay.leaveMs, t(52, 50));
+      expect(stay.nPoints, 3); // 정지 구간 밖의 점은 여전히 중심·점 수에서 뺀다
+    });
+
+    test('정지 구간 사이가 maxStillGapMs보다 벌어지면 거기서 이어 붙이기를 멈춘다', () {
+      // 마지막 구간만 직전 구간(끝 50:10)과 70초 떨어뜨린다.
+      final spans = [...deviceSpans.take(4), span(51, 20, 52, 50)];
+      final points = [fix(30, 45, 0), fix(35, 13, 10), fix(40, 24, 25), fix(55, 8, 119)];
+
+      expect(detectStays(points, stillSpans: spans).single.leaveMs, t(50, 10));
+
+      // 간격 허용을 80초로 넓히면 이어 붙는다.
+      final wide = detectStays(points, stillSpans: spans, params: const StayParams(maxStillGapMs: 80000));
+      expect(wide.single.leaveMs, t(52, 50));
+    });
+
+    test('다음 점(반경 밖) 시각 이후에 시작하거나 그 점을 가로지르는 정지 구간은 쓰지 않는다', () {
+      final spans = [
+        span(30, 12, 43, 32),
+        span(43, 40, 44, 30), // 다음 점(44:45) 전에 끝나 이어 붙는다
+        span(44, 50, 52, 50), // 다음 점 뒤에 시작 — 쓰지 않는다
+      ];
+      final points = [fix(31, 0, 0), fix(40, 0, 5), fix(44, 45, 300)];
+
+      expect(detectStays(points, stillSpans: spans).single.leaveMs, t(44, 30));
+
+      // 다음 점을 가로지르는 구간(버스처럼 옮겨 간 경우)도 쓰지 않는다.
+      final crossing = [span(30, 12, 43, 32), span(43, 40, 50, 0)];
+      expect(detectStays(points, stillSpans: crossing).single.leaveMs, t(43, 32));
+    });
+
+    test('앞 머문 곳이 이어 붙인 구간은 다음 머문 곳의 도착으로 다시 쓰지 않는다', () {
+      // A(0분 위치)는 12:30 점(B, 500m 북쪽) 전까지 구간을 이어 붙여 12:20에 떠난다. B의 첫 정지 점은 20분 점이라
+      // 도착은 12:40 구간 시작이고, 12:20 이전 구간으로 거슬러 가면 A와 겹치므로 거기서 멈춘다.
+      final spans = [span(0, 10, 10, 0), span(10, 10, 12, 20), span(12, 40, 25, 0)];
+      final points = [fix(1, 0, 0), fix(5, 0, 0), fix(12, 30, 500), fix(20, 0, 500)];
+
+      final stays = detectStays(points, stillSpans: spans);
+      expect(stays.map((s) => (s.arriveMs, s.leaveMs)), [(t(0, 10), t(12, 20)), (t(12, 40), t(25, 0))]);
+    });
+
+    test('도착도 거꾸로 이어 붙인다: 이전 점(반경 밖) 시각 뒤에 시작한 앞선 정지 구간까지', () {
+      // 이전 점(0:30)은 멀리 있다. 정지 구간 둘이 30초 간격으로 이어져 있어 도착이 첫 구간 시작으로 당겨진다.
+      final spans = [span(1, 0, 3, 0), span(3, 30, 15, 0)];
+      final points = [fix(0, 30, -500), fix(8, 0, 0), fix(12, 0, 0), fix(20, 0, 500)];
+
+      final stay = detectStays(points, stillSpans: spans).single;
+      expect(stay.arriveMs, t(1, 0));
+      expect(stay.leaveMs, t(15, 0));
+
+      // 이전 점 시각(0:30) 앞에 시작한 구간은 쓰지 않는다.
+      final early = [span(0, 10, 3, 0), span(3, 30, 15, 0)];
+      expect(detectStays(points, stillSpans: early).single.arriveMs, t(3, 30));
+    });
+
+    test('use_still=false(절제 실험)는 이어 붙이기와 무관하다', () {
+      final points = [fix(30, 45, 0), fix(35, 13, 10), fix(40, 24, 25), fix(44, 57, 20), fix(55, 8, 119)];
+
+      final stay = detectStays(points,
+          stillSpans: deviceSpans, params: const StayParams(useStillIntervals: false)).single;
+      expect((stay.arriveMs, stay.leaveMs, stay.nPoints), (t(30, 45), t(44, 57), 4));
+    });
+
+    test('maxStillGapMs가 음수면 설정 단계에서 막고, 0이면 맞닿은 구간만 잇는다', () {
+      expect(() => createStayParams({'still_gap_s': '-1'}), throwsArgumentError);
+      expect(() => detectStays([at(0, 0)], params: const StayParams(maxStillGapMs: -1)), throwsArgumentError);
+      expect(createStayParams({'still_gap_s': '0'}).maxStillGapMs, 0);
+    });
+  });
+
   test('걸음 감지기 상태 변화에서 정지 구간을 뽑는다(마지막 상태는 끝 시각까지)', () {
     final states = [
       const StateChange(tMs: 0, state: StepState.still),
@@ -137,9 +235,10 @@ void main() {
 
   group('설정과 입력 검증', () {
     test('CLI 파라미터로 설정을 만든다', () {
-      expect(createStayParams().params, {'radius_m': 100.0, 'min_stay_s': 600.0, 'use_still': true});
-      expect(createStayParams({'radius_m': '50', 'min_stay_s': '300', 'use_still': 'false'}).params,
-          {'radius_m': 50.0, 'min_stay_s': 300.0, 'use_still': false});
+      expect(createStayParams().params,
+          {'radius_m': 100.0, 'min_stay_s': 600.0, 'use_still': true, 'still_gap_s': 60.0});
+      expect(createStayParams({'radius_m': '50', 'min_stay_s': '300', 'use_still': 'false', 'still_gap_s': '30'}).params,
+          {'radius_m': 50.0, 'min_stay_s': 300.0, 'use_still': false, 'still_gap_s': 30.0});
       expect(() => createStayParams({'radius': '50'}), throwsArgumentError);
       expect(() => createStayParams({'min_stay_s': '0'}), throwsArgumentError);
     });

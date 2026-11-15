@@ -27,6 +27,9 @@ class LabPage extends ConsumerStatefulWidget {
 
 class _LabPageState extends ConsumerState<LabPage> {
   bool _running = false;
+
+  /// 지금 도는 것이 앱이 켠 여행 기록(R7)인가. 실험 화면에서 고를 수 있는 모드가 아니라 안내만 한다.
+  bool _tripRecording = false;
   bool _busy = false;
   String? _error;
   RecorderStatus? _status;
@@ -62,6 +65,11 @@ class _LabPageState extends ConsumerState<LabPage> {
   }
 
   void _showConfig(RecordingConfig config) {
+    if (config.mode == RecordingMode.trip) {
+      // 모드 선택은 기본값으로 둔다. 그대로 두면 [기록 종료] 뒤 [기록 시작]이 여행 기록 모드로 실험을 켜려 한다.
+      _tripRecording = true;
+      return;
+    }
     _mode = config.mode;
     final policy = config.policy;
     if (policy == null) return;
@@ -92,6 +100,7 @@ class _LabPageState extends ConsumerState<LabPage> {
         if (mounted) {
           setState(() {
             _running = false;
+            _tripRecording = false;
             _status = null;
             _sessionsVersion++;
           });
@@ -156,6 +165,15 @@ class _LabPageState extends ConsumerState<LabPage> {
           const Text('휴대 위치'),
           LabCarrySelector(value: _carry, onChanged: _changeCarry),
           const SizedBox(height: 8),
+          if (_running && _tripRecording)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text(
+                '여행 기록 중이에요. [기록 종료]를 누르면 여행 기록을 멈추고 실험을 시작할 수 있어요. '
+                '여행 기록은 다음에 앱을 열 때 다시 켜져요.',
+                key: Key('lab-trip-recording'),
+              ),
+            ),
           FilledButton(
             key: const Key('lab-start-stop'),
             onPressed: _busy ? null : _toggle,

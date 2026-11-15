@@ -31,7 +31,7 @@ Future<int> runReplayCli(List<String> arguments, {StringSink? out, StringSink? e
         help: '걸음 감지기 파라미터 k=v (여러 번 줄 수 있다)', splitCommas: false)
     ..addOption('ttff', defaultsTo: '0', help: '측위 지연(초): 0·5·10')
     ..addMultiOption('stay-param',
-        help: '머문 곳 묶기 k=v: radius_m(100), min_stay_s(600), use_still(true)', splitCommas: false)
+        help: '머문 곳 묶기 k=v: radius_m(100), min_stay_s(600), use_still(true), still_gap_s(60)', splitCommas: false)
     ..addOption('out', help: '결과 폴더(fixes.csv, actions.csv, stays.csv, summary.json)');
 
   int usageError(String message) {
