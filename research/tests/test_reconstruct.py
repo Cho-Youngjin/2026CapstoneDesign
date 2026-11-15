@@ -36,6 +36,21 @@ def test_build_requests_drops_low_accuracy_before_choosing_chunk_overlap():
     assert all(p["accuracy"] is None or p["accuracy"] <= rc.MAX_ACCURACY_M for r in reqs for p in r["points"])
 
 
+def test_build_requests_keeps_endpoint_stays_whose_fixes_were_all_dropped():
+    # 처음 20분 머문 곳의 측위가 모두 오차 60m라 버려져도, 그 머문 곳은 요청에 남아야 한다 — 서버는 받은 머문 곳의
+    # 중심을 경로에 넣는다. 버린 점의 시각까지 조각의 시간 범위로 쳐서 머문 곳을 고른다.
+    df = pd.DataFrame({"t_ms": [0, 600_000, 1_200_000, 1_300_000], "lat": [37.5] * 4, "lng": [127.0] * 4,
+                       "accuracy_m": [60.0, 60.0, 60.0, 5.0], "steps_since_prev": [0, 0, 0, 40],
+                       "state": ["still", "still", "still", "walking"], "kind": ["single"] * 4})
+    stay = {"arrive_ms": 0, "leave_ms": 1_200_000, "lat": 37.5, "lng": 127.0}
+    reqs = build_requests(df, [stay], "straight")
+    assert [(s["arrive"], s["leave"]) for s in reqs[0]["stays"]] == [(0, 1_200_000)]
+    assert [p["t"] for p in reqs[0]["points"]] == [1_300_000]
+    # 점이 모두 버려져도 머문 곳은 남는다.
+    reqs = build_requests(df.iloc[:3], [stay], "straight")
+    assert reqs[0]["points"] == [] and len(reqs[0]["stays"]) == 1
+
+
 def test_build_requests_splits_over_limit_with_overlap():
     stays = [{"arrive_ms": 0, "leave_ms": 1, "lat": 1, "lng": 2}, {"arrive_ms": 8, "leave_ms": 9, "lat": 1, "lng": 2}]
     reqs = build_requests(_fixes(9), stays, "hmm_steps", hmm={"betaM": 5}, max_points=4)

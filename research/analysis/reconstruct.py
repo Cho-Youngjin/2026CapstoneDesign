@@ -68,7 +68,8 @@ def build_requests(fixes: pd.DataFrame, stays: list[dict], method: str, hmm: dic
     if max_points < 2:
         # 조각마다 마지막 점을 겹쳐 max_points-1칸씩 전진하므로 2 미만이면 k가 늘지 않아 무한 루프에 빠진다.
         raise ValueError(f"max_points는 2 이상이어야 합니다: {max_points}")
-    points = drop_low_accuracy(to_points(fixes))
+    raw = to_points(fixes)
+    points = drop_low_accuracy(raw)
     all_stays = to_stays(stays)
     chunks, k = [], 0
     while True:
@@ -78,8 +79,14 @@ def build_requests(fixes: pd.DataFrame, stays: list[dict], method: str, hmm: dic
             break
         k += max_points - 1
     out = []
-    for chunk in chunks:
+    for idx, chunk in enumerate(chunks):
         lo, hi = (chunk[0]["t"], chunk[-1]["t"]) if chunk else (0, 0)
+        # 버린 점(오차 50m 초과)의 시각도 이 궤적이 덮는 시간이다. 양 끝 머문 곳의 측위가 모두 버려져도(점이 하나도 안 남아도)
+        # 그 머문 곳은 요청에 넣는다 — 서버는 받은 머문 곳의 중심을 경로에 넣는다.
+        if raw and idx == 0:
+            lo = raw[0]["t"] if not chunk else min(lo, raw[0]["t"])
+        if raw and idx == len(chunks) - 1:
+            hi = raw[-1]["t"] if not chunk else max(hi, raw[-1]["t"])
         in_chunk = [s for s in all_stays if s["leave"] >= lo and s["arrive"] <= hi]
         if len(in_chunk) > MAX_STAYS:
             # 서버 상한 때문에 자를 수밖에 없지만, 조용히 자르면 머문 곳이 사라진 줄 모르고 지표를 읽게 된다.
