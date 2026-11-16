@@ -28,6 +28,7 @@ runs:                       # 정책 × 설정. 목록 값은 모든 조합으�
   - policy: time_speed
     params: {e_m: [25, 50, 100]}
   - policy: time_speed_still   # EnTracked처럼 멈춰 있으면 GPS를 쉬는 판(공정한 비교용)
+    detector: [os, adaptive]   # os는 탈것(걸음 없음)을 멈춤으로 본다. EnTracked는 가속도 흔들림으로 판정하므로 adaptive판이 원문에 가깝다
     params: {e_m: [25, 50, 100]}
   - policy: still_suppress
   - policy: activity_gated
