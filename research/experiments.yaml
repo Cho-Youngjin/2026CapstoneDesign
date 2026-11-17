@@ -52,6 +52,10 @@ runs:                       # 정책 × 설정. 목록 값은 모든 조합으�
     detector: adaptive
     params: {e_m: 50}
     stay_params: {use_still: false}
+  # 보폭 민감도: 기본 0.75m 대신 0.6·0.9m(팀원 조사 2026-11-17 — 실측 보폭은 사람·휴대 위치마다 약 0.62~0.93m)
+  - policy: step_budget
+    detector: os
+    params: {e_m: 50, stride_m: [0.6, 0.9]}
   # 측위 지연 민감도(설계 10장 위험 4)
   - policy: step_budget
     detector: adaptive
