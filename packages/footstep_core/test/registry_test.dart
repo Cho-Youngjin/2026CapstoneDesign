@@ -41,6 +41,7 @@ void main() {
       'use_steps': false,
       'suppress_still': true,
       'vehicle_probe': false,
+      'first_check_s': 60,
     });
     expect(createPolicy('step_budget', {'use_steps': 'true', 'suppress_still': '1', 'vehicle_probe': 'false'}).params, {
       'e_m': 50.0,
@@ -48,7 +49,9 @@ void main() {
       'use_steps': true,
       'suppress_still': true,
       'vehicle_probe': false,
+      'first_check_s': 60,
     });
+    expect((createPolicy('step_budget', {'first_check_s': '300'}) as StepBudgetPolicy).firstCheckMs, 300000);
     expect(() => createPolicy('step_budget', {'use_steps': 'no'}), throwsArgumentError);
     expect(() => createPolicy('step_budget', {'e_m': '0'}), throwsArgumentError);
   });

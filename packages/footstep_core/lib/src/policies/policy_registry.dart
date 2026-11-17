@@ -58,13 +58,14 @@ CollectionPolicy createPolicy(String id, [Map<String, String> params = const {}]
       reader.allowOnly(const {'e_m', 'stride_m'});
       return StepTriggerPolicy(errorBudgetM: reader.positive('e_m', 50), strideM: reader.positive('stride_m', 0.75));
     case 'step_budget':
-      reader.allowOnly(const {'e_m', 'stride_m', 'use_steps', 'suppress_still', 'vehicle_probe'});
+      reader.allowOnly(const {'e_m', 'stride_m', 'use_steps', 'suppress_still', 'vehicle_probe', 'first_check_s'});
       return StepBudgetPolicy(
         errorBudgetM: reader.positive('e_m', 50),
         strideM: reader.positive('stride_m', 0.75),
         useSteps: reader.flag('use_steps', true),
         suppressStill: reader.flag('suppress_still', true),
         vehicleProbe: reader.flag('vehicle_probe', true),
+        firstCheckMs: (reader.positive('first_check_s', 60) * 1000).round(),
       );
     default:
       throw ArgumentError('알 수 없는 정책: $id (가능: ${policyIds.join(', ')})');

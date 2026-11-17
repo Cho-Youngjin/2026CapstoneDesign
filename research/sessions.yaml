@@ -27,7 +27,7 @@ sessions:
     carry: mixed
     note: 걸음 세기 2회(손 200, 가방 250). 지하철 구간은 손→가방
   - id: 20261117-172359-groundTruth
-    use: eval
+    use: pilot     # 2026-11-17 eval → pilot: 이 세션의 버스 탑승 지연을 보고 step_budget 정지 확인 간격을 고쳤다
     course: 도보 + 지하철 약 23분 + 도보 + 버스 20분 + 도보 + 집 도착 (팀원 SM-F766N)
     carry: mixed
     note: 걸음 세기 3회(손 200, 가방 56, 가방 100). 18:13:09에 잘못 누른 두 번째 '지하철 탑승'을 marks.csv에서 뺐다(원본 marks.orig.csv). 팀원 메모 '지하철 탑승 기록 몇 분 밀림' — 실제 탑승은 17:49:53보다 몇 분 이르다
