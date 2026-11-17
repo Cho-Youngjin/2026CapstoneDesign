@@ -154,6 +154,20 @@ def test_battery_run_and_summary(tmp_path):
     assert s["mah_per_h_std"].iloc[0] == pytest.approx(pd.Series([7.4, 14.8]).std())
 
 
+def test_battery_run_until_drops_rows_after_arrival(tmp_path):
+    # 도착(60분) 뒤 [기록 종료]를 늦게 눌러 90·120분 행이 더 있다. 그 뒤로는 전하량이 빨리 줄어도(카페에서 화면 켬)
+    # until로 자르면 이동 구간(0~60분)만 잰다. 세션 전체의 GPS 켜짐 추정은 잘린 구간과 맞지 않아 비운다.
+    policy = {"policyId": "fixed_30s", "detectorId": "adaptive", "policyParams": {}}
+    rows = [[T0 + k * H // 2, 3_700_000 - k * 3_700 - (k > 2) * 37_000, -150, 88, 30, 0] for k in range(5)]
+    d = make_session(tmp_path, "late", battery=rows, meta={"mode": "policy", "policy": policy})
+    (d / "summary.json").write_text(json.dumps({"gps_on_s": 99.0}), encoding="utf-8")
+    full = battery_run(d)
+    cut = battery_run(d, until_ms=T0 + H)
+    assert full["mah_per_h"] > 7.4 and full["gps_on_s_est"] == 99.0
+    assert cut["mah_per_h"] == pytest.approx(7.4) and cut["hours"] == pytest.approx(0.5)
+    assert cut["until_ms"] == T0 + H and cut["gps_on_s_est"] is None
+
+
 def test_battery_summary_counts_aligned_runs():
     runs = pd.DataFrame({"method": ["m", "m", "m"], "excluded": [None, None, "restarted by system"],
                          "mah_per_h": [7.0, 9.0, 8.0], "current_ma": [1.0, 1.0, 1.0], "gps_s_app": [None] * 3,

@@ -39,7 +39,7 @@ _STEP_COLS = ["detector", "total_steps", "count_intervals", "manual_steps", "det
               "count_abs_error_pct", "vehicle_s", "vehicle_false_steps", "vehicle_false_steps_per_min",
               "walk_precision", "walk_recall", "first_step_latency_s"]
 _CARRY_COLS = ["carry", "start_ms", "end_ms", "manual_steps", "detected_steps", "error_pct"]
-_BATTERY_COLS = ["session", "device", "method", "excluded", "hours", "mah_used", "mah_per_h", "aligned",
+_BATTERY_COLS = ["session", "device", "method", "excluded", "until_ms", "hours", "mah_used", "mah_per_h", "aligned",
                  "current_ma", "gps_s_total", "gps_s_app", "gps_on_s_est", "use"]
 SKIPPED_COLS = ["session", "what", "reason"]
 
@@ -121,7 +121,7 @@ def run_experiment(exp: Experiment, cli: DartCli, client: ReconstructClient | No
         if s["use"] in exp.battery["use"]:
             try:
                 battery_rows.append({**battery_run(sdir, exp.battery["current_units"], exp.battery["align_steps"],
-                                                   exp.battery["package"]), "use": s["use"]})
+                                                   exp.battery["package"], s.get("until_ms")), "use": s["use"]})
             except SESSION_ERRORS as e:
                 skipped.append({"session": s["id"], "what": "battery", "reason": f"{type(e).__name__}: {e}"})
         if s["use"] not in exp.uses:

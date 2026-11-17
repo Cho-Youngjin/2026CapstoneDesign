@@ -132,7 +132,7 @@ def gps_seconds_from_batterystats(text: str, package: str | None = None) -> dict
 def method_label(policy_id: str, detector_id: str | None = None, params: dict | None = None) -> str:
     """방식 이름. 재생 결과와 배터리 실험을 같은 이름으로 잇는다. 걸음 감지기는 걸음 정책일 때만 붙인다."""
     label = policy_id
-    if policy_id in {"time_speed_still", "still_suppress", "step_budget"} and detector_id:
+    if policy_id in {"time_speed_still", "still_suppress", "step_trigger", "step_budget"} and detector_id:
         label += f"[{detector_id}]"
     if params:
         label += " " + " ".join(f"{k}={params[k]}" for k in sorted(params))
@@ -140,8 +140,12 @@ def method_label(policy_id: str, detector_id: str | None = None, params: dict | 
 
 
 def battery_run(session_dir: Path, current_units: dict | None = None, align_steps: bool = True,
-                package: str = "com.travelfootsteps.app") -> dict:
-    """배터리 실험 한 회(정책 실행 세션 폴더 하나)."""
+                package: str = "com.travelfootsteps.app", until_ms: int | None = None) -> dict:
+    """배터리 실험 한 회(정책 실행 세션 폴더 하나).
+
+    until_ms가 있으면 그 뒤 battery.csv 행을 버린다 — 도착한 뒤 [기록 종료]를 늦게 눌러 이동하지 않은 시간이 섞인 회차를
+    이동 구간만으로 잰다(sessions.yaml의 until). summary.json의 GPS 켜짐 추정은 세션 전체 값이라 이때는 비운다.
+    """
     session_dir = Path(session_dir)
     meta = read_meta(session_dir)
     policy = meta.get("policy") or {}
@@ -149,13 +153,15 @@ def battery_run(session_dir: Path, current_units: dict | None = None, align_step
                       # 순간 전류를 못 재는 기종은 current_ua가 비어 있다. 전하량 지표는 전류 없이도 구할 수 있으니
                       # 전류 칸이 비었다고 행을 버리지 않는다(전류 지표는 current_rate가 빈 칸만 빼고 센다).
                       required=["t_ms", "charge_uah", "plugged"])
+    if until_ms is not None:
+        battery = battery[battery["t_ms"] <= until_ms].reset_index(drop=True)
     run = longest_unplugged(battery)
     device = meta.get("deviceModel", "")
     unit = (current_units or {}).get(device, "uA")
     row = {"session": meta.get("sessionId", session_dir.name), "device": device,
            "method": method_label(policy.get("policyId", meta.get("mode", "?")), policy.get("detectorId"),
                                   policy.get("policyParams")),
-           "excluded": exclusion_reason(meta)}
+           "excluded": exclusion_reason(meta), "until_ms": until_ms}
     rate = charge_rate(run, align_steps)
     row.update({"hours": rate["hours"], "mah_used": rate["mah_used"], "mah_per_h": rate["mah_per_h"],
                 "aligned": rate["aligned"], "current_ma": current_rate(run, unit)})
@@ -165,7 +171,7 @@ def battery_run(session_dir: Path, current_units: dict | None = None, align_step
     else:
         row.update({"gps_s_total": None, "gps_s_app": None})
     summary = session_dir / "summary.json"
-    if summary.exists():
+    if summary.exists() and until_ms is None:
         row["gps_on_s_est"] = json.loads(summary.read_text(encoding="utf-8")).get("gps_on_s")
     else:
         row["gps_on_s_est"] = None
