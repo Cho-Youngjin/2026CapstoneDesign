@@ -16,6 +16,14 @@ void main() {
       expect(out.map((s) => (s.tMs, s.magnitude, s.afterGap)), [(0, 6.0, false)]);
     });
 
+    test('칸마다 축별 평균도 남긴다(메운 칸도 같은 값)', () {
+      final grid = MagnitudeGrid()
+        ..add(const AccelReading(tMs: 0, x: 1, y: 2, z: 3))
+        ..add(const AccelReading(tMs: 10, x: 3, y: 4, z: 5));
+      final out = grid.add(const AccelReading(tMs: 50, x: 0, y: 0, z: 0));
+      expect(out.map((s) => (s.tMs, s.x, s.y, s.z)), [(0, 2.0, 3.0, 4.0), (20, 2.0, 3.0, 4.0)]);
+    });
+
     test('짧은 빈 칸은 직전 값으로 메운다', () {
       final grid = MagnitudeGrid()
         ..add(reading(0, 2))
@@ -77,6 +85,25 @@ void main() {
     values.clear();
     expect(values.length, 0);
     expect(values.isFull, isFalse);
+  });
+
+  group('tiltSwingDeg', () {
+    test('방향이 그대로면(크기만 바뀌어도) 0이다', () {
+      final ys = [for (var i = 0; i < 150; i++) 9.81 + 3 * math.sin(i / 5)];
+      expect(tiltSwingDeg(List.filled(150, 0.0), ys, List.filled(150, 0.0)), closeTo(0, 1e-6));
+    });
+
+    test('±30도로 진자처럼 기울면 수 도 이상이다', () {
+      final angles = [for (var i = 0; i < 150; i++) math.pi / 6 * math.sin(2 * math.pi * i / 50)];
+      final ys = [for (final a in angles) 9.81 * math.cos(a)];
+      final zs = [for (final a in angles) 9.81 * math.sin(a)];
+      expect(tiltSwingDeg(List.filled(150, 0.0), ys, zs), greaterThan(5));
+    });
+
+    test('비거나 길이가 다르면 0이다', () {
+      expect(tiltSwingDeg(const [], const [], const []), 0);
+      expect(tiltSwingDeg(const [1.0], const [1.0, 2.0], const [1.0]), 0);
+    });
   });
 
   group('autocorrelationPeak', () {

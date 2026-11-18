@@ -12,6 +12,10 @@ import 'step_timeline.dart';
 /// 4. 적응형 임계값(이권희 외 2018)으로 걸음 후보를 찾고, 걸음 주기의 0.6배보다 가까운 후보는 버린다.
 /// 5. 연속 N걸음이 모이고 보행이면 그 걸음들을 소급해 센다. 기타 움직임으로 판정된 동안 모인 후보는 버린다. 확인된 뒤에는 보행 상태인 동안 걸음을 바로 센다.
 /// 버스 진동처럼 흔들림만 있고 박자가 없는 움직임에서는 확인이 일어나지 않아 걸음을 세지 않는다.
+/// 6. (선택, [swingCorrection]) 흔드는 손 보정: 폰을 손에 들고 팔을 흔들며 걸으면 크기 신호가 두 걸음(한 보)에
+///    한 번 출렁여 후보가 한 보에 하나만 잡힌다(실측: 손 구간에서 −35~−52%). 보행이고 폰 방향의 흔들림
+///    ([tiltSwingDeg])이 [swingTiltThresholdDeg] 이상이면, 걸음 주기의 약 2배 간격으로 이어진 두 후보 사이에
+///    걸음 하나를 채운다. 이미 한 걸음마다 후보가 잡히면 간격이 2배가 아니라 아무것도 하지 않는다.
 class AdaptiveStepDetector implements StepDetector, StepTimeline {
   AdaptiveStepDetector({
     this.shakeThreshold = 0.6,
@@ -19,6 +23,8 @@ class AdaptiveStepDetector implements StepDetector, StepTimeline {
     this.rhythmThreshold = 0.4,
     this.confirmSteps = 5,
     this.maxStepGapMs = 1500,
+    this.swingCorrection = false,
+    this.swingTiltThresholdDeg = 4.5,
   }) {
     _restart();
   }
@@ -38,6 +44,14 @@ class AdaptiveStepDetector implements StepDetector, StepTimeline {
   /// 이보다 벌어지면 걸음이 끊긴 것으로 본다.
   final int maxStepGapMs;
 
+  /// 흔드는 손 보정을 켤지(절제 실험 스위치). 기준값을 예비 세션으로 정하기 전까지는 기본으로 끈다 — 켜지 않으면
+  /// 결과가 보정 전과 같다.
+  final bool swingCorrection;
+
+  /// 흔드는 손으로 보는 폰 방향 흔들림 하한(도, 3초 창). 잠정값 4.5는 평가용 세션 관찰(주머니·가방 1.8~2.6°,
+  /// 손 6.4~9.4°)에서 잡은 것이라, 예비 세션으로 다시 정해야 한다.
+  final double swingTiltThresholdDeg;
+
   static const _lowCutHz = 0.7;
   static const _highCutHz = 3.0;
   static const _shakeWindowMs = 800;
@@ -55,12 +69,32 @@ class AdaptiveStepDetector implements StepDetector, StepTimeline {
   static const _minIntervalFraction = 0.6;
   static const _defaultPeriodMs = 500.0;
 
+  /// 폰 방향을 볼 때 축별 가속도에 거는 저역 통과(Hz). 팔 흔들림(약 1Hz)은 남기고 걸음 충격(약 2Hz 이상)은 줄인다.
+  static const _tiltCutHz = 1.5;
+
+  /// 두 후보 사이를 '걸음 하나를 놓친 간격'으로 보는 범위(걸음 주기의 배수).
+  static const _swingGapMin = 1.5;
+  static const _swingGapMax = 2.5;
+
+  /// 보정한 걸음 빠르기가 사람 걸음 범위(초당 1.3~2.5걸음) 밖이면 채우지 않는다.
+  static const _swingMinPeriodMs = 400.0;
+  static const _swingMaxPeriodMs = 770.0;
+
   final _grid = MagnitudeGrid();
   final _shake = RecentValues(_shakeWindowMs ~/ gridStepMs);
   final _band = RecentValues(_rhythmWindowMs ~/ gridStepMs);
+  final _tiltX = RecentValues(_rhythmWindowMs ~/ gridStepMs);
+  final _tiltY = RecentValues(_rhythmWindowMs ~/ gridStepMs);
+  final _tiltZ = RecentValues(_rhythmWindowMs ~/ gridStepMs);
   final _peaks = AdaptivePeakFinder();
   late Biquad _lowPass;
   late Biquad _highPass;
+  late Biquad _tiltLowX;
+  late Biquad _tiltLowY;
+  late Biquad _tiltLowZ;
+
+  /// 직전 묶음에서 흔드는 손으로 판정했는지. 걸음 후보는 묶음 안 표본마다 나오므로 직전 판정을 쓴다.
+  bool _swing = false;
 
   /// 확인을 기다리는 걸음 후보 시각. 최근 2N개까지만 둔다 — 박자 판정(3초 창)이 늦게 서는 동안의 걸음은
   /// 살리되, 오래 이어진 박자 없는 흔들림이 한꺼번에 걸음으로 바뀌지 않게 한다.
@@ -87,6 +121,8 @@ class AdaptiveStepDetector implements StepDetector, StepTimeline {
         'ac_th': rhythmThreshold,
         'n_confirm': confirmSteps,
         'max_gap_s': maxStepGapMs / 1000,
+        'swing': swingCorrection,
+        'swing_tilt_th': swingTiltThresholdDeg,
       };
 
   @override
@@ -122,6 +158,15 @@ class AdaptiveStepDetector implements StepDetector, StepTimeline {
         }
       }
     }
+    // 흔드는 손: 박자 있는 보행이고, 폰 방향이 진자처럼 흔들리고, 걸음 주기가 사람 걸음 범위 안일 때만.
+    // 느린 걸음(초당 1걸음)도 후보가 '주기의 2배' 간격으로 오지만(주기를 절반으로 잡으므로), 몸에 붙은 폰은
+    // 방향이 거의 안 흔들려 여기서 걸러진다.
+    _swing = swingCorrection &&
+        rhythm >= rhythmThreshold &&
+        _tiltX.isFull &&
+        _periodMs >= _swingMinPeriodMs &&
+        _periodMs <= _swingMaxPeriodMs &&
+        tiltSwingDeg(_tiltX.toList(), _tiltY.toList(), _tiltZ.toList()) >= swingTiltThresholdDeg;
     // 흔들리는데 박자 창(3초)이 아직 안 찼으면 보행인지 기타 움직임인지 모른다. 모르는 동안은 상태를 바꾸지 않는다 —
     // '기타 움직임(탈것 의심)'으로 알리면 정책이 세션 시작이나 공백 뒤마다 탈것 확인 측위를 하게 된다.
     final StepState? next;
@@ -197,11 +242,33 @@ class AdaptiveStepDetector implements StepDetector, StepTimeline {
     final low = _lowPass.filter(sample.magnitude, steadyOutput: sample.magnitude);
     final band = _highPass.filter(low, steadyOutput: 0);
     _band.add(band);
+    if (swingCorrection) {
+      _tiltX.add(_tiltLowX.filter(sample.x, steadyOutput: sample.x));
+      _tiltY.add(_tiltLowY.filter(sample.y, steadyOutput: sample.y));
+      _tiltZ.add(_tiltLowZ.filter(sample.z, steadyOutput: sample.z));
+    }
     final peakMs = _peaks.add(sample.tMs, band);
     if (peakMs != null) _onCandidate(peakMs);
   }
 
   void _onCandidate(int tMs) {
+    if (_swing) {
+      final previous = _pending.isNotEmpty ? _pending.last : _lastStepMs;
+      if (previous != null) {
+        final gap = tMs - previous;
+        // 흔드는 손에서는 한 보에 후보가 하나다. 두 후보가 걸음 주기의 약 2배 간격이면 그 사이 걸음(반대쪽 발)을
+        // 놓친 것이므로, 가운데 시각에 걸음 하나를 채운다. 끊긴 걸음(maxStepGapMs 초과)은 채우지 않는다.
+        if (gap >= _swingGapMin * _periodMs &&
+            gap <= _swingGapMax * _periodMs &&
+            gap <= maxStepGapMs) {
+          _acceptCandidate(previous + gap ~/ 2);
+        }
+      }
+    }
+    _acceptCandidate(tMs);
+  }
+
+  void _acceptCandidate(int tMs) {
     final previous = _pending.isNotEmpty ? _pending.last : _lastStepMs;
     // 걸음 주기보다 한참 가까운 후보는 한 걸음 안의 굴곡이다.
     if (previous != null && tMs - previous < _minIntervalFraction * _periodMs) return;
@@ -231,6 +298,13 @@ class AdaptiveStepDetector implements StepDetector, StepTimeline {
   void _restart() {
     _lowPass = Biquad.lowPass(_highCutHz, 1000 / gridStepMs);
     _highPass = Biquad.highPass(_lowCutHz, 1000 / gridStepMs);
+    _tiltLowX = Biquad.lowPass(_tiltCutHz, 1000 / gridStepMs);
+    _tiltLowY = Biquad.lowPass(_tiltCutHz, 1000 / gridStepMs);
+    _tiltLowZ = Biquad.lowPass(_tiltCutHz, 1000 / gridStepMs);
+    _tiltX.clear();
+    _tiltY.clear();
+    _tiltZ.clear();
+    _swing = false;
     _shake.clear();
     _band.clear();
     _peaks.reset();

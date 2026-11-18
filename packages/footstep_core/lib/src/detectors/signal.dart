@@ -8,12 +8,24 @@ import '../model/readings.dart';
 const gridStepMs = 20;
 
 /// 격자 표본 하나. [afterGap]이면 바로 앞에 메우지 않은 큰 공백이 있었다.
+/// [x]·[y]·[z]는 칸 안 표본의 축별 평균이다. 크기만으로는 폰 방향을 알 수 없어서, 폰이 진자처럼 흔들리는지
+/// (손에 들고 팔을 흔드는지) 볼 때 쓴다.
 class GridSample {
-  const GridSample({required this.tMs, required this.magnitude, this.afterGap = false});
+  const GridSample({
+    required this.tMs,
+    required this.magnitude,
+    this.afterGap = false,
+    this.x = 0,
+    this.y = 0,
+    this.z = 0,
+  });
 
   final int tMs;
   final double magnitude;
   final bool afterGap;
+  final double x;
+  final double y;
+  final double z;
 }
 
 /// 가속도 크기(√(x²+y²+z²), 폰 방향과 무관)를 [stepMs] 격자로 다시 표본화한다.
@@ -29,6 +41,9 @@ class MagnitudeGrid {
 
   int? _bin;
   double _sum = 0;
+  double _sumX = 0;
+  double _sumY = 0;
+  double _sumZ = 0;
   int _count = 0;
   bool _gapBefore = false;
 
@@ -43,19 +58,28 @@ class MagnitudeGrid {
       _bin = bin;
     } else if (bin > current) {
       final value = _sum / _count;
-      out.add(GridSample(tMs: current, magnitude: value, afterGap: _gapBefore));
+      final x = _sumX / _count;
+      final y = _sumY / _count;
+      final z = _sumZ / _count;
+      out.add(GridSample(tMs: current, magnitude: value, afterGap: _gapBefore, x: x, y: y, z: z));
       _gapBefore = bin - current > maxGapMs;
       if (!_gapBefore) {
         for (var t = current + stepMs; t < bin; t += stepMs) {
-          out.add(GridSample(tMs: t, magnitude: value));
+          out.add(GridSample(tMs: t, magnitude: value, x: x, y: y, z: z));
         }
       }
       _bin = bin;
       _sum = 0;
+      _sumX = 0;
+      _sumY = 0;
+      _sumZ = 0;
       _count = 0;
     }
     // 시각이 거꾸로 온 표본(bin < current)은 지금 칸에 더한다. 세션 읽기가 정렬하므로 드물다.
     _sum += magnitude;
+    _sumX += reading.x;
+    _sumY += reading.y;
+    _sumZ += reading.z;
     _count++;
     return out;
   }
@@ -152,6 +176,27 @@ double stdDev(Iterable<double> values) {
     sum += (v - m) * (v - m);
   }
   return math.sqrt(sum / list.length);
+}
+
+/// 폰 방향(저역 통과한 가속도 벡터 = 대략 중력 방향)이 창 안에서 얼마나 흔들리는지(도). 창의 평균 방향과
+/// 각 표본 방향 사이 각도의 모표준편차다. 주머니·가방처럼 몸에 붙은 폰은 기울어져 있어도 그 기울기가 거의
+/// 그대로라 작고, 손에 들고 팔을 흔들면 폰이 진자처럼 기울어 커진다. 표본이 없거나 크기가 0이면 0이다.
+double tiltSwingDeg(List<double> xs, List<double> ys, List<double> zs) {
+  final n = xs.length;
+  if (n == 0 || ys.length != n || zs.length != n) return 0;
+  final mx = mean(xs);
+  final my = mean(ys);
+  final mz = mean(zs);
+  final meanNorm = math.sqrt(mx * mx + my * my + mz * mz);
+  if (meanNorm == 0) return 0;
+  final angles = <double>[];
+  for (var i = 0; i < n; i++) {
+    final norm = math.sqrt(xs[i] * xs[i] + ys[i] * ys[i] + zs[i] * zs[i]);
+    if (norm == 0) continue;
+    final cos = (xs[i] * mx + ys[i] * my + zs[i] * mz) / (norm * meanNorm);
+    angles.add(math.acos(cos.clamp(-1.0, 1.0)) * 180 / math.pi);
+  }
+  return stdDev(angles);
 }
 
 /// 정규화 자기상관이 지연 [minLag]~[maxLag](표본 수)에서 봉우리(양옆보다 높은 점)를 이루는 곳 중 가장 높은 것.

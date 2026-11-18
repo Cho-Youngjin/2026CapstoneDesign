@@ -141,10 +141,53 @@ void main() {
         isNull);
   });
 
+  group('흔드는 손 보정(swing)', () {
+    test('손에 들고 흔들며 걸으면 보정 없이는 절반쯤 세고, 보정을 켜면 제대로 센다', () {
+      final off = AdaptiveStepDetector();
+      feed(off, swingWalk(30));
+      // 정답 60걸음. 크기 신호가 한 보에 한 번 출렁여 후보가 한 보에 하나다.
+      expect(off.totalSteps, inInclusiveRange(25, 35));
+
+      final on = AdaptiveStepDetector(swingCorrection: true);
+      feed(on, swingWalk(30));
+      expect(on.totalSteps, inInclusiveRange(52, 62));
+      final times = on.takeStepTimes();
+      expect(times, hasLength(on.totalSteps));
+      expect(times, orderedEquals([...times]..sort()));
+    });
+
+    test('폰 방향이 거의 안 흔들리면(주머니·가방) 보정을 켜도 결과가 같다', () {
+      final off = AdaptiveStepDetector();
+      feed(off, walk(30));
+      final on = AdaptiveStepDetector(swingCorrection: true);
+      feed(on, walk(30));
+      expect(on.takeStepTimes(), off.takeStepTimes());
+    });
+
+    test('몸에 붙은 폰의 느린 걸음(초당 1걸음)은 보정을 켜도 2배로 세지 않는다', () {
+      final on = AdaptiveStepDetector(swingCorrection: true);
+      feed(on, walk(30, hz: 1.0, seed: 5));
+      expect(on.totalSteps, inInclusiveRange(27, 31));
+    });
+
+    test('방향 흔들림이 기준값보다 작으면 채우지 않는다', () {
+      final detector = AdaptiveStepDetector(swingCorrection: true, swingTiltThresholdDeg: 30);
+      feed(detector, swingWalk(30));
+      expect(detector.totalSteps, inInclusiveRange(25, 35));
+    });
+  });
+
   test('id와 파라미터', () {
     final detector = AdaptiveStepDetector();
     expect(detector.id, 'adaptive');
-    expect(detector.params,
-        {'std_th': 0.6, 'band_std_th': 0.3, 'ac_th': 0.4, 'n_confirm': 5, 'max_gap_s': 1.5});
+    expect(detector.params, {
+      'std_th': 0.6,
+      'band_std_th': 0.3,
+      'ac_th': 0.4,
+      'n_confirm': 5,
+      'max_gap_s': 1.5,
+      'swing': false,
+      'swing_tilt_th': 4.5,
+    });
   });
 }
