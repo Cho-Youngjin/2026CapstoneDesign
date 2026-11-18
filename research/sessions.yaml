@@ -11,3 +11,54 @@ sessions:
     course: 골목 도보 약 7분 + 실내 정지 약 6분 (실기기 점검, 걸음 세기·탈것 표시 없음)
     carry: hand
     note: 머문 곳 정답(10분 이상) 없음
+  - id: 20261116-090820-groundTruth
+    use: pilot
+    course: 도보 2분 + 버스 25분 + 도보 8분 + 건물 체류 1시간 43분 + 도보 10분 + 지하철 12분(GPS 없음) + 도보 23분 (S23, 유심 없음, Wi-Fi 켬)
+    carry: pocket
+    note: 걸음 세기 3회(120걸음은 뛰면서, 150·200은 걸으며). 집 도착 표시 없음(출발만). 끝 도착 직후 종료라 끝 머문 곳은 10분 미만. 도착·출발 표시는 수 분 어긋날 수 있음
+  - id: 20261116-130753-groundTruth
+    use: eval
+    course: 동네 도보 약 15분, 끝에 집 도착 (팀원 SM-F766N)
+    carry: mixed
+    note: 걸음 세기 4회(손 150·200, 주머니 200·200). 시작 직후 '길거리' 도착·출발은 1분이라 정답 머문 곳 아님
+  - id: 20261117-085600-groundTruth
+    use: eval
+    course: 집 체류 8분 + 도보 + 지하철 34분 + 도보 + 학교 도착 (팀원 SM-F766N)
+    carry: mixed
+    note: 걸음 세기 2회(손 200, 가방 250). 지하철 구간은 손→가방
+  - id: 20261117-172359-groundTruth
+    use: pilot     # 2026-11-17 eval → pilot: 이 세션의 버스 탑승 지연을 보고 step_budget 정지 확인 간격을 고쳤다
+    course: 도보 + 지하철 약 23분 + 도보 + 버스 20분 + 도보 + 집 도착 (팀원 SM-F766N)
+    carry: mixed
+    note: 걸음 세기 3회(손 200, 가방 56, 가방 100). 18:13:09에 잘못 누른 두 번째 '지하철 탑승'을 marks.csv에서 뺐다(원본 marks.orig.csv). 팀원 메모 '지하철 탑승 기록 몇 분 밀림' — 실제 탑승은 17:49:53보다 몇 분 이르다
+  - id: 20261117-163350-policy
+    use: battery
+    course: 통학 이동 약 39분 (A continuous_10m)
+    carry: bag
+    until: '2026-11-17T17:12:30+09:00'
+    still_until: '2026-11-17T18:03:00+09:00'   # 카페 체류(17:12~18:03)를 체류 소모로 잰다
+    note: 17:12 카페 도착 뒤 [기록 종료]를 늦게 눌러(18:22) 도착까지만 잰다. 18:03에 다시 약 200m 걸었다
+  - id: 20261117-205842-policy
+    use: battery
+    course: 통학 이동 약 46분 (B fixed_30s)
+    carry: bag
+    until: '2026-11-17T21:44:30+09:00'
+    note: 도착(측위로 21:44) 뒤 약 12분 늦게 [기록 종료]. 측위 요청 116회 중 54회 실패
+  - id: 20261118-101026-policy
+    use: battery
+    course: 통학 이동 약 38분 (C activity_gated)
+    carry: bag
+    until: '2026-11-18T10:48:30+09:00'
+    note: 측위로 10:48 도착
+  - id: 20261118-160119-policy
+    use: battery
+    course: 통학 이동 약 16분 + 회의 체류 약 42분 (D step_budget[os] e_m=50)
+    carry: bag
+    until: '2026-11-18T16:17:30+09:00'
+    note: 급한 회의로 이동 중 멈춰 체류 뒤 종료. 이동 구간이 16분이라 전하량 계단 오차가 크다(체류 소모는 따로 잰다). 이어서 20261118-170309로 남은 길을 쟀다
+  - id: 20261118-170309-policy
+    use: battery
+    course: 통학 이동 약 35분 (D step_budget[os] e_m=50)
+    carry: bag
+    until: '2026-11-18T17:38:30+09:00'
+    note: 회의 뒤 남은 길. 끝에 충전기 연결(그 행은 자동으로 뺀다)

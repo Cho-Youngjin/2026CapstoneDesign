@@ -18,7 +18,7 @@ Wakeup wake(int tMs, String tag) => Wakeup(tMs: tMs, tag: tag);
 
 /// 시작 측위(1초)를 받은 정책과 그 위치.
 (StepBudgetPolicy, Fix) started([StepBudgetPolicy? policy]) {
-  final p = policy ?? StepBudgetPolicy();
+  final p = policy ?? StepBudgetPolicy(firstCheckMs: fiveMin);
   p.onStart(at(0));
   final f0 = fixAt(1000);
   p.onEvent(ok(f0), at(1000, f0));
@@ -81,6 +81,10 @@ List<PolicyAction> flickerRide(StepBudgetPolicy p, {required double dLat, double
   return p.onEvent(ok(b), at(118000, b));
 }
 
+/// 아래 테스트 대부분은 정지 확인을 처음부터 5분 간격으로 고정해(firstCheckMs) 나머지 규칙을 확인한다.
+/// 머문 곳 뒤 확인 간격이 60초부터 늘어나는 규칙은 '정지 확인 간격' 묶음에서 따로 본다.
+const fiveMin = StepBudgetPolicy.stillCheckMs;
+
 void main() {
   test('시작하면 바로 한 번 측위하고, 걸음 정보 전에는 상태를 모른다', () {
     final policy = StepBudgetPolicy();
@@ -93,6 +97,7 @@ void main() {
       'use_steps': true,
       'suppress_still': true,
       'vehicle_probe': true,
+      'first_check_s': 60,
     });
   });
 
@@ -114,7 +119,7 @@ void main() {
     });
 
     test('측위 오차만으로 E를 넘어도(빌딩 숲) 마지막 측위 뒤 5초 안에는 다시 재지 않는다', () {
-      final p = StepBudgetPolicy();
+      final p = StepBudgetPolicy(firstCheckMs: fiveMin);
       p.onStart(at(0));
       final f0 = fixAt(1000, accuracyM: 60);
       p.onEvent(ok(f0), at(1000, f0));
@@ -142,7 +147,7 @@ void main() {
     });
 
     test('걸음 수를 쓰지 않으면(절제) 걷기 속도 1.4m/s로 짐작해 오차가 E를 넘는 시각에 잰다', () {
-      final (p, f0) = started(StepBudgetPolicy(useSteps: false));
+      final (p, f0) = started(StepBudgetPolicy(firstCheckMs: fiveMin, useSteps: false));
       // (50 − 5) / 1.4 = 32.143초. 걸음 수는 보지 않는다.
       expect(p.onEvent(step(2000, StepState.walking, 999), at(2000, f0)), [const WakeAt(tMs: 33143, tag: 'budget#1')]);
       expect(p.onEvent(wake(33143, 'budget#1'), at(33143, f0)), [const RequestFix()]);
@@ -203,7 +208,7 @@ void main() {
     });
 
     test('정지 억제를 끄면(절제) 정지해도 걷기 속도로 짐작해 계속 잰다', () {
-      final (p, f0) = started(StepBudgetPolicy(suppressStill: false));
+      final (p, f0) = started(StepBudgetPolicy(firstCheckMs: fiveMin, suppressStill: false));
       expect(p.onEvent(step(2000, StepState.still), at(2000, f0)), [const WakeAt(tMs: 33143, tag: 'budget#1')]);
       expect(p.onEvent(wake(33143, 'budget#1'), at(33143, f0)), [const RequestFix()]);
 
@@ -280,7 +285,7 @@ void main() {
     });
 
     test('탈것 기준은 속도라 E와 묶지 않는다(E가 커도 오차 밖으로 시속 12km 넘게 움직이면 탈것)', () {
-      final (p, f0) = started(StepBudgetPolicy(errorBudgetM: 150));
+      final (p, f0) = started(StepBudgetPolicy(firstCheckMs: fiveMin, errorBudgetM: 150));
       p.onEvent(step(2000, StepState.otherMotion), at(2000, f0));
       p.onEvent(wake(32000, 'probe1#1'), at(32000, f0));
       final probe1 = fixAt(33000);
@@ -294,7 +299,7 @@ void main() {
     });
 
     test('탈것 확인을 끄면(절제) 기타 움직임을 정지처럼 다룬다', () {
-      final (p, f0) = started(StepBudgetPolicy(vehicleProbe: false));
+      final (p, f0) = started(StepBudgetPolicy(firstCheckMs: fiveMin, vehicleProbe: false));
       expect(p.onEvent(step(2000, StepState.otherMotion), at(2000, f0)), [const WakeAt(tMs: 32000, tag: 'stay#1')]);
       expect(p.onEvent(wake(32000, 'stay#1'), at(32000, f0)), [const RequestFix()]);
       final stay = fixAt(33000);
@@ -303,7 +308,7 @@ void main() {
     });
 
     test('정지 억제를 끄면(절제) 정지처럼 다루는 기타 움직임도 걷기 속도로 짐작해 계속 잰다', () {
-      final (p, f0) = started(StepBudgetPolicy(suppressStill: false, vehicleProbe: false));
+      final (p, f0) = started(StepBudgetPolicy(firstCheckMs: fiveMin, suppressStill: false, vehicleProbe: false));
       expect(p.onEvent(step(2000, StepState.otherMotion), at(2000, f0)), [const WakeAt(tMs: 33143, tag: 'budget#1')]);
       expect(p.onEvent(wake(33143, 'budget#1'), at(33143, f0)), [const RequestFix()]);
       final f1 = fixAt(34000);
@@ -311,7 +316,7 @@ void main() {
     });
 
     test('정지 억제를 끄면(절제) 느린 확인 측위 뒤에도 5분 확인 대신 계속 잰다', () {
-      final (p, f0) = started(StepBudgetPolicy(suppressStill: false));
+      final (p, f0) = started(StepBudgetPolicy(firstCheckMs: fiveMin, suppressStill: false));
       p.onEvent(step(2000, StepState.otherMotion), at(2000, f0));
       p.onEvent(wake(32000, 'probe1#1'), at(32000, f0));
       final probe1 = fixAt(33000);
@@ -327,7 +332,7 @@ void main() {
     });
 
     test('정지 억제를 꺼도, 기타 움직임 전에 낸 요청의 응답이 확인 측위 예약을 덮어쓰지 않는다', () {
-      final (p, f0) = started(StepBudgetPolicy(suppressStill: false));
+      final (p, f0) = started(StepBudgetPolicy(firstCheckMs: fiveMin, suppressStill: false));
       p.onEvent(step(2000, StepState.walking), at(2000, f0));
       expect(p.onEvent(step(40000, StepState.walking, 61), at(40000, f0)), [const RequestFix()]);
       expect(p.onEvent(step(41000, StepState.otherMotion), at(41000, f0)), [const WakeAt(tMs: 71000, tag: 'probe1#1')]);
@@ -445,7 +450,7 @@ void main() {
 
   group('걸음으로 설명되지 않는 이동', () {
     test('감지기가 걸음 없이 정지·보행을 오가 머문 곳을 거듭 새로 잡아도, 마지막 좋은 측위에서 걸음 없이 E 넘게 옮겼으면 탈것이다', () {
-      final p = StepBudgetPolicy();
+      final p = StepBudgetPolicy(firstCheckMs: fiveMin);
       // 약 328m / 85초 ≈ 3.859m/s: time_speed 규칙으로 (50 − 10) / 3.859 = 10.365초 뒤 다시 잰다.
       expect(flickerRide(p, dLat: 0.00295), [const WakeAt(tMs: 128365, tag: 'vehicle#5')]);
       expect(p.stateLabel, 'vehicle');
@@ -496,7 +501,7 @@ void main() {
     });
 
     test('E가 50m보다 커도(e_m=100) 오차가 50m보다 큰 측위는 탈것 판정에 쓰지 않는다', () {
-      final (p, f0) = started(StepBudgetPolicy(errorBudgetM: 100));
+      final (p, f0) = started(StepBudgetPolicy(firstCheckMs: fiveMin, errorBudgetM: 100));
       p.onEvent(step(2000, StepState.walking), at(2000, f0));
       // 예산 100m: 5 + 130걸음 × 0.75 = 102.5m > 100m
       expect(p.onEvent(step(80000, StepState.walking, 130), at(80000, f0)), [const RequestFix()]);
@@ -572,14 +577,14 @@ void main() {
     });
 
     test('좋은 측위 둘이 E 안이면(실내 흔들림) 걸음이 없어도 탈것이 아니다', () {
-      final p = StepBudgetPolicy();
+      final p = StepBudgetPolicy(firstCheckMs: fiveMin);
       // 약 45m: 두 오차의 합(20m)보다 멀지만 E(50m) 안이다.
       expect(flickerRide(p, dLat: 0.000405, accuracyA: 10), [const WakeAt(tMs: 418000, tag: 'check#5')]);
       expect(p.stateLabel, 'still');
     });
 
     test('좋은 측위 둘이 서로의 오차 합 안이면 E보다 멀어도 탈것이 아니다', () {
-      final p = StepBudgetPolicy();
+      final p = StepBudgetPolicy(firstCheckMs: fiveMin);
       // 약 70m: E(50m)보다 멀지만 두 오차의 합(80m) 안이다.
       expect(
         flickerRide(p, dLat: 0.00063, accuracyA: 40, accuracyB: 40),
@@ -589,20 +594,20 @@ void main() {
     });
 
     test('탈것 확인을 끄면(절제) 걸음 없는 이동으로도 탈것을 찾지 않는다', () {
-      final p = StepBudgetPolicy(vehicleProbe: false);
+      final p = StepBudgetPolicy(firstCheckMs: fiveMin, vehicleProbe: false);
       expect(flickerRide(p, dLat: 0.00295), [const WakeAt(tMs: 418000, tag: 'check#5')]);
       expect(p.stateLabel, 'still');
     });
 
     test('걸음 수를 쓰지 않으면(절제) 걸은 거리를 경과 시간 × 1.4m/s로 짐작한다', () {
       // 85초에 약 100m: 걸음 수로는 0m를 걸었으니 탈것이다. 시속 12km보다 느려 속도 하한으로 (50 − 10) / 3.333 = 12초 뒤.
-      expect(flickerRide(StepBudgetPolicy(), dLat: 0.0009), [const WakeAt(tMs: 130000, tag: 'vehicle#5')]);
+      expect(flickerRide(StepBudgetPolicy(firstCheckMs: fiveMin), dLat: 0.0009), [const WakeAt(tMs: 130000, tag: 'vehicle#5')]);
       // 경과 시간으로는 85초 × 1.4m/s = 119m를 걸었을 수 있어 탈것이 아니다.
-      final p = StepBudgetPolicy(useSteps: false);
+      final p = StepBudgetPolicy(firstCheckMs: fiveMin, useSteps: false);
       expect(flickerRide(p, dLat: 0.0009), [const WakeAt(tMs: 418000, tag: 'check#6')]);
       expect(p.stateLabel, 'still');
       // 약 328m는 119m로도 설명되지 않는다.
-      expect(flickerRide(StepBudgetPolicy(useSteps: false), dLat: 0.00295), [const WakeAt(tMs: 128365, tag: 'vehicle#6')]);
+      expect(flickerRide(StepBudgetPolicy(firstCheckMs: fiveMin, useSteps: false), dLat: 0.00295), [const WakeAt(tMs: 128365, tag: 'vehicle#6')]);
     });
 
     test('onStart는 앞 실행에서 견주던 기준 측위를 지운다', () {
@@ -678,7 +683,7 @@ void main() {
     });
 
     test('실패 뒤 기다리는 동안 머문 곳 측위 시각이 와도 잃지 않고, 다시 시도할 때 잰다', () {
-      final p = StepBudgetPolicy();
+      final p = StepBudgetPolicy(firstCheckMs: fiveMin);
       p.onStart(at(0));
       expect(p.onEvent(step(5000, StepState.still), at(5000)), [const WakeAt(tMs: 35000, tag: 'stay#1')]);
       expect(p.onEvent(failed(15000), at(15000)), [const WakeAt(tMs: 45000, tag: 'retry#2')]);
@@ -690,7 +695,7 @@ void main() {
     });
 
     test('정지 억제를 끄면, 새 측위가 앞 위치로 잡은 걷기 속도 예약을 이 위치 기준으로 다시 잡는다', () {
-      final (p, f0) = started(StepBudgetPolicy(suppressStill: false));
+      final (p, f0) = started(StepBudgetPolicy(firstCheckMs: fiveMin, suppressStill: false));
       p.onEvent(step(2000, StepState.walking), at(2000, f0));
       expect(p.onEvent(step(20000, StepState.walking, 61), at(20000, f0)), [const RequestFix()]);
       // 응답을 기다리는 동안 멈췄다: 마지막 위치(1초) 기준으로 예약한다.
@@ -702,7 +707,7 @@ void main() {
     });
 
     test('측위가 거듭 실패하면 30초 → 1분 → 2분 → 5분(최대)으로 늘리고, 그 사이에는 걸음이 넘쳐도 요청하지 않는다', () {
-      final p = StepBudgetPolicy();
+      final p = StepBudgetPolicy(firstCheckMs: fiveMin);
       p.onStart(at(0));
       expect(p.onEvent(failed(15000), at(15000)), [const WakeAt(tMs: 45000, tag: 'retry#1')]);
       expect(p.onEvent(step(20000, StepState.walking, 100), at(20000)), isEmpty);
@@ -737,6 +742,55 @@ void main() {
       p.onEvent(ok(f1), at(1000, f1));
       p.onEvent(step(2000, StepState.walking), at(2000, f1));
       expect(p.onEvent(step(7000, StepState.walking, 61), at(7000, f1)), [const RequestFix()]);
+    });
+  });
+  group('정지 확인 간격 (2026-11-17: 버스 탑승을 늦게 잡음)', () {
+    test('머문 곳을 잰 뒤 확인은 60초에서 시작해 2분·4분·5분으로 늘린다', () {
+      final (p, f0) = started(StepBudgetPolicy());
+      expect(p.onEvent(step(1000, StepState.still), at(1000, f0)), [const WakeAt(tMs: 31000, tag: 'stay#1')]);
+      expect(p.onEvent(const Wakeup(tMs: 31000, tag: 'stay#1'), at(31000, f0)), [const RequestFix()]);
+      final s0 = fixAt(32000);
+      expect(p.onEvent(ok(s0), at(32000, s0)), [const WakeAt(tMs: 92000, tag: 'check#2')]);
+      expect(p.onEvent(const Wakeup(tMs: 92000, tag: 'check#2'), at(92000, s0)), [const RequestFix()]);
+      final c1 = fixAt(93000);
+      expect(p.onEvent(ok(c1), at(93000, c1)), [const WakeAt(tMs: 213000, tag: 'check#3')]);
+      expect(p.onEvent(const Wakeup(tMs: 213000, tag: 'check#3'), at(213000, c1)), [const RequestFix()]);
+      final c2 = fixAt(214000);
+      expect(p.onEvent(ok(c2), at(214000, c2)), [const WakeAt(tMs: 454000, tag: 'check#4')]);
+      expect(p.onEvent(const Wakeup(tMs: 454000, tag: 'check#4'), at(454000, c2)), [const RequestFix()]);
+      final c3 = fixAt(455000);
+      expect(p.onEvent(ok(c3), at(455000, c3)), [const WakeAt(tMs: 755000, tag: 'check#5')]);
+      expect(p.stateLabel, 'still');
+    });
+
+    test('버스에 타 멈춘 것처럼 보여도 첫 확인(60초)에서 머문 곳을 벗어났으면 탈것이다', () {
+      final (p, f0) = started(StepBudgetPolicy());
+      p.onEvent(step(1000, StepState.still), at(1000, f0));
+      p.onEvent(const Wakeup(tMs: 31000, tag: 'stay#1'), at(31000, f0));
+      final s0 = fixAt(32000);
+      p.onEvent(ok(s0), at(32000, s0));
+      p.onEvent(const Wakeup(tMs: 92000, tag: 'check#2'), at(92000, s0));
+      final moved = fixAt(93000, dLat: 0.003); // 약 330m
+      final actions = p.onEvent(ok(moved), at(93000, moved));
+      expect(p.stateLabel, 'vehicle');
+      expect(actions.single, isA<WakeAt>());
+    });
+
+    test('다시 머물면 확인 간격은 첫 간격부터 다시 시작한다', () {
+      final (p, f0) = started(StepBudgetPolicy(firstCheckMs: 30000));
+      p.onEvent(step(1000, StepState.still), at(1000, f0));
+      p.onEvent(const Wakeup(tMs: 31000, tag: 'stay#1'), at(31000, f0));
+      final s0 = fixAt(32000);
+      expect(p.onEvent(ok(s0), at(32000, s0)), [const WakeAt(tMs: 62000, tag: 'check#2')]);
+      p.onEvent(const Wakeup(tMs: 62000, tag: 'check#2'), at(62000, s0));
+      final c1 = fixAt(63000);
+      expect(p.onEvent(ok(c1), at(63000, c1)), [const WakeAt(tMs: 123000, tag: 'check#3')]);
+      // 걷다가 다시 멈춘다
+      p.onEvent(step(70000, StepState.walking), at(70000, c1));
+      expect(p.onEvent(step(80000, StepState.still), at(80000, c1)), [const WakeAt(tMs: 110000, tag: 'stay#4')]);
+      p.onEvent(const Wakeup(tMs: 110000, tag: 'stay#4'), at(110000, c1));
+      final s1 = fixAt(111000);
+      expect(p.onEvent(ok(s1), at(111000, s1)), [const WakeAt(tMs: 141000, tag: 'check#5')]);
     });
   });
 }

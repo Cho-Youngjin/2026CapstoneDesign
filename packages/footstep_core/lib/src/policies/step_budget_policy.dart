@@ -15,8 +15,10 @@ enum _Purpose { start, budget, stay, check, probe1, probe2, vehicle }
 /// 제안 수집 정책(설계 5-3). 오차 예산 E 안에서 GPS를 가장 적게 켜도록, 실제로 움직인 만큼만 잰다.
 /// - 보행: '마지막 측위 오차 + 그 뒤 걸음 수 × 보폭'이 E를 넘으면 잰다(time_speed는 시간 × 속도로 짐작한다).
 ///   마지막 측위 뒤 5초 안에는 다시 재지 않는다.
-/// - 정지: 정지가 30초 이어지면 한 번 재어 머문 곳을 남기고, 그 뒤로는 5분마다 확인만 한다. 확인한 위치가 머문
-///   곳에서 벗어났으면 걸음 없이 움직이는 것(버스·지하철)으로 보고 탈것 상태로 바꾼다.
+/// - 정지: 정지가 30초 이어지면 한 번 재어 머문 곳을 남기고, 그 뒤로는 확인만 한다. 확인 간격은 [firstCheckMs]에서
+///   시작해 두 배씩 늘려 5분까지 간다. 확인한 위치가 머문 곳에서 벗어났으면 걸음 없이 움직이는 것(버스·지하철)으로
+///   보고 탈것 상태로 바꾼다. 버스는 정류장에서 멈춘 직후에 타므로, 처음부터 5분 간격이면 탈 뒤 최대 5분을 모른 채
+///   달린다(2026-11-17 팀원 세션: 탑승 뒤 5분 만에 탈것을 잡아 그 구간 P95 132m).
 /// - 기타 움직임: 30초 이어지면 30초 간격 확인 측위 두 번으로 속도를 보고, 두 위치가 오차보다 멀고 시속 12km
 ///   이상이면 탈것이다. 아니면 정지처럼 다룬다.
 /// - 걸음으로 설명되지 않는 이동: 탈것이 아니면 측위마다(까닭과 상관없이) 마지막 좋은 측위(오차가 E 이하)와 견준다.
@@ -36,6 +38,7 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     this.useSteps = true,
     this.suppressStill = true,
     this.vehicleProbe = true,
+    this.firstCheckMs = 60000,
   });
 
   /// 오차 예산 E(m).
@@ -56,6 +59,11 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   /// 이동으로 탈것을 찾지도 않는다. 정지의 5분 확인으로 탈것을 찾는 것은 그대로다.
   final bool vehicleProbe;
 
+  /// 머문 곳을 잰 뒤 첫 확인까지 기다리는 시간. 그 뒤로 두 배씩 늘려 [stillCheckMs](5분)까지 간다.
+  /// 기본 60초는 pilot 세션 셋(버스·지하철 포함)에서 30·60·120·300초를 견줘 골랐다(2026-11-17): 300초 대비 측위는
+  /// 14% 늘고 버스 세션 P95가 58m에서 11m로 줄었다. 30초는 측위가 더 늘고 한 세션에서 오히려 나빠졌다.
+  final int firstCheckMs;
+
   /// 걸음 수를 쓰지 않을 때 가정하는 걷기 속도(m/s, time_speed와 같은 값).
   static const walkingSpeedMps = 1.4;
 
@@ -70,7 +78,7 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
   /// 40초~2분)마다 탈것을 놓으면, 다시 찾는 동안(제안판 감지기 약 1분, OS판 최대 5분) 버스가 수백 m~수 km를 간다.
   static const vehicleStopMs = 120000;
 
-  /// 정지 중 확인 측위 간격.
+  /// 정지 중 확인 측위 간격(최대). 머문 곳을 잰 직후에는 [firstCheckMs]부터 두 배씩 늘려 여기까지 간다.
   static const stillCheckMs = 300000;
 
   /// 기타 움직임에서 확인 측위 두 번 사이 간격.
@@ -101,6 +109,9 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
 
   /// 정지·느린 기타 움직임에서 기준으로 삼는 위치(머문 곳, 첫 확인 측위).
   Fix? _anchor;
+
+  /// 지금 머묾에서 다음 확인까지 기다릴 시간. 머문 곳을 잴 때 [firstCheckMs]로 되돌린다.
+  int _checkGapMs = stillCheckMs;
   Fix? _previousVehicleFix;
   double _vehicleSpeedMps = 0;
 
@@ -136,6 +147,7 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     'use_steps': useSteps,
     'suppress_still': suppressStill,
     'vehicle_probe': vehicleProbe,
+    'first_check_s': firstCheckMs ~/ 1000,
   };
 
   @override
@@ -153,6 +165,7 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
     _retryTag = null;
     _lowBattery = false;
     _anchor = null;
+    _checkGapMs = firstCheckMs;
     _previousVehicleFix = null;
     _vehicleSpeedMps = 0;
     _stopFix = null;
@@ -245,7 +258,15 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
       return _arm(_Purpose.budget, fix.tMs + _waitMs(fix.accuracyM, walkingSpeedMps));
     }
     _anchor = fix;
-    return _arm(_Purpose.check, fix.tMs + stillCheckMs);
+    _checkGapMs = firstCheckMs;
+    return _armCheck(fix);
+  }
+
+  /// 다음 확인을 예약하고 그다음 간격을 두 배로 늘린다(최대 5분).
+  List<PolicyAction> _armCheck(Fix fix) {
+    final gap = _checkGapMs;
+    _checkGapMs = math.min(gap * 2, stillCheckMs);
+    return _arm(_Purpose.check, fix.tMs + gap);
   }
 
   List<PolicyAction> _onFix(Fix fix, PolicyContext ctx) {
@@ -287,7 +308,7 @@ class StepBudgetPolicy implements CollectionPolicy, ReportsState {
           return _becomeVehicle(_speedBetween(anchor, fix), fix);
         }
         _anchor ??= fix;
-        return _arm(_Purpose.check, fix.tMs + stillCheckMs);
+        return _armCheck(fix);
       case _Purpose.probe1:
         _anchor = fix;
         return _arm(_Purpose.probe2, fix.tMs + probeGapMs);

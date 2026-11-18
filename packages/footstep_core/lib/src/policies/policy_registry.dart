@@ -5,13 +5,16 @@ import 'continuous_policy.dart';
 import 'fixed_interval_policy.dart';
 import 'speed_adaptive_policy.dart';
 import 'step_budget_policy.dart';
+import 'step_trigger_policy.dart';
 import 'still_suppress_policy.dart';
 import 'time_speed_policy.dart';
 
 /// 재생기 CLI와 정책 실행 모드가 받는 정책 id(설계 문서 5-3의 표). 마지막 `step_budget`이 제안 정책이다.
+/// `step_trigger`는 걸음 수만으로 측위하는 선행연구 계열 기준선이다(2026-11-17 추가).
 const policyIds = [
   'hourly', 'fixed_30s', 'fixed_1m', 'fixed_5m', 'continuous_10m',
-  'speed_adaptive', 'time_speed', 'time_speed_still', 'still_suppress', 'activity_gated', 'step_budget',
+  'speed_adaptive', 'time_speed', 'time_speed_still', 'still_suppress', 'activity_gated', 'step_trigger',
+  'step_budget',
 ];
 
 /// id와 파라미터(문자열 k=v)로 정책을 만든다. 모르는 id·파라미터, 양수가 아닌 숫자는 ArgumentError다.
@@ -51,14 +54,18 @@ CollectionPolicy createPolicy(String id, [Map<String, String> params = const {}]
     case 'activity_gated':
       reader.allowOnly(const {});
       return ActivityGatedPolicy();
+    case 'step_trigger':
+      reader.allowOnly(const {'e_m', 'stride_m'});
+      return StepTriggerPolicy(errorBudgetM: reader.positive('e_m', 50), strideM: reader.positive('stride_m', 0.75));
     case 'step_budget':
-      reader.allowOnly(const {'e_m', 'stride_m', 'use_steps', 'suppress_still', 'vehicle_probe'});
+      reader.allowOnly(const {'e_m', 'stride_m', 'use_steps', 'suppress_still', 'vehicle_probe', 'first_check_s'});
       return StepBudgetPolicy(
         errorBudgetM: reader.positive('e_m', 50),
         strideM: reader.positive('stride_m', 0.75),
         useSteps: reader.flag('use_steps', true),
         suppressStill: reader.flag('suppress_still', true),
         vehicleProbe: reader.flag('vehicle_probe', true),
+        firstCheckMs: (reader.positive('first_check_s', 60) * 1000).round(),
       );
     default:
       throw ArgumentError('알 수 없는 정책: $id (가능: ${policyIds.join(', ')})');

@@ -5,7 +5,8 @@ void main() {
   test('설계 문서 5-3의 정책 id로 정책을 만든다', () {
     expect(policyIds, [
       'hourly', 'fixed_30s', 'fixed_1m', 'fixed_5m', 'continuous_10m',
-      'speed_adaptive', 'time_speed', 'time_speed_still', 'still_suppress', 'activity_gated', 'step_budget',
+      'speed_adaptive', 'time_speed', 'time_speed_still', 'still_suppress', 'activity_gated', 'step_trigger',
+      'step_budget',
     ]);
     for (final id in policyIds) {
       expect(createPolicy(id).id, id);
@@ -25,6 +26,14 @@ void main() {
     expect(createPolicy('still_suppress', {'verify_s': '600'}).params, {'interval_s': 60, 'verify_s': 600});
   });
 
+  test('step_trigger는 E·보폭으로 측위 사이 걸음 수를 정한다', () {
+    final p = createPolicy('step_trigger') as StepTriggerPolicy;
+    expect(p.params, {'e_m': 50.0, 'stride_m': 0.75});
+    expect(p.stepsPerFix, 67);
+    expect((createPolicy('step_trigger', {'e_m': '25'}) as StepTriggerPolicy).stepsPerFix, 34);
+    expect(() => createPolicy('step_trigger', {'use_steps': 'false'}), throwsArgumentError);
+  });
+
   test('제안 정책 step_budget은 E·보폭과 절제 실험 스위치를 받는다', () {
     expect(createPolicy('step_budget', {'e_m': '25', 'use_steps': 'false', 'vehicle_probe': '0'}).params, {
       'e_m': 25.0,
@@ -32,6 +41,7 @@ void main() {
       'use_steps': false,
       'suppress_still': true,
       'vehicle_probe': false,
+      'first_check_s': 60,
     });
     expect(createPolicy('step_budget', {'use_steps': 'true', 'suppress_still': '1', 'vehicle_probe': 'false'}).params, {
       'e_m': 50.0,
@@ -39,7 +49,9 @@ void main() {
       'use_steps': true,
       'suppress_still': true,
       'vehicle_probe': false,
+      'first_check_s': 60,
     });
+    expect((createPolicy('step_budget', {'first_check_s': '300'}) as StepBudgetPolicy).firstCheckMs, 300000);
     expect(() => createPolicy('step_budget', {'use_steps': 'no'}), throwsArgumentError);
     expect(() => createPolicy('step_budget', {'e_m': '0'}), throwsArgumentError);
   });

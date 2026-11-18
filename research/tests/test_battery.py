@@ -154,6 +154,54 @@ def test_battery_run_and_summary(tmp_path):
     assert s["mah_per_h_std"].iloc[0] == pytest.approx(pd.Series([7.4, 14.8]).std())
 
 
+def test_battery_run_until_drops_rows_after_arrival(tmp_path):
+    # 도착(60분) 뒤 [기록 종료]를 늦게 눌러 90·120분 행이 더 있다. 그 뒤로는 전하량이 빨리 줄어도(카페에서 화면 켬)
+    # until로 자르면 이동 구간(0~60분)만 잰다. 세션 전체의 GPS 켜짐 추정은 잘린 구간과 맞지 않아 비운다.
+    policy = {"policyId": "fixed_30s", "detectorId": "adaptive", "policyParams": {}}
+    rows = [[T0 + k * H // 2, 3_700_000 - k * 3_700 - (k > 2) * 37_000, -150, 88, 30, 0] for k in range(5)]
+    d = make_session(tmp_path, "late", battery=rows, meta={"mode": "policy", "policy": policy})
+    (d / "summary.json").write_text(json.dumps({"gps_on_s": 99.0}), encoding="utf-8")
+    full = battery_run(d)
+    cut = battery_run(d, until_ms=T0 + H)
+    assert full["mah_per_h"] > 7.4 and full["gps_on_s_est"] == 99.0
+    assert cut["mah_per_h"] == pytest.approx(7.4) and cut["hours"] == pytest.approx(0.5)
+    assert cut["until_ms"] == T0 + H and cut["gps_on_s_est"] is None
+
+
+def test_battery_run_measures_stay_after_arrival_separately(tmp_path):
+    # 0~60분 이동(30분마다 3.7mAh), 60분 도착, 그 뒤 60~120분 체류(30분마다 1.85mAh). 체류는 도착 2분 뒤부터 잰다.
+    M = 60_000
+    rows = [[T0 + k * 30 * M, 3_700_000 - k * 3_700, -150, 88, 30, 0] for k in range(3)]
+    rows += [[T0 + 62 * M, 3_692_600, -50, 88, 30, 0], [T0 + 92 * M, 3_690_750, -50, 88, 30, 0],
+             [T0 + 122 * M, 3_688_900, -50, 88, 30, 0]]
+    d = make_session(tmp_path, "stay", battery=rows, meta={"mode": "policy", "policy": {"policyId": "step_budget"}})
+    r = battery_run(d, until_ms=T0 + 60 * M)
+    assert r["mah_per_h"] == pytest.approx(7.4)
+    assert r["still_mah_per_h"] == pytest.approx(3.7) and r["still_hours"] == pytest.approx(0.5)
+    # 도착 뒤 10분이 안 되면 체류를 재지 않는다
+    short = make_session(tmp_path, "short", battery=rows[:4], meta={"mode": "policy", "policy": {"policyId": "x"}})
+    assert battery_run(short, until_ms=T0 + 60 * M)["still_mah_per_h"] is None
+    # 자르지 않은 회차는 체류를 따로 재지 않는다
+    assert battery_run(d)["still_mah_per_h"] is None
+    # 체류 뒤 다시 움직였으면 still_until에서 체류 구간을 끝낸다(92분까지면 62~92분)
+    r = battery_run(d, until_ms=T0 + 60 * M, still_until_ms=T0 + 92 * M)
+    assert r["still_mah_per_h"] == pytest.approx(1.85 / 0.5)
+
+
+def test_battery_summary_net_of_baseline_ci_and_day_projection():
+    runs = pd.DataFrame({"method": ["a", "a", "a", "hourly", "hourly"], "excluded": [None] * 5,
+                         "mah_per_h": [100.0, 110.0, 120.0, 60.0, 64.0], "aligned": [True] * 5,
+                         "current_ma": [1.0] * 5, "gps_s_app": [None] * 5,
+                         "still_mah_per_h": [40.0, None, 44.0, 30.0, None]})
+    s = battery_summary(runs, baseline="hourly", day={"moving_h": 4, "still_h": 8}).set_index("method")
+    assert s.loc["a", "net_mah_per_h"] == pytest.approx(110 - 62)
+    assert s.loc["a", "mah_per_h_lo"] <= 110 <= s.loc["a", "mah_per_h_hi"]
+    assert s.loc["a", "still_n"] == 2 and s.loc["a", "still_mah_per_h_mean"] == pytest.approx(42)
+    assert s.loc["a", "day_mah"] == pytest.approx(110 * 4 + 42 * 8)
+    # 기준이 없으면 net을 내지 않는다
+    assert battery_summary(runs)["net_mah_per_h"].isna().all()
+
+
 def test_battery_summary_counts_aligned_runs():
     runs = pd.DataFrame({"method": ["m", "m", "m"], "excluded": [None, None, "restarted by system"],
                          "mah_per_h": [7.0, 9.0, 8.0], "current_ma": [1.0, 1.0, 1.0], "gps_s_app": [None] * 3,
