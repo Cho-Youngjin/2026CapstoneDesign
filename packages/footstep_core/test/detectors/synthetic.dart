@@ -36,6 +36,27 @@ List<AccelReading> walk(int seconds,
   ];
 }
 
+/// 손에 들고 팔을 흔들며 걷기 흉내(100Hz): 걸음은 [stepHz]인데, 크기 신호는 한 보(두 걸음) 주기로 크게
+/// 출렁이고 걸음 충격은 작게만 남는다. 폰 방향은 같은 한 보 주기로 ±[swingDeg]도 기운다(y–z 평면 회전).
+/// 정답 걸음 수 = stepHz × 초. 실측 손 구간(주된 주파수가 걸음의 절반, 방향 흔들림 6~9°)을 본떴다.
+List<AccelReading> swingWalk(int seconds,
+    {double stepHz = 2, double swingDeg = 30, int t0 = 0, int seed = 41}) {
+  final noise = lcg(seed);
+  final strideHz = stepHz / 2;
+  return [
+    for (var i = 0; i < seconds * 100; i++)
+      () {
+        final t = i / 100;
+        final m = 9.81 +
+            3 * math.sin(2 * math.pi * strideHz * t) +
+            0.4 * math.sin(2 * math.pi * stepHz * t) +
+            0.2 * (_next(noise) - 0.5);
+        final theta = swingDeg * math.pi / 180 * math.sin(2 * math.pi * strideHz * t);
+        return AccelReading(tMs: t0 + i * 10, x: 0, y: m * math.cos(theta), z: m * math.sin(theta));
+      }(),
+  ];
+}
+
 /// 책상 위 정지 흉내(100Hz): 중력 + 아주 작은 잡음.
 List<AccelReading> still(int seconds, {int t0 = 0, int seed = 2}) {
   final noise = lcg(seed);

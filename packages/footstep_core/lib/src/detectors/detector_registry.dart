@@ -23,13 +23,17 @@ StepDetector createDetector(String id, [Map<String, String> params = const {}]) 
         peakWindowMs: (reader.positive('peak_win_s', 0.59) * 1000).round(),
       );
     case 'adaptive':
-      reader.allowOnly(const {'std_th', 'band_std_th', 'ac_th', 'n_confirm', 'max_gap_s'});
+      reader.allowOnly(const {
+        'std_th', 'band_std_th', 'ac_th', 'n_confirm', 'max_gap_s', 'swing', 'swing_tilt_th',
+      });
       return AdaptiveStepDetector(
         shakeThreshold: reader.positive('std_th', 0.6),
         bandShakeThreshold: reader.positive('band_std_th', 0.3),
         rhythmThreshold: reader.positive('ac_th', 0.4),
         confirmSteps: reader.positiveInt('n_confirm', 5),
         maxStepGapMs: (reader.positive('max_gap_s', 1.5) * 1000).round(),
+        swingCorrection: reader.flag('swing', false),
+        swingTiltThresholdDeg: reader.positive('swing_tilt_th', 4.5),
       );
     default:
       throw ArgumentError('알 수 없는 걸음 감지기: $id (가능: ${detectorIds.join(', ')})');

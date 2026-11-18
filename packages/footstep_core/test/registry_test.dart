@@ -65,8 +65,19 @@ void main() {
     }
     expect(createDetector('brajdic', {'std_th': '0.8', 'smooth_s': '0.1'}).params,
         {'std_th': 0.8, 'smooth_s': 0.1, 'peak_win_s': 0.59});
-    expect(createDetector('adaptive', {'n_confirm': '6', 'ac_th': '0.5'}).params,
-        {'std_th': 0.6, 'band_std_th': 0.3, 'ac_th': 0.5, 'n_confirm': 6, 'max_gap_s': 1.5});
+    expect(createDetector('adaptive', {'n_confirm': '6', 'ac_th': '0.5'}).params, {
+      'std_th': 0.6,
+      'band_std_th': 0.3,
+      'ac_th': 0.5,
+      'n_confirm': 6,
+      'max_gap_s': 1.5,
+      'swing': false,
+      'swing_tilt_th': 4.5,
+    });
+    expect(createDetector('adaptive', {'swing': 'true', 'swing_tilt_th': '6'}).params,
+        containsPair('swing', true));
+    expect(createDetector('adaptive', {'swing': 'true', 'swing_tilt_th': '6'}).params,
+        containsPair('swing_tilt_th', 6.0));
   });
 
   test('모르는 감지기·파라미터·잘못된 숫자는 ArgumentError다', () {
@@ -75,5 +86,7 @@ void main() {
     expect(() => createDetector('adaptive', {'n_confirm': '2.5'}), throwsArgumentError);
     expect(() => createDetector('adaptive', {'n_confirm': '0'}), throwsArgumentError);
     expect(() => createDetector('brajdic', {'std_th': 'NaN'}), throwsArgumentError);
+    expect(() => createDetector('adaptive', {'swing': 'yes'}), throwsArgumentError);
+    expect(() => createDetector('adaptive', {'swing_tilt_th': '0'}), throwsArgumentError);
   });
 }
