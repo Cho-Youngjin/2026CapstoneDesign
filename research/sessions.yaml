@@ -36,6 +36,7 @@ sessions:
     course: 통학 이동 약 39분 (A continuous_10m)
     carry: bag
     until: '2026-11-17T17:12:30+09:00'
+    still_until: '2026-11-17T18:03:00+09:00'   # 카페 체류(17:12~18:03)를 체류 소모로 잰다
     note: 17:12 카페 도착 뒤 [기록 종료]를 늦게 눌러(18:22) 도착까지만 잰다. 18:03에 다시 약 200m 걸었다
   - id: 20261117-205842-policy
     use: battery
@@ -43,3 +44,21 @@ sessions:
     carry: bag
     until: '2026-11-17T21:44:30+09:00'
     note: 도착(측위로 21:44) 뒤 약 12분 늦게 [기록 종료]. 측위 요청 116회 중 54회 실패
+  - id: 20261118-101026-policy
+    use: battery
+    course: 통학 이동 약 38분 (C activity_gated)
+    carry: bag
+    until: '2026-11-18T10:48:30+09:00'
+    note: 측위로 10:48 도착
+  - id: 20261118-160119-policy
+    use: battery
+    course: 통학 이동 약 16분 + 회의 체류 약 42분 (D step_budget[os] e_m=50)
+    carry: bag
+    until: '2026-11-18T16:17:30+09:00'
+    note: 급한 회의로 이동 중 멈춰 체류 뒤 종료. 이동 구간이 16분이라 전하량 계단 오차가 크다(체류 소모는 따로 잰다). 이어서 20261118-170309로 남은 길을 쟀다
+  - id: 20261118-170309-policy
+    use: battery
+    course: 통학 이동 약 35분 (D step_budget[os] e_m=50)
+    carry: bag
+    until: '2026-11-18T17:38:30+09:00'
+    note: 회의 뒤 남은 길. 끝에 충전기 연결(그 행은 자동으로 뺀다)

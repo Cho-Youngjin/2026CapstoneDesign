@@ -22,22 +22,23 @@ def load_sessions(path: Path) -> list[dict]:
         if s.get("use") not in USES:
             raise ValueError(f"세션 {s.get('id')}: use는 {sorted(USES)} 중 하나여야 합니다")
         out.append({"id": str(s["id"]), "use": s["use"], "course": s.get("course"), "carry": s.get("carry"),
-                    "note": s.get("note"), "until_ms": _until_ms(s)})
+                    "note": s.get("note"), "until_ms": _until_ms(s),
+                    "still_until_ms": _until_ms(s, "still_until")})
     ids = [s["id"] for s in out]
     if len(ids) != len(set(ids)):
         raise ValueError("sessions.yaml에 같은 id가 두 번 있습니다")
     return out
 
 
-def _until_ms(s: dict) -> int | None:
+def _until_ms(s: dict, key: str = "until") -> int | None:
     """배터리 회차를 이 시각에서 자른다(도착한 뒤 [기록 종료]를 늦게 누른 회차). 시간대가 붙은 ISO 시각만 받는다
     — 'YYYY-MM-DDTHH:MM:SS+09:00'. 시간대가 없으면 PC 시간대로 읽혀 회차가 엉뚱하게 잘릴 수 있어 오류로 멈춘다."""
-    v = s.get("until")
+    v = s.get(key)
     if v is None:
         return None
     t = v if isinstance(v, datetime) else datetime.fromisoformat(str(v))
     if t.tzinfo is None:
-        raise ValueError(f"세션 {s.get('id')}: until에는 시간대를 붙인다(예: 2026-11-17T17:12:30+09:00)")
+        raise ValueError(f"세션 {s.get('id')}: {key}에는 시간대를 붙인다(예: 2026-11-17T17:12:30+09:00)")
     return int(t.timestamp() * 1000)
 
 
@@ -106,6 +107,7 @@ class Experiment:
     reconstruct: dict = field(default_factory=dict)
     battery: dict = field(default_factory=dict)
     tune: dict = field(default_factory=dict)
+    stats: dict = field(default_factory=dict)
     plots: bool = True
 
 
@@ -118,6 +120,7 @@ def load_experiment(path: Path, data_dir: Path | None = None, results_dir: Path 
     rec = c.get("reconstruct") or {}
     bat = c.get("battery") or {}
     tune = c.get("tune") or {}
+    st = c.get("stats") or {}
     ttff = c.get("ttff", 0)
     return Experiment(
         base=base,
@@ -145,9 +148,16 @@ def load_experiment(path: Path, data_dir: Path | None = None, results_dir: Path 
         battery={"use": list(bat.get("use", ["battery"])),
                  "current_units": dict(bat.get("current_units") or {}),
                  "align_steps": bool(bat.get("align_steps", True)),
-                 "package": bat.get("package", "com.travelfootsteps.app")},
+                 "package": bat.get("package", "com.travelfootsteps.app"),
+                 "baseline": bat.get("baseline"),
+                 "day": dict(bat["day"]) if bat.get("day") else None},
         tune={"runs": expand_runs(tune.get("runs") or [], ttff),
               "betas": [float(b) for b in tune.get("betas", [2, 5, 10, 20, 50])],
               "sigmas": [float(s) for s in tune.get("sigmas", [3, 5, 10])]},
+        stats={"target": st.get("target"),
+               "use": list(st.get("use", ["eval"])),
+               "metrics": list(st.get("metrics", ["p95_m", "gps_on_s", "fixes"])),
+               "bootstrap": int(st.get("bootstrap", 2000)),
+               "seed": int(st.get("seed", 0))},
         plots=bool(c.get("plots", True)),
     )

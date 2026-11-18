@@ -12,6 +12,11 @@ from .session import BATTERY_COLUMNS, read_csv, read_meta
 
 RESTARTED = "restarted by system"
 
+# 도착(until) 뒤 이만큼은 걸어 들어가 자리를 잡는 시간으로 보고 체류 구간에서 뺀다.
+STILL_SETTLE_MS = 120_000
+# 체류 구간이 이보다 짧으면 전하량 계단(3.7mAh) 오차가 커서 재지 않는다.
+STILL_MIN_MS = 600_000
+
 
 def exclusion_reason(meta: dict) -> str | None:
     """시스템이 기록 서비스를 다시 띄운 회차는 정책이 처음부터 다시 돌아 뺀다(battery-experiment-guide 5절)."""
@@ -140,11 +145,15 @@ def method_label(policy_id: str, detector_id: str | None = None, params: dict | 
 
 
 def battery_run(session_dir: Path, current_units: dict | None = None, align_steps: bool = True,
-                package: str = "com.travelfootsteps.app", until_ms: int | None = None) -> dict:
+                package: str = "com.travelfootsteps.app", until_ms: int | None = None,
+                still_until_ms: int | None = None) -> dict:
     """배터리 실험 한 회(정책 실행 세션 폴더 하나).
 
     until_ms가 있으면 그 뒤 battery.csv 행을 버린다 — 도착한 뒤 [기록 종료]를 늦게 눌러 이동하지 않은 시간이 섞인 회차를
     이동 구간만으로 잰다(sessions.yaml의 until). summary.json의 GPS 켜짐 추정은 세션 전체 값이라 이때는 비운다.
+    도착 뒤 2분부터 끝까지가 10분 이상이면 그 구간을 체류 소모(still_mah_per_h)로 따로 잰다 — 여행의 하루는 이동과
+    머묾이 섞여 있어, 방식마다 머무는 동안 얼마나 쓰는지가 하루 소모를 크게 바꾼다. 체류 뒤 다시 움직였으면
+    still_until_ms(sessions.yaml의 still_until)에서 체류 구간을 끝낸다.
     """
     session_dir = Path(session_dir)
     meta = read_meta(session_dir)
@@ -153,6 +162,7 @@ def battery_run(session_dir: Path, current_units: dict | None = None, align_step
                       # 순간 전류를 못 재는 기종은 current_ua가 비어 있다. 전하량 지표는 전류 없이도 구할 수 있으니
                       # 전류 칸이 비었다고 행을 버리지 않는다(전류 지표는 current_rate가 빈 칸만 빼고 센다).
                       required=["t_ms", "charge_uah", "plugged"])
+    full = battery
     if until_ms is not None:
         battery = battery[battery["t_ms"] <= until_ms].reset_index(drop=True)
     run = longest_unplugged(battery)
@@ -165,6 +175,15 @@ def battery_run(session_dir: Path, current_units: dict | None = None, align_step
     rate = charge_rate(run, align_steps)
     row.update({"hours": rate["hours"], "mah_used": rate["mah_used"], "mah_per_h": rate["mah_per_h"],
                 "aligned": rate["aligned"], "current_ma": current_rate(run, unit)})
+    row.update({"still_hours": None, "still_mah_per_h": None})
+    if until_ms is not None:
+        seg = full[full["t_ms"] >= until_ms + STILL_SETTLE_MS]
+        if still_until_ms is not None:
+            seg = seg[seg["t_ms"] <= still_until_ms]
+        still = longest_unplugged(seg.reset_index(drop=True))
+        if len(still) >= 2 and int(still["t_ms"].iloc[-1]) - int(still["t_ms"].iloc[0]) >= STILL_MIN_MS:
+            srate = charge_rate(still, align_steps)
+            row.update({"still_hours": srate["hours"], "still_mah_per_h": srate["mah_per_h"]})
     stats = session_dir / "batterystats.txt"
     if stats.exists():
         row.update(gps_seconds_from_batterystats(stats.read_text(encoding="utf-8", errors="replace"), package))
@@ -178,21 +197,47 @@ def battery_run(session_dir: Path, current_units: dict | None = None, align_step
     return row
 
 
-def battery_summary(runs: pd.DataFrame) -> pd.DataFrame:
-    """방식마다 평균 ± 표준편차(표본, ddof=1). 제외된 회차와 값이 없는 회차는 빼고 센다.
+def _mean_ci(values: np.ndarray, reps: int = 2000, seed: int = 0) -> tuple[float | None, float | None]:
+    """회차 평균의 부트스트랩 95% 구간(시드 고정). 회차가 2개 미만이면 없다."""
+    if len(values) < 2:
+        return (None, None)
+    rng = np.random.default_rng(seed)
+    means = [values[rng.integers(0, len(values), len(values))].mean() for _ in range(reps)]
+    return (float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5)))
+
+
+def battery_summary(runs: pd.DataFrame, baseline: str | None = None, day: dict | None = None) -> pd.DataFrame:
+    """방식마다 평균 ± 표준편차(표본, ddof=1)와 부트스트랩 95% 구간. 제외된 회차와 값이 없는 회차는 빼고 센다.
 
     n_aligned는 n회차 중 전하량 계단에 맞춰 잰(aligned) 회차 수다. n보다 작으면 일부는 처음~끝 행으로 쟀다는 뜻이다.
+    baseline(GPS를 거의 안 쓰는 기준 방식, 예: hourly)이 있으면 net_mah_per_h = 평균 − 기준 평균(앱 고정 소모를 뺀
+    위치 수집 몫)을 낸다. day = {moving_h, still_h}가 있으면 이동·체류 소모로 하루 예상 소모(day_mah)를 낸다.
     """
-    cols = ["method", "n", "n_aligned", "mah_per_h_mean", "mah_per_h_std", "current_ma_mean", "gps_s_app_mean"]
+    cols = ["method", "n", "n_aligned", "mah_per_h_mean", "mah_per_h_std", "mah_per_h_lo", "mah_per_h_hi",
+            "net_mah_per_h", "still_n", "still_mah_per_h_mean", "day_mah", "current_ma_mean", "gps_s_app_mean"]
     if runs.empty:
         return pd.DataFrame(columns=cols)
     ok = runs[runs["excluded"].isna() & runs["mah_per_h"].notna()]
+    base_mean = None
+    if baseline and baseline in set(ok["method"]):
+        base_mean = float(ok.loc[ok["method"] == baseline, "mah_per_h"].mean())
     rows = []
     for method, g in ok.groupby("method", sort=True):
+        v = g["mah_per_h"].to_numpy(float)
+        lo, hi = _mean_ci(v)
+        still = pd.to_numeric(g["still_mah_per_h"], errors="coerce").dropna() if "still_mah_per_h" in g \
+            else pd.Series(dtype=float)
+        still_mean = float(still.mean()) if len(still) else None
+        day_mah = None
+        if day and still_mean is not None:
+            day_mah = float(v.mean() * float(day.get("moving_h", 0)) + still_mean * float(day.get("still_h", 0)))
         rows.append({"method": method, "n": len(g),
                      "n_aligned": int(g["aligned"].fillna(False).astype(bool).sum()) if "aligned" in g else 0,
-                     "mah_per_h_mean": g["mah_per_h"].mean(),
+                     "mah_per_h_mean": float(v.mean()),
                      "mah_per_h_std": g["mah_per_h"].std(ddof=1) if len(g) > 1 else None,
+                     "mah_per_h_lo": lo, "mah_per_h_hi": hi,
+                     "net_mah_per_h": float(v.mean()) - base_mean if base_mean is not None else None,
+                     "still_n": int(len(still)), "still_mah_per_h_mean": still_mean, "day_mah": day_mah,
                      "current_ma_mean": g["current_ma"].mean(),
                      "gps_s_app_mean": g["gps_s_app"].mean() if g["gps_s_app"].notna().any() else None})
     return pd.DataFrame(rows, columns=cols)

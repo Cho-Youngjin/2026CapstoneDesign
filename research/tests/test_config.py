@@ -36,7 +36,7 @@ def test_load_sessions_until(tmp_path):
     p.write_text("sessions:\n  - {id: a, use: battery, until: '2026-11-17T17:12:30+09:00'}\n  - {id: b, use: battery}\n",
                  encoding="utf-8")
     a, b = load_sessions(p)
-    assert a["until_ms"] == 1794903150000 and b["until_ms"] is None
+    assert a["until_ms"] == 1794903150000 and b["until_ms"] is None and a["still_until_ms"] is None
     # 시간대 없는 시각은 PC 시간대로 읽혀 엉뚱하게 잘릴 수 있어 받지 않는다
     p.write_text("sessions:\n  - {id: a, use: battery, until: '2026-11-17T17:12:30'}\n", encoding="utf-8")
     with pytest.raises(ValueError):

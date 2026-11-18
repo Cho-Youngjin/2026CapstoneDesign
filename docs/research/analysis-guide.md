@@ -77,8 +77,9 @@ cd research
 | `stay_metrics.csv` | 재생마다: 검출·정답 머문 곳 수, 일치 수, 정밀도·재현율·F1 |
 | `step_metrics.csv` | 세션 × 감지기: 총 걸음, 걸음 수 오차(Σ 기준 부호 있는 %·구간별 \|%\| 평균), 탈것 가짜 걸음(합·분당), 보행 판정 정밀도·재현율, 첫 걸음까지 지연(초) |
 | `step_counts_by_carry.csv` | 걸음 세기 구간마다 휴대 위치·직접 센 수·감지 수·오차 % |
-| `battery_runs.csv` | 배터리 회차마다: 방식, 제외 사유, 잰 시간, mAh, 시간당 mAh, 계단 맞춤 여부, 전류 평균(mA), batterystats GPS 시간(전체·앱), 추정 GPS 켜짐 |
-| `battery_summary.csv` | 방식마다 n, 계단 맞춤 회차 수(`n_aligned`), 시간당 mAh 평균·표준편차, 전류 평균, 앱 GPS 시간 평균 |
+| `battery_runs.csv` | 배터리 회차마다: 방식, 제외 사유, 자른 시각(`until_ms`), 잰 시간, mAh, 시간당 mAh, 계단 맞춤 여부, 전류 평균(mA), 체류 구간 시간·시간당 mAh(`still_*`), batterystats GPS 시간(전체·앱), 추정 GPS 켜짐 |
+| `battery_summary.csv` | 방식마다 n, 계단 맞춤 회차 수(`n_aligned`), 시간당 mAh 평균·표준편차·부트스트랩 95% 구간(`_lo`·`_hi`), 기준 방식(`battery.baseline`) 평균을 뺀 값(`net_mah_per_h`), 체류 소모 평균, 하루 예상 소모(`day_mah` = 이동 × `battery.day.moving_h` + 체류 × `still_h`), 전류 평균, 앱 GPS 시간 평균 |
+| `paired_stats.csv` | 같은 세션에서 `stats.target`(제안 방식)과 각 재생을 짝지은 비교: 지표마다 세션 수, 이긴·진·비긴 세션 수, 부호 검정 p(정확 이항, 양측), 평균, 평균 비율(제안 ÷ 기준)과 부트스트랩 95% 구간, 중앙값 차이(기준 − 제안, 양수 = 제안이 좋다)와 구간. `stats.use`의 세션만 쓴다 |
 | `skipped.csv` | 건너뛴 세션·재생·복원과 이유 |
 | `figures/` | `1_tradeoff_fixes.png`·`1_tradeoff_mah.png`(배터리–오차 곡선), `2_battery.png`, `3_stay_f1.png`, `4_steps.png`, `5_reconstruct.png` — 값이 있는 것만 |
 

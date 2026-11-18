@@ -93,6 +93,15 @@ battery:
   current_units:            # current_ua 열의 실제 단위(기종마다 다르다). 없으면 uA
     samsung SM-S911N: mA
   package: com.travelfootsteps.app
+  baseline: hourly          # GPS를 거의 안 쓰는 기준 회차. net_mah_per_h = 방식 평균 − 이 평균(앱 고정 소모를 뺀 몫)
+  day: {moving_h: 3, still_h: 9}   # 하루 예상 소모(day_mah) 가정: 여행 하루 12시간 중 이동 3시간 + 머묾 9시간
+
+stats:                      # 세션 단위 짝 비교(analysis/stats.py) → results/paired_stats.csv
+  target: step_budget[os] e_m=50
+  use: [eval]
+  metrics: [p95_m, mean_m, gps_on_s, fixes, vehicle_p95_m, walk_p95_m, abs_dist_err_pct]
+  bootstrap: 2000
+  seed: 0
 
 tune:                       # `python -m analysis.tune` — pilot 세션만 쓴다
   runs:

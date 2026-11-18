@@ -16,6 +16,7 @@ from pathlib import Path
 import pandas as pd
 
 from .battery import battery_run, battery_summary
+from .stats import PAIRED_COLS, paired_stats
 from .config import Experiment, load_experiment, load_sessions
 from .path_metrics import local_straight, path_metrics
 from .reconstruct import ReconstructClient, ReconstructError, ServerUnavailable, read_fixes
@@ -40,7 +41,7 @@ _STEP_COLS = ["detector", "total_steps", "count_intervals", "manual_steps", "det
               "walk_precision", "walk_recall", "first_step_latency_s"]
 _CARRY_COLS = ["carry", "start_ms", "end_ms", "manual_steps", "detected_steps", "error_pct"]
 _BATTERY_COLS = ["session", "device", "method", "excluded", "until_ms", "hours", "mah_used", "mah_per_h", "aligned",
-                 "current_ma", "gps_s_total", "gps_s_app", "gps_on_s_est", "use"]
+                 "current_ma", "still_hours", "still_mah_per_h", "gps_s_total", "gps_s_app", "gps_on_s_est", "use"]
 SKIPPED_COLS = ["session", "what", "reason"]
 
 
@@ -121,7 +122,8 @@ def run_experiment(exp: Experiment, cli: DartCli, client: ReconstructClient | No
         if s["use"] in exp.battery["use"]:
             try:
                 battery_rows.append({**battery_run(sdir, exp.battery["current_units"], exp.battery["align_steps"],
-                                                   exp.battery["package"], s.get("until_ms")), "use": s["use"]})
+                                                   exp.battery["package"], s.get("until_ms"),
+                                                   s.get("still_until_ms")), "use": s["use"]})
             except SESSION_ERRORS as e:
                 skipped.append({"session": s["id"], "what": "battery", "reason": f"{type(e).__name__}: {e}"})
         if s["use"] not in exp.uses:
@@ -185,11 +187,16 @@ def run_experiment(exp: Experiment, cli: DartCli, client: ReconstructClient | No
 
     cols = table_columns()
     runs = _frame(battery_rows, cols["battery_runs"])
-    return {"path_metrics": _frame(path_rows, cols["path_metrics"]),
+    path = _frame(path_rows, cols["path_metrics"])
+    st = exp.stats
+    paired = paired_stats(path, st["target"], st["use"], st["metrics"], st["bootstrap"], st["seed"]) \
+        if st.get("target") else pd.DataFrame(columns=PAIRED_COLS)
+    return {"path_metrics": path, "paired_stats": paired,
             "stay_metrics": _frame(stay_rows, cols["stay_metrics"]),
             "step_metrics": _frame(step_rows, cols["step_metrics"]),
             "step_counts_by_carry": _frame(carry_rows, cols["step_counts_by_carry"]),
-            "battery_runs": runs, "battery_summary": battery_summary(runs),
+            "battery_runs": runs,
+            "battery_summary": battery_summary(runs, exp.battery.get("baseline"), exp.battery.get("day")),
             "skipped": pd.DataFrame(skipped, columns=SKIPPED_COLS)}
 
 
